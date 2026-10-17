@@ -188,6 +188,10 @@ Following the ship is the `vessel` view, so it has no key of its own.
 
 The codec is `src/lib/console/console-state.ts`. Opening a layer pushes a history entry, so Back closes it; time, view and mode replace the current entry. While the replay plays the URL is left alone; pausing or seeking writes `t`.
 
+### Case file
+
+Evidence mode ends with the case file: `/cases/<slug>/case-file`, a JSON download of every position, quote, source and archived copy, with the SHA-256 of the case's canonical form (keys sorted, no whitespace; `src/lib/cases/case-export.ts`). The row shows the hash's first 12 characters; `bun scripts/cases/verify-case-file.ts <file or URL>` recomputes it and exits 0 when the file is intact, 1 when it was altered.
+
 ### Charts
 
 The dock's three charts share the timeline's window: speed over ground (`ink`), distance to the nearest mapped cable or pipeline (`cable`), and water under the ship (`muted` line over a `depth-40` fill, depth growing downward). A stretch bounded by a placed position is drawn dashed and the chart says how it was derived under its title; a stretch between two AIS fixes is solid. The drag window is a 5% `alarm` band, the cursor a 1 px `ink` line with a ring on the value. Built by `src/lib/cases/case-series.ts` on the server.

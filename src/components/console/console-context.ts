@@ -26,6 +26,8 @@ export type ConsoleController = {
   closeLayer: () => void;
   /** Moves the replay to a moment and pauses nothing: playing continues from there. */
   seekTo: (atMs: number) => void;
+  /** SHA-256 of the case's canonical form, as the downloadable case file records it (src/lib/cases/case-export.ts). */
+  caseFileSha256: string | null;
 };
 
 export const ConsoleControllerContext = createContext<ConsoleController | null>(null);
