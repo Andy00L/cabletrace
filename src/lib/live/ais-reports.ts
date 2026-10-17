@@ -1,0 +1,322 @@
+// Parsers for the two AIS feeds behind the live globe, turning untrusted JSON into ship records and
+// static data. aisstream.io (https://aisstream.io/documentation) streams the world; Fintraffic
+// Digitraffic (https://www.digitraffic.fi/en/marine-traffic/, CC BY 4.0) covers the Finnish area.
+// Pure functions, so they run in the edge function and under bun test alike.
+// Type-only import: see the import rule at the top of snapshot-codec.ts.
+import type { Result } from "../result.ts";
+import type { ShipRecord, ShipSource } from "./snapshot-codec.ts";
+
+// AIS "not available" values in decimal units (ITU-R M.1371-5, message 1): speed 102.3 knots,
+// course 360 degrees, true heading 511, longitude 181, latitude 91. Anything outside the valid
+// ranges below is treated the same way.
+const MAX_SPEED_KNOTS = 102.2;
+const COURSE_NOT_AVAILABLE = 360;
+const HEADING_NOT_AVAILABLE = 511;
+
+// The aisstream message types the collector subscribes to (FilterMessageTypes): positions from
+// class A (messages 1-3) and class B (18, 19), static data from class A (5) and class B (24).
+export const AISSTREAM_MESSAGE_TYPES = [
+  "PositionReport",
+  "StandardClassBPositionReport",
+  "ExtendedClassBPositionReport",
+  "ShipStaticData",
+  "StaticDataReport",
+] as const;
+
+/** Name, identity and size of a ship, from AIS static messages. Null fields were not sent. */
+export type ShipStatic = {
+  mmsi: number;
+  name: string | null;
+  callSign: string | null;
+  imo: number | null;
+  shipType: number | null;
+  lengthMetres: number | null;
+  beamMetres: number | null;
+  draughtMetres: number | null;
+  destination: string | null;
+  source: ShipSource;
+};
+
+export type AisstreamMessage =
+  | { kind: "position"; report: ShipRecord; staticData: ShipStatic | null }
+  | { kind: "static"; staticData: ShipStatic }
+  | { kind: "server-error"; reason: string }
+  | { kind: "ignored"; reason: string };
+
+/** One Digitraffic vessel metadata entry and when Digitraffic last received it. */
+export type DigitrafficVessel = { staticData: ShipStatic; updatedAtMs: number };
+
+type JsonObject = Record<string, unknown>;
+
+function isRecord(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readNumber(source: JsonObject, key: string): number | null {
+  const value = source[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readMmsi(source: JsonObject, key: string): number | null {
+  const value = readNumber(source, key);
+  return value !== null && Number.isInteger(value) && value >= 1 && value <= 999_999_999 ? value : null;
+}
+
+// AIS 6-bit text pads unused characters with "@" and spaces.
+function readAisText(source: JsonObject, key: string): string | null {
+  const value = source[key];
+  if (typeof value !== "string") return null;
+  const cleaned = value.replace(/[@\s]+$/u, "").trim();
+  return cleaned === "" ? null : cleaned;
+}
+
+function readSpeedKnots(value: number | null): number | null {
+  return value !== null && value >= 0 && value <= MAX_SPEED_KNOTS ? value : null;
+}
+
+function readCourseDegrees(value: number | null): number | null {
+  return value !== null && value >= 0 && value < COURSE_NOT_AVAILABLE ? value : null;
+}
+
+function readHeadingDegrees(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) && value >= 0 && value < 360 && value !== HEADING_NOT_AVAILABLE ? value : null;
+}
+
+function isValidPosition(longitude: number | null, latitude: number | null): boolean {
+  return longitude !== null && latitude !== null && Math.abs(longitude) <= 180 && Math.abs(latitude) <= 90;
+}
+
+// A zero or "not available" dimension (ITU-R M.1371-5, Figure 42) leaves the size unknown.
+function readSize(dimension: unknown, firstKey: string, secondKey: string): number | null {
+  if (!isRecord(dimension)) return null;
+  const first = readNumber(dimension, firstKey) ?? 0;
+  const second = readNumber(dimension, secondKey) ?? 0;
+  const total = first + second;
+  return total > 0 ? total : null;
+}
+
+function readPositiveInteger(source: JsonObject, key: string): number | null {
+  const value = readNumber(source, key);
+  return value !== null && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function emptyStatic(mmsi: number, source: ShipSource): ShipStatic {
+  return {
+    mmsi,
+    name: null,
+    callSign: null,
+    imo: null,
+    shipType: null,
+    lengthMetres: null,
+    beamMetres: null,
+    draughtMetres: null,
+    destination: null,
+    source,
+  };
+}
+
+const AISSTREAM_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?/u;
+
+/** Parses aisstream's MetaData.time_utc ("2026-10-17 04:12:31.318353 +0000 UTC") to ms, or null. */
+export function parseAisstreamTime(timeText: unknown): number | null {
+  if (typeof timeText !== "string") return null;
+  const match = AISSTREAM_TIME_PATTERN.exec(timeText);
+  if (match === null) return null;
+  const [, year, month, day, hour, minute, second, fraction] = match;
+  const milliseconds = fraction === undefined ? 0 : Math.floor(Number(fraction.padEnd(3, "0").slice(0, 3)));
+  const timeMs = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), milliseconds);
+  return Number.isFinite(timeMs) ? timeMs : null;
+}
+
+function readPosition(body: JsonObject, mmsi: number, reportedAtMs: number): ShipRecord | null {
+  if (body.Valid === false) return null;
+  const longitude = readNumber(body, "Longitude");
+  const latitude = readNumber(body, "Latitude");
+  if (longitude === null || latitude === null || !isValidPosition(longitude, latitude)) return null;
+  return {
+    mmsi,
+    longitude,
+    latitude,
+    speedKnots: readSpeedKnots(readNumber(body, "Sog")),
+    courseDegrees: readCourseDegrees(readNumber(body, "Cog")),
+    headingDegrees: readHeadingDegrees(readNumber(body, "TrueHeading")),
+    shipClass: "unknown",
+    reportedAtMs,
+    source: "aisstream",
+  };
+}
+
+function readClassAStatic(body: JsonObject, mmsi: number): ShipStatic | null {
+  if (body.Valid === false) return null;
+  const draught = readNumber(body, "MaximumStaticDraught");
+  return {
+    ...emptyStatic(mmsi, "aisstream"),
+    name: readAisText(body, "Name"),
+    callSign: readAisText(body, "CallSign"),
+    imo: readPositiveInteger(body, "ImoNumber"),
+    shipType: readPositiveInteger(body, "Type"),
+    lengthMetres: readSize(body.Dimension, "A", "B"),
+    beamMetres: readSize(body.Dimension, "C", "D"),
+    draughtMetres: draught !== null && draught > 0 ? draught : null,
+    destination: readAisText(body, "Destination"),
+  };
+}
+
+// Message 24 arrives in two parts: part A carries the name, part B the type, call sign and size.
+function readClassBStatic(body: JsonObject, mmsi: number): ShipStatic | null {
+  if (body.Valid === false) return null;
+  const staticData = emptyStatic(mmsi, "aisstream");
+  if (isRecord(body.ReportA) && body.ReportA.Valid !== false && body.PartNumber !== true) {
+    return { ...staticData, name: readAisText(body.ReportA, "Name") };
+  }
+  if (isRecord(body.ReportB) && body.ReportB.Valid !== false) {
+    return {
+      ...staticData,
+      callSign: readAisText(body.ReportB, "CallSign"),
+      shipType: readPositiveInteger(body.ReportB, "ShipType"),
+      lengthMetres: readSize(body.ReportB.Dimension, "A", "B"),
+      beamMetres: readSize(body.ReportB.Dimension, "C", "D"),
+    };
+  }
+  return null;
+}
+
+// Message 19 carries both a position and the ship's name, type and size.
+function readExtendedClassBStatic(body: JsonObject, mmsi: number): ShipStatic {
+  return {
+    ...emptyStatic(mmsi, "aisstream"),
+    name: readAisText(body, "Name"),
+    shipType: readPositiveInteger(body, "Type"),
+    lengthMetres: readSize(body.Dimension, "A", "B"),
+    beamMetres: readSize(body.Dimension, "C", "D"),
+  };
+}
+
+/** Parses one aisstream WebSocket message. Never throws: malformed input becomes "ignored". */
+export function parseAisstreamMessage(messageText: string): AisstreamMessage {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(messageText);
+  } catch {
+    return { kind: "ignored", reason: "not JSON" };
+  }
+  if (!isRecord(parsed)) return { kind: "ignored", reason: "not an object" };
+  if (typeof parsed.error === "string") return { kind: "server-error", reason: parsed.error };
+  const messageType = parsed.MessageType;
+  // The first message after subscribing ({"Message":{"CompressionEnabled":false},...}) carries no report.
+  if (messageType === "SubscriptionConfirmation") return { kind: "ignored", reason: "subscription confirmation" };
+  if (typeof messageType !== "string" || !isRecord(parsed.Message) || !isRecord(parsed.MetaData)) {
+    return { kind: "ignored", reason: "no message envelope" };
+  }
+  const body = parsed.Message[messageType];
+  if (!isRecord(body)) return { kind: "ignored", reason: `no ${messageType} body` };
+  const mmsi = readMmsi(body, "UserID") ?? readMmsi(parsed.MetaData, "MMSI");
+  if (mmsi === null) return { kind: "ignored", reason: "no MMSI" };
+
+  if (messageType === "ShipStaticData") {
+    const staticData = readClassAStatic(body, mmsi);
+    return staticData === null ? { kind: "ignored", reason: "invalid static data" } : { kind: "static", staticData };
+  }
+  if (messageType === "StaticDataReport") {
+    const staticData = readClassBStatic(body, mmsi);
+    return staticData === null ? { kind: "ignored", reason: "invalid static data" } : { kind: "static", staticData };
+  }
+  if (messageType === "PositionReport" || messageType === "StandardClassBPositionReport" || messageType === "ExtendedClassBPositionReport") {
+    const reportedAtMs = parseAisstreamTime(parsed.MetaData.time_utc);
+    if (reportedAtMs === null) return { kind: "ignored", reason: "no report time" };
+    const report = readPosition(body, mmsi, reportedAtMs);
+    if (report === null) return { kind: "ignored", reason: "no valid position" };
+    const staticData = messageType === "ExtendedClassBPositionReport" ? readExtendedClassBStatic(body, mmsi) : null;
+    return { kind: "position", report, staticData };
+  }
+  return { kind: "ignored", reason: `message type ${messageType}` };
+}
+
+/**
+ * Parses Digitraffic /api/ais/v1/locations (GeoJSON). Reports older than `sinceMs` are skipped: the
+ * endpoint returns the last position of every vessel it has seen, some of them a day old.
+ */
+export function parseDigitrafficLocations(payload: unknown, sinceMs: number): Result<ShipRecord[]> {
+  if (!isRecord(payload) || !Array.isArray(payload.features)) return { ok: false, reason: "Digitraffic locations: no features array" };
+  const reports: ShipRecord[] = [];
+  for (const feature of payload.features) {
+    if (!isRecord(feature) || !isRecord(feature.geometry) || !isRecord(feature.properties)) continue;
+    const coordinates = feature.geometry.coordinates;
+    if (!Array.isArray(coordinates) || coordinates.length < 2) continue;
+    const [longitude, latitude] = coordinates;
+    if (typeof longitude !== "number" || typeof latitude !== "number" || !isValidPosition(longitude, latitude)) continue;
+    const properties = feature.properties;
+    const mmsi = readMmsi(properties, "mmsi");
+    const reportedAtMs = readNumber(properties, "timestampExternal");
+    if (mmsi === null || reportedAtMs === null || reportedAtMs < sinceMs) continue;
+    reports.push({
+      mmsi,
+      longitude,
+      latitude,
+      speedKnots: readSpeedKnots(readNumber(properties, "sog")),
+      courseDegrees: readCourseDegrees(readNumber(properties, "cog")),
+      headingDegrees: readHeadingDegrees(readNumber(properties, "heading")),
+      shipClass: "unknown",
+      reportedAtMs,
+      source: "digitraffic",
+    });
+  }
+  return { ok: true, value: reports };
+}
+
+/** Parses Digitraffic /api/ais/v1/vessels. Draught comes in tenths of a metre (AIS message 5); 0 means unknown. */
+export function parseDigitrafficVessels(payload: unknown): Result<DigitrafficVessel[]> {
+  if (!Array.isArray(payload)) return { ok: false, reason: "Digitraffic vessels: not an array" };
+  const vessels: DigitrafficVessel[] = [];
+  for (const entry of payload) {
+    if (!isRecord(entry)) continue;
+    const mmsi = readMmsi(entry, "mmsi");
+    const updatedAtMs = readNumber(entry, "timestamp");
+    if (mmsi === null || updatedAtMs === null) continue;
+    const draughtTenths = readNumber(entry, "draught");
+    const size = { A: entry.referencePointA, B: entry.referencePointB, C: entry.referencePointC, D: entry.referencePointD };
+    vessels.push({
+      updatedAtMs,
+      staticData: {
+        ...emptyStatic(mmsi, "digitraffic"),
+        name: readAisText(entry, "name"),
+        callSign: readAisText(entry, "callSign"),
+        imo: readPositiveInteger(entry, "imo"),
+        shipType: readPositiveInteger(entry, "shipType"),
+        lengthMetres: readSize(size, "A", "B"),
+        beamMetres: readSize(size, "C", "D"),
+        draughtMetres: draughtTenths !== null && draughtTenths > 0 ? draughtTenths / 10 : null,
+        destination: readAisText(entry, "destination"),
+      },
+    });
+  }
+  return { ok: true, value: vessels };
+}
+
+/**
+ * Combines static messages per MMSI in arrival order: a later message fills or replaces the fields it
+ * carries and leaves the others, since class B ships send their name and their type in separate parts.
+ */
+export function mergeShipStatics(statics: Iterable<ShipStatic>): ShipStatic[] {
+  const combinedByMmsi = new Map<number, ShipStatic>();
+  for (const staticData of statics) {
+    const known = combinedByMmsi.get(staticData.mmsi);
+    if (known === undefined) {
+      combinedByMmsi.set(staticData.mmsi, staticData);
+      continue;
+    }
+    combinedByMmsi.set(staticData.mmsi, {
+      mmsi: staticData.mmsi,
+      name: staticData.name ?? known.name,
+      callSign: staticData.callSign ?? known.callSign,
+      imo: staticData.imo ?? known.imo,
+      shipType: staticData.shipType ?? known.shipType,
+      lengthMetres: staticData.lengthMetres ?? known.lengthMetres,
+      beamMetres: staticData.beamMetres ?? known.beamMetres,
+      draughtMetres: staticData.draughtMetres ?? known.draughtMetres,
+      destination: staticData.destination ?? known.destination,
+      source: staticData.source,
+    });
+  }
+  return [...combinedByMmsi.values()];
+}
