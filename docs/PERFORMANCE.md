@@ -226,3 +226,18 @@ playback moved the replay clock 55 minutes (the intended pace is 58).
 - Throttled networks for every page: only `/` was checked on a 150 ms, 1.6 Mbps profile (for the font shift).
 - Interaction latency (INP): the tool loads pages and does not click; long tasks are the proxy.
 - The live site after these changes: not deployed from here.
+
+## One screen
+
+`bun scripts/perf/check-one-screen.ts <baseUrl>` loads `/`, `/cases` and both case pages at 1440 x 900, 1280 x 720 and 1024 x 768 in headless Chromium and checks that the document does not scroll or overflow sideways, and that on a case page the 3D view covers at least 65% of a 1440 x 900 viewport (plan/prompts/ui-console.md, section 6). It also prints the share no panel floats over. Exit codes: 0 every target met, 1 a target missed, 2 the pages could not be measured.
+
+Measured on a local production build (`bun run start`), 2026-10-17:
+
+| Page and viewport | Before the console (main at 4073ba5) | With the console |
+|---|---|---|
+| `/cases/eagle-s-2024`, 1440 x 900 | 2,410 px tall; 3D view 38.4% of the viewport | 900 px; 3D view 65.4%, 49.6% clear of the rail |
+| `/cases/eagle-s-2024`, 1280 x 720 | 2,542 px; 32.7% | 720 px; 57.1%, 41.9% clear |
+| `/cases/eagle-s-2024`, 1024 x 768 | 3,250 px; 18.0% | 768 px; 59.3% (the rail starts folded below 1,280 px) |
+| `/`, 1280 x 720 and 1024 x 768 | 876 px | unchanged (next pull request) |
+| `/cases`, 1280 x 720 and 1024 x 768 | 801 and 774 px | unchanged (next pull request) |
+

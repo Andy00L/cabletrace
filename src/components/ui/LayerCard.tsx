@@ -1,0 +1,78 @@
+"use client";
+
+import * as Popover from "@radix-ui/react-popover";
+import { useRef, type ReactNode } from "react";
+import { Icon } from "@/components/icons/Icon";
+
+/** Anything the card can sit next to: a control's element, or a point projected from the 3D view. */
+export type LayerAnchor = { getBoundingClientRect: () => DOMRect };
+
+type LayerCardProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  anchor: LayerAnchor | null;
+  /** Read by screen readers as the card's name. */
+  label: string;
+  /** The element the card must stay inside (the stage), or null for the viewport. */
+  boundary: Element | null;
+  side?: "top" | "right" | "bottom" | "left";
+  align?: "start" | "center" | "end";
+  /** Re-measure the anchor every frame, for a card that follows a moving object. */
+  followsAnchor?: boolean;
+  width?: number;
+  testId?: string;
+  children: ReactNode;
+};
+
+/**
+ * A card that opens over the console next to what it explains (docs/UI_DESIGN_SYSTEM.md, Console, Layers): it stays
+ * inside the stage, flips side near an edge, stays open while the scene is orbited, closes on Esc or its close
+ * button, and gives focus back to the control that opened it.
+ */
+export function LayerCard({ isOpen, onClose, anchor, label, boundary, side = "left", align = "start", followsAnchor = false, width = 360, testId, children }: LayerCardProps) {
+  const openerRef = useRef<HTMLElement | null>(null);
+  return (
+    <Popover.Root open={isOpen && anchor !== null} onOpenChange={(nextIsOpen) => !nextIsOpen && onClose()}>
+      {anchor && <Popover.Anchor virtualRef={{ current: anchor }} />}
+      <Popover.Portal>
+        <Popover.Content
+          aria-label={label}
+          side={side}
+          align={align}
+          sideOffset={12}
+          collisionBoundary={boundary}
+          collisionPadding={16}
+          updatePositionStrategy={followsAnchor ? "always" : "optimized"}
+          onOpenAutoFocus={() => {
+            openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            openerRef.current?.focus();
+          }}
+          // Orbiting the scene or using the rail must not close the card; Esc and the close button do.
+          onInteractOutside={(event) => event.preventDefault()}
+          style={{ width }}
+          className="z-(--layer-popover) flex max-h-(--radix-popover-content-available-height) max-w-[calc(100vw-32px)] flex-col gap-3.5 overflow-y-auto rounded-row bg-card p-5 text-ink shadow-popover outline-none data-[state=closed]:animate-layer-exit data-[state=open]:animate-layer-enter"
+          data-testid={testId}
+        >
+          {children}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/** The round close button in a card or sheet header. */
+export function CloseButton({ onClick, label = "Close" }: { onClick: () => void; label?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="grid size-9 flex-none place-items-center rounded-full bg-soft text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]"
+    >
+      <Icon name="close" size={18} />
+    </button>
+  );
+}

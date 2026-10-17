@@ -49,6 +49,13 @@ export type SeabedViewName = OverviewViewName | "vessel" | "closeup";
 export type SeabedViewer = {
   setView: (view: SeabedViewName) => void;
   setIllustrated: (isIllustrated: boolean) => void;
+  /** Moves the camera back to the current view's preset, undoing any orbit or zoom. */
+  resetView: () => void;
+  /**
+   * Width in CSS px of a panel floating over the view's right edge. The picture shifts left by half of it, so the
+   * subject sits in the middle of the part still visible; 0 centres it on the whole view again.
+   */
+  setRightInset: (insetPx: number) => void;
   dispose: () => void;
 };
 
@@ -261,14 +268,19 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     }, CROSSFADE_OUT_MS);
   }
 
+  let rightInsetPx = 0;
   function resize() {
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
     overview.camera.fov = fitOverviewFov(width / height);
     overview.setCompactLabels(width < COMPACT_LABEL_WIDTH_PX);
     const cameras = closeUp ? [overview.camera, closeUp.camera] : [overview.camera];
+    // A view offset renders the window starting this far right, so the picture (and its labels) shift left.
+    const shiftPx = Math.min(rightInsetPx / 2, width / 4);
     for (const camera of cameras) {
       camera.aspect = width / height;
+      if (shiftPx > 0) camera.setViewOffset(width, height, shiftPx, 0, width, height);
+      else camera.clearViewOffset();
       camera.updateProjectionMatrix();
     }
     renderer.setSize(width, height);
@@ -378,6 +390,15 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
         isIllustrated = nextIsIllustrated;
         closeUp?.setIllustrated(nextIsIllustrated);
         markDirty();
+      },
+      resetView() {
+        applyView(activeView);
+      },
+      setRightInset(insetPx) {
+        const nextInsetPx = Math.max(0, insetPx);
+        if (nextInsetPx === rightInsetPx) return;
+        rightInsetPx = nextInsetPx;
+        resize();
       },
       dispose() {
         isDisposed = true;

@@ -23,6 +23,8 @@
   /* Map tones (docs/UI_DESIGN_SYSTEM.md, Map): land, and the 30 to 40 m depth band used as the sea in case sketches. */
   --color-land: #FAFAF8;
   --color-depth-40: #DAE2E1;
+  /* Behind a sheet or dialog that takes the focus (docs/UI_DESIGN_SYSTEM.md, Depth). */
+  --color-scrim: rgb(20 20 20 / 0.2);
 
   --font-sans: var(--font-tiktok-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
 
@@ -68,14 +70,49 @@
   --shadow-row: 0 1px 2px rgba(20, 20, 18, 0.04), 0 4px 12px rgba(20, 20, 18, 0.04);
   --shadow-raised: 0 2px 4px rgba(20, 20, 18, 0.06), 0 8px 20px rgba(20, 20, 18, 0.08);
   --shadow-selected: 0 1px 2px rgba(20, 20, 18, 0.08), 0 2px 6px rgba(20, 20, 18, 0.06);
+  --shadow-popover: 0 2px 4px rgba(20, 20, 18, 0.06), 0 12px 28px rgba(20, 20, 18, 0.10), 0 24px 48px rgba(20, 20, 18, 0.06);
 
   --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layer motion (docs/UI_DESIGN_SYSTEM.md, Console, Layers): enters at duration-standard or duration-large with
+     ease-enter and a 6 px rise or slide, exits 20% shorter with ease-exit. Content is already in place when the
+     animation is skipped (reduced motion sets durations to 0 below). */
+  --animate-layer-enter: layer-enter 220ms var(--ease-enter);
+  --animate-layer-exit: layer-exit 176ms var(--ease-exit) forwards;
+  --animate-sheet-enter: sheet-enter 320ms var(--ease-enter);
+  --animate-sheet-exit: sheet-exit 256ms var(--ease-exit) forwards;
+  --animate-scrim-enter: scrim-fade 220ms var(--ease-enter);
+  --animate-scrim-exit: scrim-fade 176ms var(--ease-exit) reverse forwards;
+}
+
+@keyframes layer-enter {
+  from { opacity: 0; transform: translateY(6px); }
+}
+@keyframes layer-exit {
+  to { opacity: 0; transform: translateY(4px); }
+}
+@keyframes sheet-enter {
+  from { opacity: 0; transform: translateX(24px); }
+}
+@keyframes sheet-exit {
+  to { opacity: 0; transform: translateX(16px); }
+}
+@keyframes scrim-fade {
+  from { opacity: 0; }
 }
 
 :root {
   color-scheme: light;
+  /* The console's one stack of layers, low to high (docs/UI_DESIGN_SYSTEM.md, Console, Layers). Used as z-(--layer-*). */
+  --layer-stage: 0;
+  --layer-stage-controls: 10;
+  --layer-panel: 20;
+  --layer-popover: 30;
+  --layer-sheet: 40;
+  --layer-dialog: 50;
+  --layer-toast: 60;
 }
 
 body {

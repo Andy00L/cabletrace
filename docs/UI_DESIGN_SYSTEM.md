@@ -88,6 +88,8 @@ One light from above. No borders on cards: surfaces separate by tone and shadow.
 | `focus-ring` | `0 0 0 2px #FFFFFF, 0 0 0 4px #141414` | Keyboard focus on every interactive element |
 | `field-focus` | `0 0 0 2px #141414` | A focused field (field turns `card`) |
 | `field-error` | `0 0 0 2px #D93A26` | A field with an error, message below in `alarm` |
+| `shadow-popover` | `0 2px 4px rgba(20,20,18,0.06), 0 12px 28px rgba(20,20,18,0.10), 0 24px 48px rgba(20,20,18,0.06)` | Cards, popovers and sheets that float over the console |
+| `scrim` | `#141414` at 20% | Behind a sheet or dialog that takes the focus (approved 2026-10-17) |
 
 ## Motion
 
@@ -145,3 +147,59 @@ Each one is Andy's explicit decision and wins over the default rule in the kit f
 3. The current rail item sits on a white disc behind its icon (the kit bans a box behind an icon), following the Wealthsimple reference.
 4. Screens are drawn directly on a claude.ai Design canvas by the agent instead of the Claude Design prompt loop; the canvas replaces `ui-design/palette.html` as the approved palette card.
 5. No brand accent: `ink` carries every interactive state.
+6. For the console boards (6 to 12, 2026-10-17) Andy approved building without waiting for his review of each board: the boards are drawn first and checked against anti-slop by the agent, and Andy reviews the live result.
+
+## Console
+
+The case replay is one screen (boards 6 to 11 on the style board canvas). The document never scrolls; a panel scrolls inside itself when its content is longer than the panel. Everything the old page stacked under the replay opens on demand, in two interactions or fewer.
+
+### Layout
+
+| Width | Layout |
+|---|---|
+| 1024 px and up | 56 px top bar on the `page` tone (mark, case switcher, place and date, the mode control Replay, Ship, Evidence, copy link, shortcuts). Under it the stage: the 3D view in one `card`-radius tile, 16 px from the edges. Over the stage's right edge the rail: 360 px of white cards, 16 px inset, folding away to give the view the whole width; the camera frames the subject in the clear part while it is open. Under the stage the dock: transport, timeline and three charts on the replay's time axis. |
+| 768 to 1023 px | The rail becomes a sheet over the stage's right side, opened from a button on the stage. The dock keeps the transport and the timeline; the charts move into Ship mode. |
+| Under 768 px | The stage takes the top of the screen, the transport and the timeline sit under it, and the rail's content lives in a bottom sheet with two snap points. Popovers become bottom sheets. 16 px gutter, 44 px targets. |
+
+Inside the stage, inset 16 px: the view switch top left (with Measured and Illustrated under it at the cut), the anchor status top centre, the legend and the scale button bottom left, the camera controls (reset, follow, full screen) bottom right of the clear part.
+
+### Layers
+
+One named stack, low to high: `stage` (0), `stage-controls` (10), `rail` and `dock` (20), `popover` (30, cards anchored to an object or a control), `sheet` (40), `dialog` (50), `toast` (60). Tokens `--layer-*` in `globals.css`.
+
+- One layer open at a time; a source popover opened from inside the sources sheet is the one exception.
+- Content is visible by default: no layer and no text waits for an animation to appear.
+- Sheets and dialogs trap focus and return it to their trigger; Esc closes the top layer; every layer opens from the keyboard, because each object in the 3D view also has a rail row or a button that opens the same layer.
+- A card anchored to a 3D object follows it every frame the camera moves, stays inside the stage, flips side near an edge, and hides (with a Show button in the rail) when its object leaves the view.
+- Motion: popovers and cards enter in `duration-standard` with `ease-enter` and a 6 px rise, sheets in `duration-large`; exits are 20% shorter with `ease-exit`; reduced motion keeps opacity only.
+
+### URL state
+
+| Key | Values | Default |
+|---|---|---|
+| `t` | replay minute in UTC, `2024-12-25T16:44Z` | the window start |
+| `view` | `overview`, `top`, `vessel`, `closeup` | `overview` |
+| `mode` | `replay`, `ship`, `evidence` | `replay` |
+| `detail` | `measured`, `illustrated` (close-up only) | `illustrated` |
+| `layer` | `vessel`, `cut-<cut slug>`, `placement-<index>`, `source-<id>`, `sources`, `aftermath`, `shortcuts` | none |
+| `follow` | `vessel` | off |
+
+The codec is `src/lib/console/console-state.ts`. Opening a layer pushes a history entry, so Back closes it; time, view and mode replace the current entry. While the replay plays the URL is left alone; pausing or seeking writes `t`.
+
+### Charts
+
+The dock's three charts share the timeline's window: speed over ground (`ink`), distance to the nearest mapped cable or pipeline (`cable`), and water under the ship (`muted` line over a `depth-40` fill, depth growing downward). A stretch bounded by a placed position is drawn dashed and the chart says how it was derived under its title; a stretch between two AIS fixes is solid. The drag window is a 5% `alarm` band, the cursor a 1 px `ink` line with a ring on the value. Built by `src/lib/cases/case-series.ts` on the server.
+
+### Components
+
+Primitives are written in `src/components/ui/` on the tokens above. Behaviour comes from Radix; motion is CSS only (the layer keyframes in `globals.css` and transitions on the motion tokens). The `motion` library was tried and left out: its features chunk alone weighed 45 KB compressed, most of the replay page's 60 KB budget for the console.
+
+| Component | Source and licence | What changed |
+|---|---|---|
+| Dialog, Sheet | `@radix-ui/react-dialog` 1.3.1 (MIT), structure after shadcn/ui's dialog and sheet (MIT) | Written without `cn` or `tailwind-merge`: tailwind-merge would treat our `text-label` size and `text-ink` colour as one conflicting group. Tokens only; `scrim`; focus returns to the trigger. |
+| Popover | `@radix-ui/react-popover` 1.3.1 (MIT), structure after shadcn/ui's popover | Same rules; `shadow-popover`, radius `row`. |
+| Anchor status island | Idea from bencho.dev `dynamic-island` (MIT, Lorenzo Cabra, https://bencho.dev/blocks/dynamic-island) | Kept: the pill and its expanded card are one shape; width, height and corner transition together (`interpolate-size`, a snap where unsupported) and the content fades in. Dropped: the spring, the demo activities, `lucide-react`, the blur, the overshoot, the black fill (a white pill keeps one ink control per view). Code written here. |
+| Timeline snapping | Idea from bencho.dev `time-scrubber` (MIT) | Kept: releasing the scrubber near an event or a cut lands on it. The ruler and fling were not adopted: the native range input keeps the keyboard and screen reader path the tests use. |
+| Toast | Idea from bencho.dev `toast-stack` (MIT) | One toast at a time ("Link copied"), bottom centre, `duration-standard`; no stack, no hover fan. |
+| Icons | `src/components/icons/` | One set drawn here on a 20 px grid, 1.6 px stroke, round caps and joins. No `lucide-react`. |
+

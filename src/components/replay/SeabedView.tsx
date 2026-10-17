@@ -13,14 +13,23 @@ type SeabedViewProps = {
   clock: ReplayClock;
   view: SeabedViewName;
   isIllustrated: boolean;
+  /** Width of a panel floating over the view's right edge; the picture centres on what is left (CSS px). */
+  rightInsetPx: number;
+  /** Receives the viewer once it is drawing, and null when it goes, for controls such as Reset view. */
+  onViewerChange: (viewer: SeabedViewer | null) => void;
 };
 
 /** The 3D seabed: the replay's main view. Time comes from the shared replay clock, read once per frame. */
-export function SeabedView({ input, clock, view, isIllustrated }: SeabedViewProps) {
+export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, onViewerChange }: SeabedViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SeabedViewer | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
+  // The latest callback, so passing a new function does not rebuild the scene.
+  const onViewerChangeRef = useRef(onViewerChange);
+  useEffect(() => {
+    onViewerChangeRef.current = onViewerChange;
+  }, [onViewerChange]);
 
   // Syncs with three.js, a WebGL scene React does not own: built on mount (and on retry), disposed on unmount.
   useEffect(() => {
@@ -51,6 +60,7 @@ export function SeabedView({ input, clock, view, isIllustrated }: SeabedViewProp
       }
       viewer = created.value;
       viewerRef.current = created.value;
+      onViewerChangeRef.current(created.value);
       setViewerState({ kind: "ready" });
     }
 
@@ -59,6 +69,7 @@ export function SeabedView({ input, clock, view, isIllustrated }: SeabedViewProp
       isCancelled = true;
       viewer?.dispose();
       viewerRef.current = null;
+      onViewerChangeRef.current(null);
     };
   }, [input, clock, attempt]);
 
@@ -69,6 +80,9 @@ export function SeabedView({ input, clock, view, isIllustrated }: SeabedViewProp
   useEffect(() => {
     viewerRef.current?.setIllustrated(isIllustrated);
   }, [isIllustrated, viewerState]);
+  useEffect(() => {
+    viewerRef.current?.setRightInset(rightInsetPx);
+  }, [rightInsetPx, viewerState]);
 
   return (
     <div className="relative h-full w-full" data-testid="seabed-view" data-state={viewerState.kind}>
@@ -76,7 +90,7 @@ export function SeabedView({ input, clock, view, isIllustrated }: SeabedViewProp
         ref={containerRef}
         className="absolute inset-0 transition-opacity duration-220 ease-enter"
         role="img"
-        aria-label={`3D model of the seabed with ${input.cuts[0].label}, and the reconstructed track of ${input.vessel.name}`}
+        aria-label={`3D model of the seabed with ${input.cuts[0].label} and the track of ${input.vessel.name}`}
       />
       {viewerState.kind === "loading" && (
         <div className="absolute inset-0 grid place-items-center p-6">
