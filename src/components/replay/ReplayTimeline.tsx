@@ -10,8 +10,9 @@ import { progressToTimeMs, timeMsToProgress, type ReplaySceneInput } from "@/lib
 const MS_PER_MINUTE = 60_000;
 // A cut label closer than this share of the width to an end is aligned to that end instead of centred on its marker.
 const LABEL_EDGE_SHARE = 0.1;
-// Two cuts closer than this share of the width would have overlapping labels (Fitburg's two cables, 6 minutes
-// apart): the earlier label then ends at its marker and the later one starts at its own.
+// Cuts closer than this share of the width would have overlapping labels. A close pair (Fitburg's two cables, 6
+// minutes apart) puts the earlier label before its marker and the later one after its own; three or more (Rubymar's
+// cables, within 12 hours of a 12-day replay) share one row of labels.
 const LABEL_CLUSTER_SHARE = 0.14;
 const ALIGN_START = "-translate-x-2.5";
 const ALIGN_END = "-translate-x-[calc(100%-10px)]";
@@ -32,16 +33,40 @@ type ReplayTimelineProps = {
   onCutSelect: (cutIndex: number, opener: HTMLElement) => void;
 };
 
-/** Where a cut's label sits relative to its marker, given every cut's position on the track. */
-function alignCutLabel(shares: readonly number[], index: number): string {
-  const share = shares[index] ?? 0;
-  const isNear = (otherIndex: number) => otherIndex !== index && Math.abs((shares[otherIndex] ?? 0) - share) < LABEL_CLUSTER_SHARE;
-  const isAfterCloseCut = shares.some((otherShare, otherIndex) => isNear(otherIndex) && (otherShare < share || (otherShare === share && otherIndex < index)));
-  const isBeforeCloseCut = shares.some((otherShare, otherIndex) => isNear(otherIndex) && (otherShare > share || (otherShare === share && otherIndex > index)));
-  if (isAfterCloseCut) return ALIGN_AFTER_PAIR;
-  if (isBeforeCloseCut && share >= LABEL_EDGE_SHARE) return ALIGN_BEFORE_PAIR;
+/** One row of cut labels under the track: where it is anchored, how it aligns to that point, and whose labels it holds. */
+type CutLabelRow = { share: number; alignment: string; cutIndices: number[] };
+
+function alignToTrackEnds(share: number): string {
   if (share < LABEL_EDGE_SHARE) return ALIGN_START;
   return share > 1 - LABEL_EDGE_SHARE ? ALIGN_END : ALIGN_CENTER;
+}
+
+/**
+ * Lays the cut labels out so none overlap. Cuts chain into one cluster while each is closer than LABEL_CLUSTER_SHARE
+ * to the previous one. A lone cut centres its label on its marker, a pair away from the ends puts its labels on
+ * either side of the pair, and any other cluster shares one row anchored at its mean position.
+ */
+function layOutCutLabels(shares: readonly number[]): CutLabelRow[] {
+  const cutsInTrackOrder = shares.map((share, index) => ({ share, index })).sort((first, second) => first.share - second.share || first.index - second.index);
+  const clusters: { share: number; index: number }[][] = [];
+  cutsInTrackOrder.forEach((cut) => {
+    const lastCluster = clusters.at(-1);
+    const lastCut = lastCluster?.at(-1);
+    if (lastCluster && lastCut && cut.share - lastCut.share < LABEL_CLUSTER_SHARE) lastCluster.push(cut);
+    else clusters.push([cut]);
+  });
+  return clusters.flatMap((cluster): CutLabelRow[] => {
+    const [first, second] = cluster;
+    const isPairAwayFromEnds = cluster.length === 2 && first && second && first.share >= LABEL_EDGE_SHARE && second.share <= 1 - LABEL_EDGE_SHARE;
+    if (isPairAwayFromEnds) {
+      return [
+        { share: first.share, alignment: ALIGN_BEFORE_PAIR, cutIndices: [first.index] },
+        { share: second.share, alignment: ALIGN_AFTER_PAIR, cutIndices: [second.index] },
+      ];
+    }
+    const meanShare = cluster.reduce((sum, cut) => sum + cut.share, 0) / cluster.length;
+    return [{ share: meanShare, alignment: alignToTrackEnds(meanShare), cutIndices: cluster.map((cut) => cut.index) }];
+  });
 }
 
 function toPercent(share: number): string {
@@ -134,26 +159,35 @@ export function ReplayTimeline({ input, events, clock, onCutSelect }: Omit<Repla
       {input.dragWindow && dragPlayedShare > 0 && (
         <span className="absolute top-5 h-1.5 rounded-full bg-alarm" style={{ left: toPercent(dragStartShare), width: toPercent(dragPlayedShare) }} aria-hidden="true" />
       )}
-      {input.cuts.map((cut, index) => {
-        const share = cutShares[index] ?? 0;
-        const alignment = alignCutLabel(cutShares, index);
-        return (
-          <span key={`${cut.cableName}-${cut.atMs}`}>
-            <span className="absolute top-[13px] -ml-2.5 grid size-5 place-items-center rounded-full border-2 border-alarm bg-card" style={{ left: toPercent(share) }} aria-hidden="true">
-              <span className="size-1.5 rounded-full bg-alarm" />
-            </span>
-            <button
-              type="button"
-              onClick={(event) => onCutSelect(index, event.currentTarget)}
-              className={`absolute top-9.5 rounded-chip px-1 py-0.5 text-micro whitespace-nowrap text-alarm tabular-nums transition-colors duration-140 ease-standard hover:bg-page ${alignment}`}
-              style={{ left: toPercent(share) }}
-              data-testid={`timeline-cut-${index}`}
-            >
-              {cut.label}, {formatUtcClock(cut.atMs)}
-            </button>
-          </span>
-        );
-      })}
+      {input.cuts.map((cut, index) => (
+        <span
+          key={`${cut.cableName}-${cut.atMs}`}
+          className="absolute top-[13px] -ml-2.5 grid size-5 place-items-center rounded-full border-2 border-alarm bg-card"
+          style={{ left: toPercent(cutShares[index] ?? 0) }}
+          aria-hidden="true"
+        >
+          <span className="size-1.5 rounded-full bg-alarm" />
+        </span>
+      ))}
+      {layOutCutLabels(cutShares).map((row) => (
+        <span key={row.cutIndices.join("-")} className={`absolute top-9.5 flex gap-1 ${row.alignment}`} style={{ left: toPercent(row.share) }}>
+          {row.cutIndices.map((index) => {
+            const cut = input.cuts[index];
+            if (!cut) return null;
+            return (
+              <button
+                key={`${cut.cableName}-${cut.atMs}`}
+                type="button"
+                onClick={(event) => onCutSelect(index, event.currentTarget)}
+                className="rounded-chip px-1 py-0.5 text-micro whitespace-nowrap text-alarm tabular-nums transition-colors duration-140 ease-standard hover:bg-page"
+                data-testid={`timeline-cut-${index}`}
+              >
+                {cut.label}, {formatUtcClock(cut.atMs)}
+              </button>
+            );
+          })}
+        </span>
+      ))}
       <span
         className="absolute top-[13px] -ml-2.5 size-5 rounded-full border-2 border-ink bg-card shadow-selected peer-focus-visible:shadow-[0_0_0_2px_var(--color-card),0_0_0_4px_var(--color-ink)]"
         style={{ left: toPercent(snapshot.progress) }}
