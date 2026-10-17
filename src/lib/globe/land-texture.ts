@@ -1,39 +1,17 @@
 import * as THREE from "three";
-import type { Result } from "@/lib/result";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
+import type { LandPolygons } from "@/lib/globe/land-polygons";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 
 // The globe's surface: Natural Earth land (public/globe/land.json, scripts/globe/build-land.ts) painted once into an
 // equirectangular canvas, land in the `land` token on water in `depth-40`, with a thin coastline so the two pale tones
 // read apart. Color stays in the data drawn on top.
 
-/** Each polygon is a list of rings, each ring a flat [longitude, latitude, ...] array. */
-export type LandPolygons = number[][][];
-
 // Coastline width in texture pixels at the 4,096 px wide texture.
 const COAST_WIDTH_PX = 1.2;
 // Natural Earth's seams: rings are cut at the 180th meridian and Antarctica is closed along 90 S.
 const SEAM_LONGITUDE = 179.99;
 const SEAM_LATITUDE = -89.99;
-
-function isNumberArray(value: unknown): value is number[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "number" && Number.isFinite(item));
-}
-
-/** Validates public/globe/land.json. */
-export function parseLandPolygons(payload: unknown): Result<LandPolygons> {
-  if (typeof payload !== "object" || payload === null || !("polygons" in payload) || !Array.isArray(payload.polygons)) {
-    return { ok: false, reason: "land file has no polygon list" };
-  }
-  const polygons: LandPolygons = [];
-  for (const polygon of payload.polygons) {
-    if (!Array.isArray(polygon) || !polygon.every((ring) => isNumberArray(ring) && ring.length >= 6 && ring.length % 2 === 0)) {
-      return { ok: false, reason: "land file has a malformed polygon" };
-    }
-    polygons.push(polygon);
-  }
-  return { ok: true, value: polygons };
-}
 
 /** A longitude and latitude box (degrees) a texture covers, edge to edge. */
 export type LandBox = { west: number; east: number; south: number; north: number };

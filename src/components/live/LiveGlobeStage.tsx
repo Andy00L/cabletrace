@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { GlobeViewer } from "@/lib/globe/globe-viewer";
-import { parseLandPolygons } from "@/lib/globe/land-texture";
+import { parseLandPolygons } from "@/lib/globe/land-polygons";
 import type { WatchedLine } from "@/lib/globe/watched-line";
 
 // Built by scripts/globe/build-land.ts.
