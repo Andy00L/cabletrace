@@ -34,7 +34,7 @@ coverage among the candidates:
 
 | Candidate | Ships per frame (heard) | Positions a minute within 3 km | Verdict |
 | --- | --- | --- | --- |
-| southern North Sea (2.0 to 9.0 E, 51.0 to 55.5 N) | 3,252 (1,294) | 64.6 (p90 87.4) | densest, but alone it would add about 0.8 GB a month of detector reads (below) |
+| southern North Sea (2.0 to 9.0 E, 51.0 to 55.5 N) | 3,252 (1,294) | 64.6 (p90 87.4) | densest, but alone it would add about 1.5 GB a month of detector reads (below) |
 | English Channel | 295 (121) | 31.3 | picked |
 | Danish straits and Kattegat | 416 (164) | 10.9 | picked |
 | Irish Sea (-6.5 to -2.8 E, 51.5 to 55.0 N) | 70 (27) | 4.2 | next in line |
@@ -53,22 +53,29 @@ AODN). Lines are submarine power cables, telecom cables and oil, gas or supply p
 lines of unknown kind are left out. Ways of one cable are joined, clipped to the box plus 0.1 degrees, simplified to
 100 m, and lines under 5 km inside the box (harbour crossings) are dropped (`src/data/regions/seed-options.ts`).
 
-| Region | Migration | Lines | Points | SQL bytes |
-| --- | --- | --- | --- | --- |
-| `gulf-of-finland` | `20261017020100_seed_gulf_cables.sql` (existing, clipped by `20261019100000`) | 16 | 3,263 before clipping | 65,515 |
-| `central-baltic` | `20261019100100` | 22 | 393 | 18,203 |
-| `norway-svalbard` | `20261019100200` | 9 | 343 | 11,170 |
-| `taiwan-strait` | `20261019100300` | 20 | 249 | 14,843 |
-| `north-sea-shetland` | `20261019100400` | 166 | 2,013 | 118,549 |
-| `perth` | `20261019100500` | 4 | 157 | 5,818 |
-| `english-channel` | `20261019100600` | 37 | 877 | 34,185 |
-| `danish-straits-kattegat` | `20261019100700` | 62 | 464 | 39,678 |
+Each seed also writes `public.cable_landing_countries` (created by the fault-signal migration `20261019300000`): a line
+lands in a country when an end of one of its source ways lies on that country's land or within 2 km of it, by Natural
+Earth admin-0 at 1:10m (v5.1.2, public domain, its `ISO_A2_EH` code). Overpass returns whole ways, so ends outside the
+box count (C-Lion 1: FI and DE). Lines ending at sea at both ends (platform pipelines) get none; a cable whose
+downloaded ways stop short of a landing gets only the landings they reach (Latvia-Sweden 1: LV only).
+
+| Region | Migration | Lines | With landings | Countries | Points | SQL bytes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `gulf-of-finland` | `20261017020100_seed_gulf_cables.sql` (existing, clipped by `20261019400000`; landings from `20261019300000`) | 16 | 16 | EE FI SE RU DE | 3,263 before clipping | 65,515 |
+| `central-baltic` | `20261019400100` | 22 | 18 | DE DK FI LT LV PL RU SE | 393 | 19,844 |
+| `norway-svalbard` | `20261019400200` | 9 | 9 | NO | 343 | 12,146 |
+| `taiwan-strait` | `20261019400300` | 20 | 16 | CN HK TW | 249 | 16,182 |
+| `north-sea-shetland` | `20261019400400` | 166 | 43 | DE FO GB IS NO | 2,013 | 121,128 |
+| `perth` | `20261019400500` | 4 | 4 | AU | 157 | 6,415 |
+| `english-channel` | `20261019400600` | 37 | 31 | BE FR GB NL | 877 | 36,592 |
+| `danish-straits-kattegat` | `20261019400700` | 62 | 40 | DE DK FI NO PL SE | 464 | 42,868 |
 
 In the database (PGlite 0.5.10 with PostGIS 3.6, every migration applied): `public.cables` grows from 16 lines and
 172 KB to 336 lines and 483 KB with its indexes.
 
-Gaps the seeds cannot fill: OpenStreetMap maps only 20 lines around Taiwan and none of the Matsu or Penghu cables of
-the incidents by name; EE-S1 stays traced off Yle's map in the seabed builder only.
+Gaps the seeds cannot fill: around Taiwan OpenStreetMap maps the Taiwan-Penghu power cable and Taiwan-Kinmen No. 2,
+but none of the telecom cables of the incidents (Taiwan-Penghu No. 3, Taiwan-Matsu No. 2 and 3, TPKM-3) by name;
+EE-S1 stays traced off Yle's map in the seabed builder only.
 
 ## Recording: one code path, measured choice
 
@@ -89,6 +96,10 @@ needs a 20-minute run, a reference speed from at least 3 moving reports, and 5 r
 Moving class A ships report every 2 to 10 s and moving class B ships every 30 s (ITU-R M.1371-5, Table 1), so 40 s
 hears every moving ship; class A ships at anchor report every 3 minutes, and the thinning keeps one of their
 positions per 10 minutes anyway.
+
+Checked against production: 15 minutes of live Digitraffic reports, filtered by the registry and stored through the
+migrated `ingest_vessel_positions` (PGlite, 2026-10-17), kept 49.9 positions a minute after the first minute; the
+production recorder kept 46.2 a minute over its last hour. The region-aware SQL keeps what the Gulf-only SQL kept.
 
 ### The 3 km corridor hides the one real AIS drag on record
 
@@ -135,7 +146,8 @@ All eight regions at 14 days do not fit 500 MB, hence the archive. With the 10 k
 about 171 MB (Gulf 79.8 a minute, aisstream regions 95.4).
 
 **Storage files (1 GB).** Ship frames: 47 hours of 10-minute frames at about 172 KB each (6.88 MB for the 40 listed)
-is about 48 MB. Gulf day files: ARCHIVE_SIZE_LINE.
+is about 48 MB. Gulf day files: 20.7 bytes a row compressed (830 real Digitraffic rows recorded through the migrated
+SQL in 15 minutes, `.scratch` probe), so a day of 66,528 rows is about 1.4 MB and 30 days about 41 MB.
 
 ## Egress inside 5 GB a month
 
@@ -153,14 +165,14 @@ every 30 minutes, of which 73 KB is cable routes.
 - **Collector.** Unchanged: 120 to 230 KB of the newest frame per run, 0.5 to 1.0 GB a month. Cross-source samples
   are inserts, not reads.
 - **Recorder.** Inserts and a one-number reply each minute. The daily archive reads one Gulf day as JSON:
-  ARCHIVE_JSON_LINE.
+  67.3 bytes a row as JSON, about 4.5 MB a day, 134 MB a month.
 
 | Reader | Today | After this change, 3 km | With 10 km |
 | --- | --- | --- | --- |
-| Detector (every 30 min) | 1.22 GB | about 2.2 GB | about 4.3 GB |
-| Detector (every 60 min) | | about 1.1 GB | about 2.2 GB |
+| Detector (every 30 min) | 1.22 GB | about 2.2 GB | about 4.2 GB |
+| Detector (every 60 min) | | about 1.1 GB | about 2.1 GB |
 | Collector frame reads | 0.5 to 1.0 GB | same | same |
-| Archive day read | | ARCHIVE_EGRESS_CELL | about twice that |
+| Archive day read | | about 0.13 GB | about 0.23 GB |
 
 The southern North Sea, measured at 64.6 positions a minute, would add about 1.06 MB a call (1.5 GB a month at 30
 minutes) on its own; that is why slot 7 went to the Channel. With the 10 km corridor the budget holds only with the
@@ -194,7 +206,10 @@ own view of the Gulf never reaches Storage.
   reckoning at 20 knots with a 5 degree course error drift about 110 m);
 - at least 20 matched pairs, or no verdict.
 
-Exit codes: 0 agree, 1 disagree, 2 could not judge. It reads with the site's publishable key, so samples are public.
+Exit codes: 0 agree, 1 disagree, 2 could not judge. The table has no public policy
+(`20261019060000_close_public_reads.sql`); the script reads with the site's publishable key through
+`public.cross_source_samples_since(hours)`, a security definer function capped at 7 days and 1,008 rows (about 150 KB).
+`public.watched_regions` and `public.position_archives` have no public read at all.
 
 ## Commands for the lead
 
@@ -202,15 +217,17 @@ Apply in this order, after review. Migrations first: the new SQL accepts calls f
 without `source` are read as Digitraffic), while the new recorder needs the new columns.
 
 ```bash
-# 1. Database: watched regions, the seven seeds, regional recording, the archive.
+# 1. Database: watched regions, the seven seeds with their landing countries, regional recording, the archive.
+#    Needs 20261019300000 (fault signals, public.cable_landing_countries) applied first, as it is in production.
 bunx supabase db push
-#    expected: 20261019100000 to 20261019100700, 20261019200000 and 20261019200100 applied; 336 rows in public.cables;
-#    jobs record-vessel-positions (58 s timeout), prune-vessel-positions (hourly, 23 past),
-#    archive-vessel-positions (03:41 UTC), prune-cross-source-samples (03:53 UTC).
+#    expected: 20261019400000 to 20261019400700, 20261019500000 and 20261019500100 applied; 336 rows in public.cables;
+#    landing rows for 161 of the 320 new lines; jobs record-vessel-positions (58 s timeout), prune-vessel-positions
+#    (hourly, 23 past), archive-vessel-positions (03:41 UTC), prune-cross-source-samples (03:53 UTC).
 
-# 2. Functions (the recorder now listens to aisstream; AISSTREAM_API_KEY is already a function secret).
-bunx supabase functions deploy record-vessel-positions --no-verify-jwt
-bunx supabase functions deploy collect-ship-frames --no-verify-jwt
+# 2. Functions (the recorder now listens to aisstream; AISSTREAM_API_KEY is already a function secret;
+#    supabase/config.toml already sets verify_jwt = false for both).
+bunx supabase functions deploy record-vessel-positions
+bunx supabase functions deploy collect-ship-frames
 
 # 3. Checks.
 bun scripts/regions/measure-coverage.ts <frames dir> <routes dir>      # coverage per region, exit 0 or 2
@@ -227,29 +244,35 @@ on c.id = p.nearest_cable_id group by 1;`, the newest `public.recorder_runs.sour
 
 Each migration's header carries its own rollback. In short, newest first:
 
-1. `20261019200100`: unschedule `archive-vessel-positions`, restore the 14-day daily prune, drop the archive
+1. `20261019500100`: unschedule `archive-vessel-positions`, restore the 14-day daily prune, drop the archive
    functions and `public.position_archives`; empty and delete the bucket in the dashboard.
-2. `20261019200000`: drop the one-argument `ingest_vessel_positions`, re-run `20261017040000` and the
-   `detection_inputs` of `20261018300000`, restore the 25 s recorder schedule, drop `public.cross_source_samples`
-   and `recorder_runs.source_counts`. Redeploy the previous recorder.
-3. `20261019100700` to `20261019100100`: `delete from public.cables where region_id <> 'gulf-of-finland';` (after
-   deleting the positions that reference those cables).
-4. `20261019100000`: restore the unique key on name and kind, drop the three columns and `public.watched_regions`;
+2. `20261019500000`: drop the one-argument `ingest_vessel_positions`, re-run `20261017040000` and the
+   `detection_inputs` of `20261018300000`, restore the 25 s recorder schedule, drop
+   `public.cross_source_samples_since`, `public.cross_source_samples` and `recorder_runs.source_counts`. Redeploy the
+   previous recorder and collector.
+3. `20261019400700` to `20261019400100`: `delete from public.cables where region_id <> 'gulf-of-finland';` (after
+   deleting the positions that reference those cables; their landing rows go with them, `on delete cascade`).
+4. `20261019400000`: restore the unique key on name and kind, drop the three columns and `public.watched_regions`;
    restore the Gulf routes from `20261017020100` by name and kind.
 
 ### Regenerating
 
 ```bash
-# Routes (Overpass; 0.2 degree margin around the box; query printed by .scratch helpers in the PR notes):
+# Routes (Overpass API, the region box plus 0.2 degrees; one `way` statement per filter below, then `out tags geom;`):
 #   way[power=cable|communication=line|telecom=line|man_made=pipeline] with location~underwater|submarine or
 #   submarine=yes, and seamark:type=cable_submarine|pipeline_submarine; out tags geom.
 # Perth: https://www.cmar.csiro.au/geoserver/becrc/wfs?service=WFS&version=1.0.0&request=GetFeature
 #   &typeName=becrc:becrc_wp2_acma_submarine_cable_locations_2021&outputFormat=application/json&bbox=113.3,-33.0,116.2,-30.6
-bun scripts/regions/build-cable-seed.ts <region-id> <routes.json> supabase/migrations/<number>_seed_<region>_cables.sql
+# Countries: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_admin_0_countries.geojson
+bun scripts/regions/build-cable-seed.ts <region-id> <routes.json> <countries.geojson> supabase/migrations/<number>_seed_<region>_cables.sql
 bun scripts/regions/build-regions-sql.ts      # the watched_regions upsert; a registry change needs a new migration
 ```
 
 ## Open decisions
+
+- **The fault-signal matcher's route read.** `public.fault_match_inputs` with routes (20261019300000) sends every
+  cable's route: about 70 KB for the Gulf seed, 184 KB with the eight regions. A filter by region or by the signal's
+  box keeps each call near its old size.
 
 - **3 km or 10 km.** 3 km misses the Yi Peng 3 drag; 10 km keeps it but needs the detector every 60 minutes
   (`DETECTION_INTERVAL_MS` in `src/lib/detection/assess-fleet.ts` and the `detect-anchor-drag` schedule) to stay

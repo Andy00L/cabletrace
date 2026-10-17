@@ -64,7 +64,7 @@ export type CollectorPorts = {
   listen: (options: { listenMs: number; onMessageText: (messageText: string) => void }) => Promise<Result<ListenStats>>;
   fetchDigitrafficLocations: (sinceMs: number) => Promise<Result<unknown>>;
   fetchDigitrafficVessels: () => Promise<Result<unknown>>;
-  // One row per sample into public.cross_source_samples (supabase/migrations/20261019200000_regional_recording.sql).
+  // One row per sample into public.cross_source_samples (supabase/migrations/20261019500000_regional_recording.sql).
   storeCrossSourceSamples: (samples: CrossSourceSample[]) => Promise<Result<null>>;
   nowMs: () => number;
 };

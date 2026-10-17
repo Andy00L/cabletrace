@@ -10,7 +10,7 @@ import { archivePositions, type ArchiveEntry, type ArchivePorts } from "./archiv
 import { recordRegions, type RecorderPorts, type RecorderRun, type RecorderState } from "./record.ts";
 
 const NOW_MS = Date.UTC(2026, 9, 19, 10, 0, 30);
-const THRESHOLDS = { nearCableMetres: 3000, stationaryKnots: 0.5, stationaryRepeatMinutes: 10, stationaryRepeatMetres: 50, hotRetentionHours: 72 };
+const THRESHOLDS = { nearCableMetres: 3000, candidateCableMetres: 3000, stationaryKnots: 0.5, stationaryRepeatMinutes: 10, stationaryRepeatMetres: 50, hotRetentionHours: 72 };
 const DIGITRAFFIC_REGION: Region = {
   id: "test-gulf",
   name: "Test gulf",

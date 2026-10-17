@@ -61,7 +61,7 @@ export function createFrameStore(database: SupabaseClient): FrameStore {
   };
 }
 
-/** Inserts cross-source samples into public.cross_source_samples (20261019200000_regional_recording.sql). */
+/** Inserts cross-source samples into public.cross_source_samples (20261019500000_regional_recording.sql). */
 export function createCrossSourceStore(database: SupabaseClient): (samples: CrossSourceSample[]) => Promise<Result<null>> {
   return async (samples) => {
     const rows = samples.map((sample) => ({

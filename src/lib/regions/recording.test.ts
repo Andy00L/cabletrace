@@ -34,8 +34,8 @@ describe("createNearLineIndex", () => {
   test("finds the nearest line within reach and nothing beyond it", () => {
     const index = createNearLineIndex(
       [
-        { name: "A", kind: "telecom", sourceId: "openstreetmap", sourceRef: "way/1", parts: [[[10, 55], [10.2, 55]]] },
-        { name: "B", kind: "power", sourceId: "openstreetmap", sourceRef: "way/2", parts: [[[10, 55.02], [10.2, 55.02]]] },
+        { name: "A", kind: "telecom", sourceId: "openstreetmap", sourceRef: "way/1", parts: [[[10, 55], [10.2, 55]]], ends: [] },
+        { name: "B", kind: "power", sourceId: "openstreetmap", sourceRef: "way/2", parts: [[[10, 55.02], [10.2, 55.02]]], ends: [] },
       ],
       3000,
     );

@@ -63,6 +63,8 @@ describe("SQL text", () => {
               [115.2, -31.95],
             ],
           ],
+          ends: [],
+          landingCountries: ["AU"],
         },
       ],
       LINE_SOURCES,
@@ -71,5 +73,6 @@ describe("SQL text", () => {
       "values ('perth', 'Test cable', 'telecom', 'OpenStreetMap contributors (ODbL 1.0)', 'ODbL 1.0', 'https://www.openstreetmap.org/way/42', extensions.st_geogfromtext('SRID=4326;MULTILINESTRING((115.10000 -31.90000, 115.20000 -31.95000))'))",
     );
     expect(sql).toContain("on conflict (region_id, name, kind) do update set");
+    expect(sql).toContain("  ('Test cable', 'telecom', 'AU')\n) as landing (cable_name, cable_kind, country_code) on cables.region_id = 'perth'");
   });
 });

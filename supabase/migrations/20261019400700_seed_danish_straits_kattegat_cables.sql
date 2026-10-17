@@ -127,3 +127,63 @@ insert into public.cables (region_id, name, kind, source, licence, source_url, r
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
 insert into public.cables (region_id, name, kind, source, licence, source_url, route) values ('danish-straits-kattegat', 'Skagen Fiber West', 'telecom', 'OpenStreetMap contributors (ODbL 1.0)', 'ODbL 1.0', 'https://www.openstreetmap.org/way/1117749478', extensions.st_geogfromtext('SRID=4326;MULTILINESTRING((9.98706 57.60714, 9.99455 57.62385, 9.96280 57.69871, 9.95962 57.71171, 9.92885 57.78850, 9.84833 58.10000))'))
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
+
+-- Landing countries: where an end of a source way lies on land or within 2 km of it (Natural Earth admin-0, 1:10m).
+insert into public.cable_landing_countries (cable_id, country_code)
+select cables.id, landing.country_code
+from public.cables
+join (values
+  ('Baltic Pipe', 'pipeline', 'DK'),
+  ('Baltic Pipe', 'pipeline', 'PL'),
+  ('Unnamed submarine pipeline (way/1198572680)', 'pipeline', 'DK'),
+  ('Unnamed submarine pipeline (way/1392191336)', 'pipeline', 'DK'),
+  ('Unnamed submarine pipeline (way/1392191337)', 'pipeline', 'DK'),
+  ('Abildskov-Sønderborg 150 kV', 'power', 'DK'),
+  ('Baltic 1', 'power', 'DE'),
+  ('Graderup-Ryttergård', 'power', 'DK'),
+  ('HVDC Baltic Cable', 'power', 'DE'),
+  ('HVDC Baltic Cable', 'power', 'SE'),
+  ('HVDC Konti-Skan (way/129709278)', 'power', 'DK'),
+  ('HVDC Konti-Skan (way/129709278)', 'power', 'SE'),
+  ('HVDC Konti-Skan (way/98356251)', 'power', 'DK'),
+  ('HVDC Storebælt I (Great Belt power link)', 'power', 'DK'),
+  ('Kontek (way/159089626)', 'power', 'DE'),
+  ('Kontek (way/159089626)', 'power', 'DK'),
+  ('Kontek (way/159089627)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/1204845860)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/134265142)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/1378753318)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/188044697)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/188044697)', 'power', 'SE'),
+  ('Unnamed submarine power cable (way/188046374)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/188046374)', 'power', 'SE'),
+  ('Unnamed submarine power cable (way/197799527)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/199305500)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/202011154)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/202105287)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/203820024)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/208271206)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/250212216)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/297493657)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/457584758)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/466033859)', 'power', 'DK'),
+  ('Unnamed submarine power cable (way/865474858)', 'power', 'DK'),
+  ('Aarhus-Kalundborg', 'telecom', 'DK'),
+  ('Aurora', 'telecom', 'DK'),
+  ('Aurora', 'telecom', 'SE'),
+  ('Ballen-Røsnæs', 'telecom', 'DK'),
+  ('C-Lion 1', 'telecom', 'DE'),
+  ('C-Lion 1', 'telecom', 'FI'),
+  ('Ellekilde Hage-Viken', 'telecom', 'DK'),
+  ('Ellekilde Hage-Viken', 'telecom', 'SE'),
+  ('Fehmarn Belt', 'telecom', 'DE'),
+  ('Fehmarn Belt', 'telecom', 'DK'),
+  ('Great Belt 1', 'telecom', 'DK'),
+  ('Great Belt 2', 'telecom', 'DK'),
+  ('Hou-Sælvig', 'telecom', 'DK'),
+  ('Scandinavian Ring South', 'telecom', 'DK'),
+  ('Scandinavian Ring South', 'telecom', 'SE'),
+  ('Skagen Fiber West', 'telecom', 'DK'),
+  ('Skagen Fiber West', 'telecom', 'NO')
+) as landing (cable_name, cable_kind, country_code) on cables.region_id = 'danish-straits-kattegat' and cables.name = landing.cable_name and cables.kind = landing.cable_kind
+on conflict do nothing;

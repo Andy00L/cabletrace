@@ -11,3 +11,15 @@ insert into public.cables (region_id, name, kind, source, licence, source_url, r
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
 insert into public.cables (region_id, name, kind, source, licence, source_url, route) values ('perth', 'SEA-ME-WE-3', 'telecom', 'ACMA submarine cable locations 2021, Geoscience Australia / AODN (CC BY 4.0)', 'CC BY 4.0', 'https://data.gov.au/data/dataset/ff6403dc-875a-46bc-b9ac-114772148902', extensions.st_geogfromtext('SRID=4326;MULTILINESTRING((115.75652 -31.92525, 115.74610 -31.92327, 115.73600 -31.91828, 115.71280 -31.89983, 115.70533 -31.89592, 115.69072 -31.89138, 115.68343 -31.88537, 115.68152 -31.88210, 115.66983 -31.80542, 115.65018 -31.79635, 115.60832 -31.79700, 115.59637 -31.79988, 115.50027 -31.79823, 115.41377 -31.82105, 115.20162 -31.81640, 114.97742 -31.73982, 114.88577 -31.72033, 114.73092 -31.70130, 114.58893 -31.70030, 114.16647 -31.66668, 113.40000 -31.38868))'))
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
+
+-- Landing countries: where an end of a source way lies on land or within 2 km of it (Natural Earth admin-0, 1:10m).
+insert into public.cable_landing_countries (cable_id, country_code)
+select cables.id, landing.country_code
+from public.cables
+join (values
+  ('Australia Singapore Cable', 'telecom', 'AU'),
+  ('Indigo Central', 'telecom', 'AU'),
+  ('Indigo West', 'telecom', 'AU'),
+  ('SEA-ME-WE-3', 'telecom', 'AU')
+) as landing (cable_name, cable_kind, country_code) on cables.region_id = 'perth' and cables.name = landing.cable_name and cables.kind = landing.cable_kind
+on conflict do nothing;

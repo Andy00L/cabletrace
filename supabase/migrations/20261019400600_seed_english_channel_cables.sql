@@ -77,3 +77,54 @@ insert into public.cables (region_id, name, kind, source, licence, source_url, r
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
 insert into public.cables (region_id, name, kind, source, licence, source_url, route) values ('english-channel', 'Ulysses 1', 'telecom', 'OpenStreetMap contributors (ODbL 1.0)', 'ODbL 1.0', 'https://www.openstreetmap.org/way/78444037', extensions.st_geogfromtext('SRID=4326;MULTILINESTRING((1.38358 51.15010, 1.41688 51.13380, 1.46768 51.10150, 1.78357 51.10122, 1.83433 51.08433, 1.86753 51.08348, 1.86778 51.06767, 1.88367 51.05162, 1.88478 51.01825, 1.90010 51.00148, 1.88460 50.96742))'))
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
+
+-- Landing countries: where an end of a source way lies on land or within 2 km of it (Natural Earth admin-0, 1:10m).
+insert into public.cable_landing_countries (cable_id, country_code)
+select cables.id, landing.country_code
+from public.cables
+join (values
+  ('Exutoire à éffluents radioactifs de la Hague', 'pipeline', 'FR'),
+  ('IFA 2000 (way/117931185)', 'power', 'FR'),
+  ('IFA 2000 (way/117931185)', 'power', 'GB'),
+  ('IFA 2000 (way/117931186)', 'power', 'FR'),
+  ('IFA 2000 (way/117931186)', 'power', 'GB'),
+  ('IFA2', 'power', 'FR'),
+  ('IFA2', 'power', 'GB'),
+  ('IFA2 HVAC Link', 'power', 'GB'),
+  ('London Array export Cables', 'power', 'GB'),
+  ('Nemo Link', 'power', 'BE'),
+  ('Nemo Link', 'power', 'GB'),
+  ('NeuConnect', 'power', 'GB'),
+  ('Rampion Wind Farm Export Cable', 'power', 'GB'),
+  ('Southern Electric Isle of Wight Submarine', 'power', 'GB'),
+  ('Unnamed submarine power cable (way/1232401250)', 'power', 'FR'),
+  ('Unnamed submarine power cable (way/1232401255)', 'power', 'FR'),
+  ('Unnamed submarine power cable (way/1237071295)', 'power', 'FR'),
+  ('Unnamed submarine power cable (way/1335995165)', 'power', 'GB'),
+  ('Unnamed submarine power cable (way/218276501)', 'power', 'GB'),
+  ('Unnamed submarine power cable (way/218284036)', 'power', 'GB'),
+  ('Atlantic Crossing 1 (AC1)Seg.B1', 'telecom', 'GB'),
+  ('Atlantic Crossing 1 (AC1)Seg.B1', 'telecom', 'NL'),
+  ('Hermes South', 'telecom', 'BE'),
+  ('Hermes South', 'telecom', 'GB'),
+  ('PAN EUROPEAN CROSSING (PEC)', 'telecom', 'BE'),
+  ('PAN EUROPEAN CROSSING (PEC)', 'telecom', 'GB'),
+  ('Rampion Wind Farm Communications Cable', 'telecom', 'GB'),
+  ('Rembrandt 2', 'telecom', 'GB'),
+  ('RIOJA 2', 'telecom', 'BE'),
+  ('RIOJA 2', 'telecom', 'GB'),
+  ('SEA ME WE3-S10.2', 'telecom', 'GB'),
+  ('SEA-ME-WE 3 SEG 10.2', 'telecom', 'GB'),
+  ('Tangerine', 'telecom', 'BE'),
+  ('Tangerine', 'telecom', 'GB'),
+  ('UK-Belgium 6 - Seg 2', 'telecom', 'BE'),
+  ('UK-FR4', 'telecom', 'FR'),
+  ('UK-FR4', 'telecom', 'GB'),
+  ('UK-France 3', 'telecom', 'FR'),
+  ('UK-France 3', 'telecom', 'GB'),
+  ('UK-France 4 - Seg 3', 'telecom', 'FR'),
+  ('UK/Belgium 5', 'telecom', 'BE'),
+  ('Ulysses 1', 'telecom', 'FR'),
+  ('Ulysses 1', 'telecom', 'GB')
+) as landing (cable_name, cable_kind, country_code) on cables.region_id = 'english-channel' and cables.name = landing.cable_name and cables.kind = landing.cable_kind
+on conflict do nothing;

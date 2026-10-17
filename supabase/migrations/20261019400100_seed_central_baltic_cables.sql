@@ -47,3 +47,38 @@ insert into public.cables (region_id, name, kind, source, licence, source_url, r
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
 insert into public.cables (region_id, name, kind, source, licence, source_url, route) values ('central-baltic', 'Sweden-Latvia', 'telecom', 'OpenStreetMap contributors (ODbL 1.0)', 'ODbL 1.0', 'https://www.openstreetmap.org/way/1355003440', extensions.st_geogfromtext('SRID=4326;MULTILINESTRING((19.03300 57.83052, 19.11906 57.79700, 19.12975 57.79496, 20.78613 57.61729, 21.28684 57.55341, 21.31985 57.54750, 21.38135 57.54217, 21.50515 57.52734, 21.59297 57.44076))'))
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
+
+-- Landing countries: where an end of a source way lies on land or within 2 km of it (Natural Earth admin-0, 1:10m).
+insert into public.cable_landing_countries (cable_id, country_code)
+select cables.id, landing.country_code
+from public.cables
+join (values
+  ('Nord Stream 1', 'pipeline', 'DE'),
+  ('Nord Stream 1', 'pipeline', 'RU'),
+  ('Nord Stream 2', 'pipeline', 'DE'),
+  ('Unnamed submarine pipeline (way/1284840538)', 'pipeline', 'PL'),
+  ('Unnamed submarine pipeline (way/1285507676)', 'pipeline', 'PL'),
+  ('Unnamed submarine pipeline (way/1286787084)', 'pipeline', 'RU'),
+  ('Unnamed submarine pipeline (way/1286787086)', 'pipeline', 'RU'),
+  ('HVDC Gotland 2 and 3', 'power', 'SE'),
+  ('HVDC NordBalt', 'power', 'LT'),
+  ('HVDC NordBalt', 'power', 'SE'),
+  ('HVDC SwePol', 'power', 'PL'),
+  ('HVDC SwePol', 'power', 'SE'),
+  ('Aurora (way/1213236769)', 'telecom', 'SE'),
+  ('Aurora (way/1228083658)', 'telecom', 'DK'),
+  ('Aurora (way/1228083658)', 'telecom', 'SE'),
+  ('Baltica', 'telecom', 'DK'),
+  ('Baltica', 'telecom', 'PL'),
+  ('Baltika (Kingisepp - Kaliningrad)', 'telecom', 'RU'),
+  ('BCS East', 'telecom', 'LT'),
+  ('BCS East', 'telecom', 'LV'),
+  ('BCS East-West Interlink', 'telecom', 'LT'),
+  ('BCS East-West Interlink', 'telecom', 'SE'),
+  ('C-Lion 1', 'telecom', 'DE'),
+  ('C-Lion 1', 'telecom', 'FI'),
+  ('Latvia-Sweden 1 (LV-SE 1)', 'telecom', 'LV'),
+  ('Sweden-Latvia', 'telecom', 'LV'),
+  ('Sweden-Latvia', 'telecom', 'SE')
+) as landing (cable_name, cable_kind, country_code) on cables.region_id = 'central-baltic' and cables.name = landing.cable_name and cables.kind = landing.cable_kind
+on conflict do nothing;

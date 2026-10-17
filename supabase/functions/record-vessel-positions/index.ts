@@ -1,7 +1,7 @@
 // Near-cable recorder for every watched region (src/data/regions). pg_cron calls it every minute to record
 // (record.ts: Digitraffic for the Gulf of Finland, a regional aisstream listen for the other regions) and once a day
 // with {"task":"archive"} to move old days into Storage (archive.ts). Schedules:
-// supabase/migrations/20261019200000_regional_recording.sql and 20261019200100_position_archive.sql.
+// supabase/migrations/20261019500000_regional_recording.sql and 20261019500100_position_archive.sql.
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { REGIONS } from "@/data/regions";
 import type { Result } from "../../../src/lib/result.ts";

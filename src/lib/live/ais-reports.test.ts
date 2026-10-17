@@ -131,6 +131,15 @@ describe("parseAisstreamMessage", () => {
     });
   });
 
+  test("leaves sizes the AIS dimension fields cannot carry unknown, so one bad message cannot fail an upsert", () => {
+    const oversized = parseAisstreamMessage(SHIP_STATIC.replace('"Dimension":{"A":5,"B":4,"C":2,"D":1}', '"Dimension":{"A":40000,"B":4,"C":200,"D":1}'));
+    expect(oversized.kind === "static" && oversized.staticData).toMatchObject({ lengthMetres: null, beamMetres: null });
+    const largest = parseAisstreamMessage(SHIP_STATIC.replace('"Dimension":{"A":5,"B":4,"C":2,"D":1}', '"Dimension":{"A":511,"B":511,"C":63,"D":63}'));
+    expect(largest.kind === "static" && largest.staticData).toMatchObject({ lengthMetres: 1022, beamMetres: 126 });
+    const negative = parseAisstreamMessage(SHIP_STATIC.replace('"Dimension":{"A":5,"B":4,"C":2,"D":1}', '"Dimension":{"A":-5,"B":40,"C":2,"D":1}'));
+    expect(negative.kind === "static" && negative.staticData).toMatchObject({ lengthMetres: null, beamMetres: 3 });
+  });
+
   test("reads both parts of class B static data", () => {
     const partA = parseAisstreamMessage(STATIC_PART_A);
     const partB = parseAisstreamMessage(STATIC_PART_B);

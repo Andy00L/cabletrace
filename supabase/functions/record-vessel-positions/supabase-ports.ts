@@ -1,6 +1,6 @@
 // Database and Storage ports of the recorder, backed by supabase-js with the project's secret key. Tables and functions:
-// supabase/migrations/20261017020000_live_recorder.sql, 20261019200000_regional_recording.sql and
-// 20261019200100_position_archive.sql.
+// supabase/migrations/20261017020000_live_recorder.sql, 20261019500000_regional_recording.sql and
+// 20261019500100_position_archive.sql.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Result } from "../../../src/lib/result.ts";
 import { ARCHIVE_BUCKET, ARCHIVE_CONTENT_TYPE } from "@/lib/regions/archive-layout";

@@ -21,3 +21,20 @@ insert into public.cables (region_id, name, kind, source, licence, source_url, r
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
 insert into public.cables (region_id, name, kind, source, licence, source_url, route) values ('norway-svalbard', 'Svalbard Undersea Cable System (way/685021410)', 'telecom', 'OpenStreetMap contributors (ODbL 1.0)', 'ODbL 1.0', 'https://www.openstreetmap.org/way/685021410', extensions.st_geogfromtext('SRID=4326;MULTILINESTRING((16.65623 68.94300, 16.66458 68.93709, 16.66382 68.93465, 16.65187 68.93234, 16.64676 68.92152, 16.62612 68.90782, 16.61272 68.90485))'))
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
+
+-- Landing countries: where an end of a source way lies on land or within 2 km of it (Natural Earth admin-0, 1:10m).
+insert into public.cable_landing_countries (cable_id, country_code)
+select cables.id, landing.country_code
+from public.cables
+join (values
+  ('Kvitfossen - Melbu', 'power', 'NO'),
+  ('Nygård - Frydenlund', 'power', 'NO'),
+  ('Ringvassøy - Fakken', 'power', 'NO'),
+  ('Unnamed submarine power cable (way/587365931)', 'power', 'NO'),
+  ('Longyearbyen - Ny Ålesund', 'telecom', 'NO'),
+  ('Svalbard Undersea Cable System (way/549813459)', 'telecom', 'NO'),
+  ('Svalbard Undersea Cable System (way/685021408)', 'telecom', 'NO'),
+  ('Svalbard Undersea Cable System (way/685021409)', 'telecom', 'NO'),
+  ('Svalbard Undersea Cable System (way/685021410)', 'telecom', 'NO')
+) as landing (cable_name, cable_kind, country_code) on cables.region_id = 'norway-svalbard' and cables.name = landing.cable_name and cables.kind = landing.cable_kind
+on conflict do nothing;

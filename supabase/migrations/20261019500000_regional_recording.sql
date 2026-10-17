@@ -3,13 +3,14 @@
 -- aisstream reports for the others; the database finds each report's region by its box (public.watched_regions),
 -- keeps it only when that region is recorded from the report's feed, matches it to that region's cables only, and
 -- thins stationary repeats with that region's thresholds. Retention follows each region's hot window
--- (20261019200100_position_archive.sql), and the detector's inputs stay region-agnostic and inside the egress budget
+-- (20261019500100_position_archive.sql), and the detector's inputs stay region-agnostic and inside the egress budget
 -- (docs/REGIONS.md).
 --
 -- Rollback: `drop function public.ingest_vessel_positions(jsonb)`, then re-run 20261017040000_thin_stationary_positions.sql
 -- (the Gulf-only two-argument version and its 14-day prune), the detection_inputs of 20261018300000_detections.sql and
 -- the recorder schedule of 20261017020200_recorder_schedule.sql; then `select cron.unschedule('prune-cross-source-samples');
--- drop table public.cross_source_samples; alter table public.recorder_runs drop column source_counts;`.
+-- drop function public.cross_source_samples_since(integer); drop table public.cross_source_samples;
+-- alter table public.recorder_runs drop column source_counts;`.
 
 -- What each recorder run heard per feed (RecorderRun.sourceCounts in supabase/functions/record-vessel-positions/record.ts).
 alter table public.recorder_runs add column source_counts jsonb;
@@ -197,8 +198,8 @@ revoke execute on function public.detection_inputs(integer) from public, anon, a
 grant execute on function public.detection_inputs(integer) to service_role;
 
 -- Cross-source samples (src/lib/live/cross-source.ts): where two feeds cover the same water, the frame collector
--- compares them every run (every 10 minutes). Public data about public data: readable by everyone, for the status page
--- and scripts/regions/cross-source.ts.
+-- compares them every run (every 10 minutes). The collector writes with its secret key; everyone else reads through
+-- public.cross_source_samples_since below.
 create table public.cross_source_samples (
   id bigint generated always as identity primary key,
   region_id text not null references public.watched_regions (id),
@@ -214,8 +215,31 @@ create table public.cross_source_samples (
   within_tolerance_share real
 );
 create index cross_source_samples_region_time_index on public.cross_source_samples (region_id, sampled_at);
+-- No table policy (20261019060000_close_public_reads.sql): public reads go through the capped function below.
 alter table public.cross_source_samples enable row level security;
-create policy "Cross-source samples are readable by everyone" on public.cross_source_samples for select to anon, authenticated using (true);
+
+-- The samples of the last `since_hours` (1 to 168), oldest first, at most 1,008 rows (7 days of one region at 6 samples
+-- an hour, about 150 KB), for scripts/regions/cross-source.ts and the status page with the publishable key. Row keys
+-- are the table's column names, which parseCrossSourceRows in src/lib/live/cross-source.ts reads.
+create or replace function public.cross_source_samples_since(since_hours integer default 24)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(jsonb_agg(to_jsonb(recent) - 'id' order by recent.sampled_at), '[]'::jsonb)
+  from (
+    select *
+    from public.cross_source_samples
+    where sampled_at > now() - make_interval(hours => greatest(1, least(since_hours, 168)))
+    order by sampled_at desc
+    limit 1008
+  ) as recent;
+$$;
+
+revoke execute on function public.cross_source_samples_since(integer) from public;
+grant execute on function public.cross_source_samples_since(integer) to anon, authenticated;
 
 -- Every minute, as before, now with time for the 40-second aisstream listen (LISTEN_MS in
 -- supabase/functions/record-vessel-positions/index.ts): pg_net waits up to 58 s for the reply.

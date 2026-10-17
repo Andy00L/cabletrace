@@ -8,11 +8,12 @@
 // Only regions whose feeds set no retention cap are archived (public.watched_regions.is_archived): aisstream data is
 // kept at most 2 days anywhere, archives included (src/data/regions/sources.ts).
 // Each file is gzip-compressed JSON written by public.position_archive_document or public.track_archive_document
-// (supabase/migrations/20261019200100_position_archive.sql): {version, kind, regionId, ..., columns, rows, rowCount, credit}.
+// (supabase/migrations/20261019500100_position_archive.sql): {version, kind, the day or the detection, columns, rows,
+// rowCount}, and for a day the cables its rows name.
 
 export const ARCHIVE_BUCKET = "position-archive";
-// 30 days of daily files: a month to replay or re-run the detector on any day. Gulf of Finland day files are about
-// 1 to 2 MB compressed (docs/REGIONS.md), 30 to 60 MB of the free plan's 1 GB of Storage.
+// 30 days of daily files: a month to replay or re-run the detector on any day. A Gulf of Finland day file is about
+// 1.4 MB (20.7 bytes a row measured, docs/REGIONS.md): about 41 MB of the free plan's 1 GB of Storage.
 export const ARCHIVE_DAY_RETENTION_DAYS = 30;
 // Per daily run, so one call stays far inside the edge function's 2 s of CPU (a Gulf day is about 66,000 rows).
 export const ARCHIVE_DAYS_PER_RUN = 3;

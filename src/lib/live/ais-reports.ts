@@ -102,13 +102,28 @@ function isValidPosition(longitude: number | null, latitude: number | null): boo
   return longitude !== null && latitude !== null && Math.abs(longitude) <= 180 && Math.abs(latitude) <= 90;
 }
 
-// A zero or "not available" dimension (ITU-R M.1371-5, Figure 42) leaves the size unknown.
-function readSize(dimension: unknown, firstKey: string, secondKey: string): number | null {
+// The largest size the AIS dimension fields can carry (ITU-R M.1371-5, Figure 42): A and B are 9-bit fields of at most
+// 511 m each, C and D 6-bit fields of at most 63 m each. A larger sum is a malformed message, not a ship, and would
+// overflow public.live_ships' smallint columns, failing a whole upsert batch.
+const MAX_LENGTH_METRES = 2 * 511;
+const MAX_BEAM_METRES = 2 * 63;
+
+// A zero or "not available" dimension (ITU-R M.1371-5, Figure 42) leaves the size unknown, and so does one outside
+// what the fields allow.
+function readSize(dimension: unknown, firstKey: string, secondKey: string, maxMetres: number): number | null {
   if (!isRecord(dimension)) return null;
   const first = readNumber(dimension, firstKey) ?? 0;
   const second = readNumber(dimension, secondKey) ?? 0;
   const total = first + second;
-  return total > 0 ? total : null;
+  return total > 0 && first >= 0 && second >= 0 && total <= maxMetres ? total : null;
+}
+
+function readLength(dimension: unknown, firstKey: string, secondKey: string): number | null {
+  return readSize(dimension, firstKey, secondKey, MAX_LENGTH_METRES);
+}
+
+function readBeam(dimension: unknown, firstKey: string, secondKey: string): number | null {
+  return readSize(dimension, firstKey, secondKey, MAX_BEAM_METRES);
 }
 
 function readPositiveInteger(source: JsonObject, key: string): number | null {
@@ -171,8 +186,8 @@ function readClassAStatic(body: JsonObject, mmsi: number): ShipStatic | null {
     callSign: readAisText(body, "CallSign"),
     imo: readPositiveInteger(body, "ImoNumber"),
     shipType: readPositiveInteger(body, "Type"),
-    lengthMetres: readSize(body.Dimension, "A", "B"),
-    beamMetres: readSize(body.Dimension, "C", "D"),
+    lengthMetres: readLength(body.Dimension, "A", "B"),
+    beamMetres: readBeam(body.Dimension, "C", "D"),
     draughtMetres: draught !== null && draught > 0 ? draught : null,
     destination: readAisText(body, "Destination"),
   };
@@ -190,8 +205,8 @@ function readClassBStatic(body: JsonObject, mmsi: number): ShipStatic | null {
       ...staticData,
       callSign: readAisText(body.ReportB, "CallSign"),
       shipType: readPositiveInteger(body.ReportB, "ShipType"),
-      lengthMetres: readSize(body.ReportB.Dimension, "A", "B"),
-      beamMetres: readSize(body.ReportB.Dimension, "C", "D"),
+      lengthMetres: readLength(body.ReportB.Dimension, "A", "B"),
+      beamMetres: readBeam(body.ReportB.Dimension, "C", "D"),
     };
   }
   return null;
@@ -203,8 +218,8 @@ function readExtendedClassBStatic(body: JsonObject, mmsi: number): ShipStatic {
     ...emptyStatic(mmsi, "aisstream"),
     name: readAisText(body, "Name"),
     shipType: readPositiveInteger(body, "Type"),
-    lengthMetres: readSize(body.Dimension, "A", "B"),
-    beamMetres: readSize(body.Dimension, "C", "D"),
+    lengthMetres: readLength(body.Dimension, "A", "B"),
+    beamMetres: readBeam(body.Dimension, "C", "D"),
   };
 }
 
@@ -310,8 +325,8 @@ export function parseDigitrafficVessels(payload: unknown): Result<DigitrafficVes
         callSign: readAisText(entry, "callSign"),
         imo: readPositiveInteger(entry, "imo"),
         shipType: readPositiveInteger(entry, "shipType"),
-        lengthMetres: readSize(size, "A", "B"),
-        beamMetres: readSize(size, "C", "D"),
+        lengthMetres: readLength(size, "A", "B"),
+        beamMetres: readBeam(size, "C", "D"),
         draughtMetres: draughtTenths !== null && draughtTenths > 0 ? draughtTenths / 10 : null,
         destination: readAisText(entry, "destination"),
       },

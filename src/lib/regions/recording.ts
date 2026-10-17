@@ -6,7 +6,7 @@ import type { PositionDetail } from "@/lib/live/ais-reports";
 import type { BoundingBox, LiveSourceId, Region } from "@/lib/regions/region";
 import { isInsideBox, selectRegionsBySource } from "@/lib/regions/region";
 
-/** One report as ingest_vessel_positions reads it (supabase/migrations/20261019200000_regional_recording.sql). */
+/** One report as ingest_vessel_positions reads it (supabase/migrations/20261019500000_regional_recording.sql). */
 export type RecorderReport = {
   mmsi: number;
   reportedAtMs: number;

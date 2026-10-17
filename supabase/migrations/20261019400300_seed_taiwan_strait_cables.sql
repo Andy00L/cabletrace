@@ -43,3 +43,27 @@ insert into public.cables (region_id, name, kind, source, licence, source_url, r
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
 insert into public.cables (region_id, name, kind, source, licence, source_url, route) values ('taiwan-strait', '臺金二號海纜', 'telecom', 'OpenStreetMap contributors (ODbL 1.0)', 'ODbL 1.0', 'https://www.openstreetmap.org/way/1127946465', extensions.st_geogfromtext('SRID=4326;MULTILINESTRING((118.45583 24.42603, 118.46125 24.42158, 118.48067 24.41544, 118.54931 24.40939, 118.64425 24.40881, 118.65717 24.41058, 118.80519 24.41117, 118.82608 24.40903, 118.90586 24.40961, 118.91161 24.41172, 118.91739 24.41753))'))
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
+
+-- Landing countries: where an end of a source way lies on land or within 2 km of it (Natural Earth admin-0, 1:10m).
+insert into public.cable_landing_countries (cable_id, country_code)
+select cables.id, landing.country_code
+from public.cables
+join (values
+  ('Unnamed submarine pipeline (way/1357664142)', 'pipeline', 'TW'),
+  ('Unnamed submarine pipeline (way/1357665582)', 'pipeline', 'TW'),
+  ('Unnamed submarine pipeline (way/1357684385)', 'pipeline', 'TW'),
+  ('Unnamed submarine power cable (way/1422958881)', 'power', 'CN'),
+  ('Unnamed submarine power cable (way/1467564270)', 'power', 'CN'),
+  ('Unnamed submarine power cable (way/1467565387)', 'power', 'CN'),
+  ('台澎海纜 (way/958759748)', 'power', 'TW'),
+  ('台澎海纜 (way/958759749)', 'power', 'TW'),
+  ('APRICOT-S6', 'telecom', 'TW'),
+  ('EAC-D', 'telecom', 'HK'),
+  ('S5', 'telecom', 'TW'),
+  ('S5A', 'telecom', 'TW'),
+  ('Unnamed submarine telecom cable (way/775335813)', 'telecom', 'TW'),
+  ('Unnamed submarine telecom cable (way/775335814)', 'telecom', 'TW'),
+  ('Unnamed submarine telecom cable (way/826833554)', 'telecom', 'TW'),
+  ('臺金二號海纜', 'telecom', 'TW')
+) as landing (cable_name, cable_kind, country_code) on cables.region_id = 'taiwan-strait' and cables.name = landing.cable_name and cables.kind = landing.cable_kind
+on conflict do nothing;

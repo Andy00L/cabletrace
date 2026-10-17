@@ -9,7 +9,15 @@ import { distanceMetres } from "@/lib/detection/geodesy";
 export type Coordinate = [number, number];
 
 /** One seeded route: a cable or pipeline, as one or more line parts inside the region box (plus margin). */
-export type SeedLine = { name: string; kind: LineKind; sourceId: LineSourceId; sourceRef: string; parts: Coordinate[][] };
+export type SeedLine = {
+  name: string;
+  kind: LineKind;
+  sourceId: LineSourceId;
+  sourceRef: string;
+  parts: Coordinate[][];
+  /** The unclipped ends of every source way, where its landings are (src/lib/regions/landing-countries.ts). */
+  ends: Coordinate[];
+};
 
 /** A raw line before joining: one OpenStreetMap way or one feature of a GeoJSON layer. */
 export type RawLine = { name: string | null; kind: LineKind; sourceId: LineSourceId; sourceRef: string; points: Coordinate[] };
@@ -288,7 +296,8 @@ export function buildSeedLines(rawLines: readonly RawLine[], options: SeedOption
     if (first === undefined || parts.length === 0 || insideMetres < options.minimumLengthMetres) return [];
     const sourceRef = group.map((line) => line.sourceRef).sort()[0] ?? first.sourceRef;
     const name = mostCommonName(group) ?? `Unnamed submarine ${KIND_LABELS[first.kind]} (${sourceRef})`;
-    return [{ name, kind: first.kind, sourceId: first.sourceId, sourceRef, parts }];
+    const ends = group.flatMap((line) => [line.points[0], line.points[line.points.length - 1]].filter((point): point is Coordinate => point !== undefined));
+    return [{ name, kind: first.kind, sourceId: first.sourceId, sourceRef, parts, ends }];
   });
   const nameCounts = new Map<string, number>();
   for (const line of candidates) nameCounts.set(`${line.kind}|${line.name}`, (nameCounts.get(`${line.kind}|${line.name}`) ?? 0) + 1);

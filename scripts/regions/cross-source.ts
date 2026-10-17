@@ -12,25 +12,26 @@ import { judgeSamples, parseCrossSourceRows, type CrossSourceSample } from "@/li
 import type { Result } from "@/lib/result";
 
 const DEFAULT_HOURS = 24;
+// public.cross_source_samples_since reads at most 7 days (supabase/migrations/20261019500000_regional_recording.sql).
+const MAX_HOURS = 168;
 const FETCH_TIMEOUT_MS = 20_000;
-const SAMPLE_COLUMNS =
-  "region_id,sampled_at,window_seconds,aisstream_ships,digitraffic_ships,shared_ships,aisstream_only_ships,matched_pairs,median_offset_metres,p95_offset_metres,within_tolerance_share";
 
-async function fetchSamples(sinceIso: string, regionId: string | null): Promise<Result<CrossSourceSample[]>> {
+/** The samples of the last `hours`, through the capped public function (the table itself has no public read). */
+async function fetchSamples(hours: number): Promise<Result<CrossSourceSample[]>> {
   const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!projectUrl || !publishableKey) return { ok: false, reason: "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY are not set" };
-  const query = new URLSearchParams({ select: SAMPLE_COLUMNS, sampled_at: `gte.${sinceIso}`, order: "sampled_at.asc" });
-  if (regionId !== null) query.set("region_id", `eq.${regionId}`);
   try {
-    const response = await fetch(`${projectUrl.replace(/\/+$/u, "")}/rest/v1/cross_source_samples?${query.toString()}`, {
-      headers: { apikey: publishableKey },
+    const response = await fetch(`${projectUrl.replace(/\/+$/u, "")}/rest/v1/rpc/cross_source_samples_since`, {
+      method: "POST",
+      headers: { apikey: publishableKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ since_hours: hours }),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!response.ok) return { ok: false, reason: `cross_source_samples answered ${response.status}` };
+    if (!response.ok) return { ok: false, reason: `cross_source_samples_since answered ${response.status}` };
     return parseCrossSourceRows(await response.json());
   } catch (error) {
-    return { ok: false, reason: `cross_source_samples unreachable: ${error instanceof Error ? error.message : String(error)}` };
+    return { ok: false, reason: `cross_source_samples_since unreachable: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
 
@@ -41,20 +42,19 @@ function formatShare(share: number | null): string {
 async function main(): Promise<number> {
   const [hoursText, regionArgument] = process.argv.slice(2);
   const hours = hoursText === undefined ? DEFAULT_HOURS : Number(hoursText);
-  if (!(hours > 0 && hours <= 14 * 24)) {
-    console.error("[crossSource] usage: bun scripts/regions/cross-source.ts [hours 1 to 336] [region id]");
+  if (!(Number.isInteger(hours) && hours >= 1 && hours <= MAX_HOURS)) {
+    console.error(`[crossSource] usage: bun scripts/regions/cross-source.ts [whole hours 1 to ${MAX_HOURS}] [region id]`);
     return 2;
   }
-  // performance.timeOrigin plus now() rather than Date.now(): this machine's wall clock is known to drift.
-  const sinceIso = new Date(performance.timeOrigin + performance.now() - hours * 3_600_000).toISOString();
-  const samples = await fetchSamples(sinceIso, regionArgument ?? null);
+  // The database's clock picks the window, not this machine's (its wall clock is known to drift).
+  const samples = await fetchSamples(hours);
   if (!samples.ok) {
     console.error(`[crossSource] ${samples.reason}`);
     return 2;
   }
-  const regionIds = [...new Set(samples.value.map((sample) => sample.regionId))];
+  const regionIds = [...new Set(samples.value.map((sample) => sample.regionId))].filter((regionId) => regionArgument === undefined || regionId === regionArgument);
   if (regionIds.length === 0) {
-    console.error(`[crossSource] no samples since ${sinceIso}`);
+    console.error(`[crossSource] no samples in the last ${hours} hours${regionArgument === undefined ? "" : ` for ${regionArgument}`}`);
     return 2;
   }
   let exitCode = 0;

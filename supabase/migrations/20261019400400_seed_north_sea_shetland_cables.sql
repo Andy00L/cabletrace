@@ -335,3 +335,55 @@ insert into public.cables (region_id, name, kind, source, licence, source_url, r
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
 insert into public.cables (region_id, name, kind, source, licence, source_url, route) values ('north-sea-shetland', 'Unnamed submarine telecom cable (way/1192659444)', 'telecom', 'OpenStreetMap contributors (ODbL 1.0)', 'ODbL 1.0', 'https://www.openstreetmap.org/way/1192659444', extensions.st_geogfromtext('SRID=4326;MULTILINESTRING((1.91364 59.62782, 2.05365 59.61821, 2.08271 59.61237, 2.10000 59.60655))'))
 on conflict (region_id, name, kind) do update set source = excluded.source, licence = excluded.licence, source_url = excluded.source_url, route = excluded.route;
+
+-- Landing countries: where an end of a source way lies on land or within 2 km of it (Natural Earth admin-0, 1:10m).
+insert into public.cable_landing_countries (cable_id, country_code)
+select cables.id, landing.country_code
+from public.cables
+join (values
+  ('Beatrice Line (BL)', 'pipeline', 'GB'),
+  ('Brent Multi-field System', 'pipeline', 'GB'),
+  ('East of Shetland Gas Pipeline (EOSP)', 'pipeline', 'GB'),
+  ('FLAGS', 'pipeline', 'GB'),
+  ('Forties pipeline', 'pipeline', 'GB'),
+  ('Langeled', 'pipeline', 'NO'),
+  ('Sleipner gas condensates', 'pipeline', 'NO'),
+  ('Statpipe', 'pipeline', 'NO'),
+  ('Unnamed submarine pipeline (way/174743669)', 'pipeline', 'GB'),
+  ('Unnamed submarine pipeline (way/174745542)', 'pipeline', 'GB'),
+  ('Unnamed submarine pipeline (way/174745547)', 'pipeline', 'GB'),
+  ('Vesterled', 'pipeline', 'GB'),
+  ('West of Shetland Gas Pipeline (WOSP)', 'pipeline', 'GB'),
+  ('Beatrice Wind Farm Export Connection', 'power', 'GB'),
+  ('Caithness-Moray Link', 'power', 'GB'),
+  ('Hywind Scotland export offshore', 'power', 'GB'),
+  ('Moray East Wind Farm Export Cable', 'power', 'GB'),
+  ('Moray West Wind Farm Export Cable', 'power', 'GB'),
+  ('Pentland Firth East', 'power', 'GB'),
+  ('Pentland Firth East 3', 'power', 'GB'),
+  ('Pentland Firth West', 'power', 'GB'),
+  ('Shetland HVDC Connection', 'power', 'GB'),
+  ('Skye - Harris subsea cable', 'power', 'GB'),
+  ('South Uist Interconnector', 'power', 'GB'),
+  ('Unnamed submarine power cable (way/866076603)', 'power', 'GB'),
+  ('Unnamed submarine power cable (way/866085160)', 'power', 'GB'),
+  ('Unnamed submarine power cable (way/866085169)', 'power', 'GB'),
+  ('Unnamed submarine power cable (way/866085172)', 'power', 'GB'),
+  ('Unnamed submarine power cable (way/866087315)', 'power', 'GB'),
+  ('Atlantic Crossing 1 (AC1) Seg.A', 'telecom', 'DE'),
+  ('CANTAT 3', 'telecom', 'FO'),
+  ('CNS FIBRE OPTIC', 'telecom', 'GB'),
+  ('DANICE Seg.1', 'telecom', 'IS'),
+  ('Farice (way/78425265)', 'telecom', 'FO'),
+  ('Farice (way/78425266)', 'telecom', 'GB'),
+  ('Farice (way/78425266)', 'telecom', 'IS'),
+  ('Northern Lights', 'telecom', 'GB'),
+  ('Segment 2', 'telecom', 'FO'),
+  ('Segment 4', 'telecom', 'FO'),
+  ('SEGMENT10', 'telecom', 'FO'),
+  ('SHEFA-2 Seg 7-1', 'telecom', 'FO'),
+  ('SHEFA-2 Seg 7-3', 'telecom', 'GB'),
+  ('SHEFA-2 Seg 8', 'telecom', 'GB'),
+  ('SHEFA-2 Seg 9', 'telecom', 'GB')
+) as landing (cable_name, cable_kind, country_code) on cables.region_id = 'north-sea-shetland' and cables.name = landing.cable_name and cables.kind = landing.cable_kind
+on conflict do nothing;
