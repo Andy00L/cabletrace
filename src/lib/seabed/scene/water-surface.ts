@@ -24,7 +24,7 @@ const STANDARD_GRAVITY = 9.80665;
 const METRES_PER_KM = 1000;
 
 function buildWaveGlsl(): string {
-  const terms = WAVES.map((wave, index) => {
+  const terms = WAVES.map((wave) => {
     const wavenumber = (2 * Math.PI) / wave.wavelengthMetres;
     const angle = (wave.directionDegrees * Math.PI) / 180;
     // Scene x runs east and scene z runs south, so a wave heading north has a negative z component.
