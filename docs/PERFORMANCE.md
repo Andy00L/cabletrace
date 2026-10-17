@@ -239,7 +239,7 @@ Measured on a local production build (`bun run start`), 2026-10-17:
 | `/cases/eagle-s-2024`, 1280 x 720 | 2,542 px; 32.7% | 720 px; 57.1%, 41.9% clear |
 | `/cases/eagle-s-2024`, 1024 x 768 | 3,250 px; 18.0% | 768 px; 59.3% (the rail starts folded below 1,280 px) |
 | `/`, 1280 x 720 and 1024 x 768 | 876 px | 720 and 768 px: home is one screen (board 12a) |
-| `/cases`, 1280 x 720 and 1024 x 768 | 801 and 774 px | 720 and 768 px: four tiles to a row (board 12b) |
+| `/cases`, 1280 x 720 and 1024 x 768 | 801 and 774 px | 720 and 768 px: ten cases in compact rows grouped by region, three columns from 1,280 px |
 
 `bun scripts/perf/check-one-screen.ts` exits 0 on every page and viewport above.
 
@@ -266,4 +266,22 @@ Measured 2026-10-17 on the Vercel preview of the live globe and a local producti
 | JS on `/` and `/cases` | 197.6 KB. Before two fixes: 314 KB, because the land parser imported three.js into the /live route chunk and home prefetched it; then 212 KB from prefetching /live at all. The parser moved to a three-free module, and the Live links no longer prefetch |
 
 Not measured: frame rate on a real GPU and on a phone, and a full day of frames (the collector started at 09:10 UTC on 17 Oct 2026).
+
+World lines, line crossings and the dive (PR 30), measured the same evening on SwiftShader on a shared machine under a
+load of 14 to 17, alternating main and the branch six runs a side:
+
+| What | Result |
+|---|---|
+| Globe ready, from navigation | main 2,319 and 3,095 ms; with the world lines 1,913 and 2,461 ms, after moving the lines' fetch, build and shader compile to after the globe shows (before that move the branch was 0.4 to 1 s slower than main) |
+| World lines file | `public/globe/cables.json`, 4,186 lines, 567 KB raw, 112.8 KB on the wire |
+| Ships that crossed a clicked line | 41 frames checked in 5.1 s; 14 s on a later run with more frames under load 14 |
+| Dive into a case | the view transition started 3.1 s after the click and the case console was in place 1.25 s later |
+| JS on `/live` | 391.8 KB, up 20.5 KB for three.js line addons and the new cards |
+
+Home's JS crossed its budget with PR 19 and PR 20 (200.2 KB, then 202.7 KB, measured on each production deployment):
+home prefetches the case console's chunks for its case links, and the section bar prefetched the WebGL check's probes.
+The WebGL check link no longer prefetches (PR 37): home loads 195.4 KB on production, under the 200 KB budget.
+
+`/api/health` reads Supabase three times a call, so its answer is cached at the CDN for 30 s (PR 35): the second
+request is `x-vercel-cache: HIT`.
 
