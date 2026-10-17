@@ -3,7 +3,8 @@ import type { CableKind, CableLine, ShipSize, TrackPoint } from "@/lib/detection
 
 // Parses the payload of public.detection_inputs() (supabase/migrations/20261018300000_detections.sql): recorded
 // positions, the static data of the ships they belong to, and the cable routes as GeoJSON. The edge function and the
-// backtest both read this one shape, validated once here where it enters.
+// backtest both read this one shape, validated once here where it enters. Each position is a row array, not an object
+// with named keys: the payload crosses the database's egress on every call, and rows are a third of the size.
 
 export type ShipTrack = { mmsi: number; ship: ShipSize; track: TrackPoint[] };
 export type DetectionInputs = { tracks: ShipTrack[]; cables: CableLine[] };
@@ -14,32 +15,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readFinite(source: Record<string, unknown>, key: string): number | null {
-  const value = source[key];
+function toFinite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readFinite(source: Record<string, unknown>, key: string): number | null {
+  return toFinite(source[key]);
 }
 
 function isCableKind(value: unknown): value is CableKind {
   return CABLE_KINDS.some((kind) => kind === value);
 }
 
+// One position row: [mmsi, epoch seconds, longitude, latitude, speed knots, course, heading, navigational status],
+// the last four null when the ship did not report them.
+const POSITION_ROW_LENGTH = 8;
+const MS_PER_SECOND = 1000;
+
+/** A reported value: a finite number, or null when the ship did not report it; anything else is malformed. */
+function readOptionalAt(row: readonly unknown[], index: number): { isValid: boolean; value: number | null } {
+  const value = toFinite(row[index]);
+  return { isValid: value !== null || row[index] === null, value };
+}
+
 function parsePosition(value: unknown): { mmsi: number; point: TrackPoint } | null {
-  if (!isRecord(value)) return null;
-  const mmsi = readFinite(value, "mmsi");
-  const atMs = readFinite(value, "atMs");
-  const longitude = readFinite(value, "longitude");
-  const latitude = readFinite(value, "latitude");
-  if (mmsi === null || atMs === null || longitude === null || latitude === null) return null;
+  if (!Array.isArray(value) || value.length !== POSITION_ROW_LENGTH) return null;
+  const mmsi = toFinite(value[0]);
+  const epochSeconds = toFinite(value[1]);
+  const longitude = toFinite(value[2]);
+  const latitude = toFinite(value[3]);
+  const speed = readOptionalAt(value, 4);
+  const course = readOptionalAt(value, 5);
+  const heading = readOptionalAt(value, 6);
+  const status = readOptionalAt(value, 7);
+  if (mmsi === null || epochSeconds === null || longitude === null || latitude === null) return null;
+  if (!speed.isValid || !course.isValid || !heading.isValid || !status.isValid) return null;
   return {
     mmsi,
     point: {
-      atMs,
+      atMs: epochSeconds * MS_PER_SECOND,
       longitude,
       latitude,
-      speedKnots: readFinite(value, "speedKnots"),
-      courseDegrees: readFinite(value, "courseDegrees"),
-      headingDegrees: readFinite(value, "headingDegrees"),
-      navigationStatus: readFinite(value, "navigationStatus"),
+      speedKnots: speed.value,
+      courseDegrees: course.value,
+      headingDegrees: heading.value,
+      navigationStatus: status.value,
     },
   };
 }

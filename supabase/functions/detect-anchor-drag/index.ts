@@ -1,4 +1,4 @@
-// Anchor-drag detector: every 5 minutes (pg_cron, supabase/migrations/20261018300000_detections.sql) it reads the
+// Anchor-drag detector: every 30 minutes (pg_cron, supabase/migrations/20261018300000_detections.sql) it reads the
 // last 6 hours of recorded Gulf of Finland positions, runs the shared detector (src/lib/detection, imported through
 // this folder's deno.json import map), and hands every alert- or watch-level detection to public.upsert_detections.
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";

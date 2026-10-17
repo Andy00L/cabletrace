@@ -28,6 +28,10 @@ alter table public.detections enable row level security;
 -- What the detector reads on each call: recorded positions of the last `lookback_minutes`, the static data of
 -- those ships, and every cable route as GeoJSON. Parsed by src/lib/detection/detection-inputs.ts; the backtest
 -- (scripts/backtest/recorded-traffic.ts) builds the same payload for past spans. Keep the two in step.
+-- Each position is a row [mmsi, epoch seconds, longitude, latitude, speed, course, heading, status], and only ships
+-- with at least one report in the 2 to 9 knot drag band or without a reported speed are sent: the same test as
+-- isDetectionCandidate in src/lib/detection/assess-fleet.ts, which explains why it drops no detection. Both cut the
+-- payload from 3.6 to 0.85 MB (17 Oct 2026), and every call counts against the database's egress.
 create or replace function public.detection_inputs(lookback_minutes integer default 360)
 returns jsonb
 language sql
@@ -39,25 +43,31 @@ as $$
     select p.*
     from public.vessel_positions p
     where p.observed_at > now() - make_interval(mins => greatest(1, least(lookback_minutes, 1440)))
+  ),
+  -- DRAG_SPEED_MIN_KNOTS and DRAG_SPEED_MAX_KNOTS in src/lib/detection/drag-rules.ts.
+  candidate_positions as (
+    select w.*
+    from window_positions w
+    where w.mmsi in (select mmsi from window_positions where speed_knots is null or speed_knots between 2 and 9)
   )
   select jsonb_build_object(
     'positions', coalesce((
-      select jsonb_agg(jsonb_build_object(
-        'mmsi', p.mmsi,
-        'atMs', floor(extract(epoch from p.observed_at) * 1000),
-        'longitude', extensions.st_x(p.position::extensions.geometry),
-        'latitude', extensions.st_y(p.position::extensions.geometry),
-        'speedKnots', p.speed_knots,
-        'courseDegrees', p.course_degrees,
-        'headingDegrees', p.heading_degrees,
-        'navigationStatus', p.navigation_status
+      select jsonb_agg(jsonb_build_array(
+        p.mmsi,
+        floor(extract(epoch from p.observed_at)),
+        round(extensions.st_x(p.position::extensions.geometry)::numeric, 5),
+        round(extensions.st_y(p.position::extensions.geometry)::numeric, 5),
+        p.speed_knots,
+        p.course_degrees,
+        p.heading_degrees,
+        p.navigation_status
       ) order by p.mmsi, p.observed_at)
-      from window_positions p
+      from candidate_positions p
     ), '[]'::jsonb),
     'vessels', coalesce((
       select jsonb_agg(jsonb_build_object('mmsi', v.mmsi, 'name', v.name, 'shipType', v.ship_type, 'draughtMetres', v.draught_metres))
       from public.vessels v
-      where v.mmsi in (select distinct mmsi from window_positions)
+      where v.mmsi in (select distinct mmsi from candidate_positions)
     ), '[]'::jsonb),
     'cables', coalesce((
       select jsonb_agg(jsonb_build_object('name', c.name, 'kind', c.kind, 'route', extensions.st_asgeojson(c.route::extensions.geometry, 6)::jsonb) order by c.id)
@@ -66,7 +76,7 @@ as $$
   );
 $$;
 
--- Stores detections and returns how many were written. The detector runs every 5 minutes over a sliding 6-hour
+-- Stores detections and returns how many were written. The detector runs every 30 minutes over a sliding 6-hour
 -- window, so the same event comes back on many calls: a detection of the same ship whose time window overlaps a
 -- stored one updates it instead of adding a row. The window grows to cover both and an alert never drops back to
 -- watch. The evidence columns (tens of kB) are rewritten when the new evidence is stronger, or equally strong and the
@@ -138,8 +148,10 @@ begin
 end;
 $$;
 
--- Detections whose window ended in the last `since_hours` (1 to 720), alerts first, then by score, for the site with
--- the publishable key. Runs as its owner so the table itself needs no public policy.
+-- The newest detections whose window ended in the last `since_hours` (1 to 168), alerts first, then by score, for
+-- the site with the publishable key. Runs as its owner so the table itself needs no public policy. Anyone can call
+-- it, so one call stays small: at most 50 rows, and without the anchor path and the gaps, which detection_detail
+-- returns for one row at a time.
 create or replace function public.recent_detections(since_hours integer default 72)
 returns jsonb
 language sql
@@ -148,6 +160,38 @@ security definer
 set search_path = ''
 as $$
   select coalesce(jsonb_agg(jsonb_build_object(
+    'id', ranked.id,
+    'mmsi', ranked.mmsi,
+    'name', ranked.name,
+    'level', ranked.level,
+    'score', ranked.score,
+    'startAt', ranked.start_at,
+    'endAt', ranked.end_at,
+    'evidence', ranked.evidence,
+    'cableCrossings', ranked.cable_crossings,
+    'firstDetectedAt', ranked.first_detected_at,
+    'updatedAt', ranked.updated_at
+  ) order by ranked.rank_order), '[]'::jsonb)
+  from (
+    select d.*, v.name, row_number() over (order by d.level = 'alert' desc, d.score desc, d.start_at desc) as rank_order
+    from public.detections d
+    left join public.vessels v on v.mmsi = d.mmsi
+    where d.end_at > now() - make_interval(hours => greatest(1, least(since_hours, 168)))
+    order by rank_order
+    limit 50
+  ) ranked;
+$$;
+
+-- One detection in full, with the reconstructed anchor path, the anchor model and the reporting gaps; null when no
+-- row has that id.
+create or replace function public.detection_detail(detection_id bigint)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select jsonb_build_object(
     'id', d.id,
     'mmsi', d.mmsi,
     'name', v.name,
@@ -162,10 +206,10 @@ as $$
     'gaps', d.gaps,
     'firstDetectedAt', d.first_detected_at,
     'updatedAt', d.updated_at
-  ) order by d.level = 'alert' desc, d.score desc, d.start_at desc), '[]'::jsonb)
+  )
   from public.detections d
   left join public.vessels v on v.mmsi = d.mmsi
-  where d.end_at > now() - make_interval(hours => greatest(1, least(since_hours, 720)));
+  where d.id = detection_id;
 $$;
 
 -- Only the detector (service role) reads its inputs and writes; everyone may read the detections.
@@ -173,13 +217,17 @@ revoke execute on function public.detection_inputs(integer) from public, anon, a
 revoke execute on function public.upsert_detections(jsonb) from public, anon, authenticated;
 grant execute on function public.detection_inputs(integer) to service_role;
 grant execute on function public.upsert_detections(jsonb) to service_role;
+revoke execute on function public.recent_detections(integer) from public;
+revoke execute on function public.detection_detail(bigint) from public;
 grant execute on function public.recent_detections(integer) to anon, authenticated;
+grant execute on function public.detection_detail(bigint) to anon, authenticated;
 
--- Every 5 minutes: run the detector. The function address and its shared secret live in Supabase Vault
--- (names detector_function_url and detector_secret), never in this file.
+-- Every 30 minutes (DETECTION_INTERVAL_MS in src/lib/detection/assess-fleet.ts), at 4 and 34 past the hour, clear
+-- of the ship-frame collector's listening minutes. The function address and its shared secret live in Supabase
+-- Vault (names detector_function_url and detector_secret), never in this file.
 select cron.schedule(
   'detect-anchor-drag',
-  '*/5 * * * *',
+  '4,34 * * * *',
   $$
   select net.http_post(
     url := (select decrypted_secret from vault.decrypted_secrets where name = 'detector_function_url'),

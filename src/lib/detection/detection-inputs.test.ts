@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { assessFleet } from "./assess-fleet";
+import { assessFleet, isDetectionCandidate } from "./assess-fleet";
 import { parseDetectionInputs } from "./detection-inputs";
 import { sailLegs, steadySpeed } from "./synthetic-tracks";
 
 // The shape public.detection_inputs() returns (supabase/migrations/20261018300000_detections.sql).
 const PAYLOAD = {
+  // [mmsi, epoch seconds, longitude, latitude, speed, course, heading, status]
   positions: [
-    { mmsi: 1, atMs: 1_000, longitude: 25, latitude: 59.9, speedKnots: 7.5, courseDegrees: 90, headingDegrees: 91, navigationStatus: 0 },
-    { mmsi: 1, atMs: 61_000, longitude: 25.01, latitude: 59.9, speedKnots: null, courseDegrees: null, headingDegrees: null, navigationStatus: null },
-    { mmsi: 2, atMs: 1_000, longitude: 26, latitude: 60, speedKnots: 0.1, courseDegrees: 10, headingDegrees: 10, navigationStatus: 1 },
+    [1, 1, 25, 59.9, 7.5, 90, 91, 0],
+    [1, 61, 25.01, 59.9, null, null, null, null],
+    [2, 1, 26, 60, 0.1, 10, 10, 1],
   ],
   vessels: [{ mmsi: 1, name: "TEST", shipType: 70, draughtMetres: 9.1 }],
   cables: [
@@ -24,6 +25,7 @@ describe("parseDetectionInputs", () => {
     if (!parsed.ok) return;
     const firstShip = parsed.value.tracks.find((track) => track.mmsi === 1);
     expect(firstShip?.track).toHaveLength(2);
+    expect(firstShip?.track[1]?.atMs).toBe(61_000);
     expect(firstShip?.track[1]?.speedKnots).toBeNull();
     expect(firstShip?.ship).toEqual({ lengthMetres: null, beamMetres: null, draughtMetres: 9.1, shipType: 70, antennaFromBowMetres: null });
     expect(parsed.value.tracks.find((track) => track.mmsi === 2)?.ship.shipType).toBeNull();
@@ -31,7 +33,9 @@ describe("parseDetectionInputs", () => {
   });
 
   test("one malformed position or route fails the whole payload", () => {
-    expect(parseDetectionInputs({ ...PAYLOAD, positions: [...PAYLOAD.positions, { mmsi: 3, atMs: "late" }] }).ok).toBe(false);
+    expect(parseDetectionInputs({ ...PAYLOAD, positions: [...PAYLOAD.positions, [3, "late", 25, 60, null, null, null, null]] }).ok).toBe(false);
+    expect(parseDetectionInputs({ ...PAYLOAD, positions: [...PAYLOAD.positions, [3, 1, 25, 60, "fast", null, null, null]] }).ok).toBe(false);
+    expect(parseDetectionInputs({ ...PAYLOAD, positions: [...PAYLOAD.positions, [3, 1, 25, 60]] }).ok).toBe(false);
     expect(parseDetectionInputs({ ...PAYLOAD, cables: [{ name: "Broken", kind: "telecom", route: { type: "LineString", coordinates: [[24, "x"]] } }] }).ok).toBe(false);
     expect(parseDetectionInputs({ ...PAYLOAD, cables: [{ name: "Odd", kind: "sewer", route: PAYLOAD.cables[1]?.route }] }).ok).toBe(false);
     expect(parseDetectionInputs(null).ok).toBe(false);
@@ -61,5 +65,19 @@ describe("assessFleet", () => {
       [20, "alert"],
       [10, "watch"],
     ]);
+  });
+});
+
+describe("isDetectionCandidate", () => {
+  const point = (speedKnots: number | null) => ({ atMs: 0, longitude: 25, latitude: 60, speedKnots, courseDegrees: null, headingDegrees: null, navigationStatus: 0 });
+
+  test("keeps a ship with one report in the drag band or one without a reported speed", () => {
+    expect(isDetectionCandidate([point(12), point(8.5), point(12)])).toBe(true);
+    expect(isDetectionCandidate([point(12), point(null)])).toBe(true);
+  });
+
+  test("leaves out a ship that only cruised above the band or lay still under it", () => {
+    expect(isDetectionCandidate([point(11), point(12.4), point(9.1)])).toBe(false);
+    expect(isDetectionCandidate([point(0.1), point(1.9)])).toBe(false);
   });
 });

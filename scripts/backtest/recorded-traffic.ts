@@ -1,9 +1,9 @@
 // Replays the live recorder's Gulf of Finland traffic (public.vessel_positions) through the detector on the same
-// 5-minute schedule and 6-hour lookback the edge function uses, and counts the distinct alerts it would have raised.
+// 30-minute schedule and 6-hour lookback the edge function uses, and counts the distinct alerts it would have raised.
 // Reads with SELECT statements only, through the Supabase Management API (SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF).
 import type { Result } from "@/lib/result";
 import type { DepthLookup } from "@/lib/detection/detection-types";
-import { DETECTION_INTERVAL_MS, DETECTION_LOOKBACK_MS, assessFleet, type FleetDetection } from "@/lib/detection/assess-fleet";
+import { DETECTION_INTERVAL_MS, DETECTION_LOOKBACK_MS, assessFleet, isDetectionCandidate, type FleetDetection } from "@/lib/detection/assess-fleet";
 import { parseDetectionInputs, type DetectionInputs, type ShipTrack } from "@/lib/detection/detection-inputs";
 
 // The only Supabase project this script may read (CableTrace production).
@@ -21,7 +21,8 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
  * Same payload shape as public.detection_inputs() in supabase/migrations/20261018300000_detections.sql, for a fixed
- * time span instead of the last hours. Keep the two in step.
+ * time span instead of the last hours. Keep the two in step. It sends every ship: the live query's candidate filter
+ * depends on the window, so the replay applies it per tick (isDetectionCandidate) and checks that it drops nothing.
  */
 function buildInputsQuery(fromMs: number, toMs: number): string {
   const from = new Date(fromMs).toISOString();
@@ -33,15 +34,15 @@ function buildInputsQuery(fromMs: number, toMs: number): string {
     )
     select jsonb_build_object(
       'positions', coalesce((
-        select jsonb_agg(jsonb_build_object(
-          'mmsi', p.mmsi,
-          'atMs', floor(extract(epoch from p.observed_at) * 1000),
-          'longitude', extensions.st_x(p.position::extensions.geometry),
-          'latitude', extensions.st_y(p.position::extensions.geometry),
-          'speedKnots', p.speed_knots,
-          'courseDegrees', p.course_degrees,
-          'headingDegrees', p.heading_degrees,
-          'navigationStatus', p.navigation_status
+        select jsonb_agg(jsonb_build_array(
+          p.mmsi,
+          floor(extract(epoch from p.observed_at)),
+          round(extensions.st_x(p.position::extensions.geometry)::numeric, 5),
+          round(extensions.st_y(p.position::extensions.geometry)::numeric, 5),
+          p.speed_knots,
+          p.course_degrees,
+          p.heading_degrees,
+          p.navigation_status
         ) order by p.mmsi, p.observed_at)
         from window_positions p
       ), '[]'::jsonb),
@@ -129,7 +130,18 @@ export async function fetchRecordedTraffic(credentials: QueryCredentials): Promi
 /** One alert as the edge function would keep it: the same ship's overlapping windows merged across runs. */
 export type AlertEvent = { mmsi: number; startMs: number; endMs: number; bestScore: number; best: FleetDetection; firstRaisedAtMs: number };
 
-export type ReplayResult = { tickCount: number; coveredDays: number; alerts: AlertEvent[]; watchCount: number; positionCount: number; shipCount: number };
+export type ReplayResult = {
+  tickCount: number;
+  coveredDays: number;
+  alerts: AlertEvent[];
+  watchCount: number;
+  positionCount: number;
+  shipCount: number;
+  /** Ship tracks that produced a detection at some tick; every one must pass the live query's candidate filter. */
+  flaggedTrackCount: number;
+  /** Of those, how many the candidate filter would have left out of the live query (a correct filter: 0). */
+  droppedByFilterCount: number;
+};
 
 function mergeEvent(events: AlertEvent[], found: FleetDetection, tickMs: number): void {
   const { mmsi, detection } = found;
@@ -146,11 +158,13 @@ function mergeEvent(events: AlertEvent[], found: FleetDetection, tickMs: number)
   }
 }
 
-/** Runs the fleet detector at every 5-minute tick over the trailing 6 hours, like the live schedule. */
+/** Runs the fleet detector at every 30-minute tick over the trailing 6 hours, like the live schedule. */
 export function replayRecordedTraffic(traffic: RecordedTraffic, depthAt: DepthLookup | null): ReplayResult {
   const alerts: AlertEvent[] = [];
   const watches: AlertEvent[] = [];
   let tickCount = 0;
+  let flaggedTrackCount = 0;
+  let droppedByFilterCount = 0;
   const firstTickMs = traffic.firstMs + DETECTION_INTERVAL_MS;
   for (let tickMs = firstTickMs; tickMs <= traffic.lastMs + DETECTION_INTERVAL_MS; tickMs += DETECTION_INTERVAL_MS) {
     tickCount += 1;
@@ -160,6 +174,11 @@ export function replayRecordedTraffic(traffic: RecordedTraffic, depthAt: DepthLo
       .filter((shipTrack) => shipTrack.track.length > 0);
     const summary = assessFleet({ tracks, cables: traffic.inputs.cables, depthAt });
     for (const found of summary.detections) mergeEvent(found.detection.level === "alert" ? alerts : watches, found, tickMs);
+    for (const mmsi of new Set(summary.detections.map((found) => found.mmsi))) {
+      flaggedTrackCount += 1;
+      const flaggedTrack = tracks.find((shipTrack) => shipTrack.mmsi === mmsi)?.track ?? [];
+      if (!isDetectionCandidate(flaggedTrack)) droppedByFilterCount += 1;
+    }
   }
   // An alert window that also produced watch-level runs counts once, as the alert.
   const watchOnly = watches.filter((watch) => !alerts.some((alert) => alert.mmsi === watch.mmsi && alert.startMs <= watch.endMs && watch.startMs <= alert.endMs));
@@ -170,5 +189,7 @@ export function replayRecordedTraffic(traffic: RecordedTraffic, depthAt: DepthLo
     watchCount: watchOnly.length,
     positionCount: traffic.inputs.tracks.reduce((sum, shipTrack) => sum + shipTrack.track.length, 0),
     shipCount: traffic.inputs.tracks.length,
+    flaggedTrackCount,
+    droppedByFilterCount,
   };
 }

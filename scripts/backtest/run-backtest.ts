@@ -97,7 +97,7 @@ function checkYiPeng3(seabed: SeabedInputs): Row[] {
     measured: archiveAlert ? `${minutesBetween(publishedEndMs, archiveAlert.endMs)} min (${formatUtc(archiveAlert.endMs)})` : "no alert",
     passed: archiveAlert !== null && Math.abs(archiveAlert.endMs - publishedEndMs) <= END_TOLERANCE_MS,
   });
-  // The live schedule sees only the trailing 6 hours at each 5-minute tick, and no report after the tick.
+  // The live schedule sees only the trailing 6 hours at each 30-minute tick, and no report after the tick.
   let firstAlertTickMs: number | null = null;
   for (let tickMs = firstReportMs + DETECTION_INTERVAL_MS; tickMs <= (archiveTrack[archiveTrack.length - 1]?.atMs ?? 0) + DETECTION_INTERVAL_MS; tickMs += DETECTION_INTERVAL_MS) {
     const visible = archiveTrack.filter((point) => point.atMs <= tickMs && point.atMs > tickMs - DETECTION_LOOKBACK_MS);
@@ -171,7 +171,7 @@ function checkRedTeam(seabed: SeabedInputs): Row[] {
   });
 }
 
-async function checkRecordedTraffic(): Promise<{ row: Row; details: string[] } | { failure: string }> {
+async function checkRecordedTraffic(): Promise<{ rows: Row[]; details: string[] } | { failure: string }> {
   const credentials = readQueryCredentials();
   if (!credentials.ok) return { failure: credentials.reason };
   const traffic = await fetchRecordedTraffic(credentials.value);
@@ -185,12 +185,20 @@ async function checkRecordedTraffic(): Promise<{ row: Row; details: string[] } |
     return `  alert: MMSI ${alert.mmsi} ${name}, score ${alert.bestScore}, ${formatUtc(alert.startMs)} to ${formatUtc(alert.endMs)}, rules: ${alert.best.detection.evidence.map((item) => item.rule).join(", ")}`;
   });
   return {
-    row: {
-      check: "Recorded Gulf of Finland traffic, live schedule replay",
-      expectation: `under ${MAX_ALERTS_PER_REGION_DAY} alert per region per day`,
-      measured: `${replay.alerts.length} alerts in ${(replay.coveredDays * 24).toFixed(1)} h (${alertsPerDay.toFixed(2)} per day), ${replay.watchCount} watch-level, ${replay.shipCount} ships, ${replay.positionCount} positions, ${formatUtc(traffic.value.firstMs)} to ${formatUtc(traffic.value.lastMs)}`,
-      passed: alertsPerDay < MAX_ALERTS_PER_REGION_DAY,
-    },
+    rows: [
+      {
+        check: "Recorded Gulf of Finland traffic, live schedule replay",
+        expectation: `under ${MAX_ALERTS_PER_REGION_DAY} alert per region per day`,
+        measured: `${replay.alerts.length} alerts in ${(replay.coveredDays * 24).toFixed(1)} h (${alertsPerDay.toFixed(2)} per day), ${replay.watchCount} watch-level, ${replay.shipCount} ships, ${replay.positionCount} positions, ${formatUtc(traffic.value.firstMs)} to ${formatUtc(traffic.value.lastMs)}`,
+        passed: alertsPerDay < MAX_ALERTS_PER_REGION_DAY,
+      },
+      {
+        check: "Recorded traffic, the live query's candidate filter",
+        expectation: "drops no ship the detector flags",
+        measured: `${replay.droppedByFilterCount} of ${replay.flaggedTrackCount} flagged tracks would have been left out`,
+        passed: replay.droppedByFilterCount === 0,
+      },
+    ],
     details,
   };
 }
@@ -218,7 +226,7 @@ async function main(): Promise<number> {
     console.error(`[main] the recorded-traffic check could not run: ${recorded.failure}`);
     return 2;
   }
-  const rows = [...checkYiPeng3(balticSeabed.value), checkEagleS(gulfSeabed.value), ...checkRedTeam(gulfSeabed.value), recorded.row];
+  const rows = [...checkYiPeng3(balticSeabed.value), checkEagleS(gulfSeabed.value), ...checkRedTeam(gulfSeabed.value), ...recorded.rows];
   printTable(rows);
   if (recorded.details.length > 0) process.stdout.write(`${recorded.details.join("\n")}\n`);
   const failedCount = rows.filter((row) => !row.passed).length;
