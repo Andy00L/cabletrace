@@ -6,6 +6,7 @@ import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
 import { LiveGlobeStage } from "@/components/live/LiveGlobeStage";
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
+import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/globe/coverage";
 import { pairShipFrames } from "@/lib/globe/frame-pairing";
 import type { FrameSource } from "@/lib/globe/frame-source";
 import type { GlobeViewer } from "@/lib/globe/globe-viewer";
@@ -14,6 +15,7 @@ import { daySpan, locateMoment } from "@/lib/globe/live-day";
 import type { WatchedLine } from "@/lib/globe/watched-line";
 import type { FrameIndexEntry } from "@/lib/live/frame-layout";
 import { readShipRecord, type ShipFrameColumns } from "@/lib/live/snapshot-codec";
+import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { formatUtcClock } from "@/lib/replay/format-utc";
 import { createReplayClock } from "@/lib/replay/replay-clock";
 
@@ -89,6 +91,10 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   const viewerRef = useRef<GlobeViewer | null>(null);
   const pairRef = useRef<ReturnType<typeof pairShipFrames> | null>(null);
   const selectedRef = useRef<number | null>(null);
+  // Where the feeds heard ships, grown from every frame this page decodes.
+  const [coverage] = useState(createCoverage);
+  const coverageMaskRef = useRef<Uint8Array | null>(null);
+  const [coverageFrameCount, setCoverageFrameCount] = useState(0);
 
   const readMinute = () => formatUtcClock(startMs + clock.getSnapshot().progress * spanMs);
   const minuteLabel = useSyncExternalStore(clock.subscribe, readMinute, readMinute);
@@ -112,6 +118,15 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
     let requestedKey: string | null = null;
     const currentMoment = () => locateMoment(entries, startMs + clock.getSnapshot().progress * spanMs);
 
+    /** Counts a decoded frame into the coverage and redraws the hatching when it heard somewhere new. */
+    function noteFrame(frame: ShipFrameColumns) {
+      if (isDisposed || !addFrameToCoverage(coverage, frame)) return;
+      const mask = renderCoverageMask(coverage);
+      coverageMaskRef.current = mask;
+      viewerRef.current?.setCoverage(mask);
+      setCoverageFrameCount(coverage.frameTimes.size);
+    }
+
     async function applyPair(earlierIndex: number, laterIndex: number | null, key: string) {
       const earlierEntry = entries[earlierIndex];
       const laterEntry = laterIndex === null ? undefined : entries[laterIndex];
@@ -125,6 +140,8 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
         return;
       }
       if (later && !later.ok) console.error(`[LiveDay] ${later.reason}`);
+      noteFrame(earlier.value);
+      if (later?.ok) noteFrame(later.value);
       const pair = pairShipFrames(earlier.value, later?.ok ? later.value : null);
       pairRef.current = pair;
       appliedKey = key;
@@ -144,7 +161,11 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       }
       // While the day plays, the frame after next downloads ahead of the moment that needs it.
       const nextEntry = located.laterIndex === null ? undefined : entries[located.laterIndex + 1];
-      if (clock.getSnapshot().isPlaying && nextEntry) void frameSource.loadFrame(nextEntry);
+      if (clock.getSnapshot().isPlaying && nextEntry) {
+        void frameSource.loadFrame(nextEntry).then((outcome) => {
+          if (outcome.ok) noteFrame(outcome.value);
+        });
+      }
     }
 
     const unsubscribe = clock.subscribe(update);
@@ -153,7 +174,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       isDisposed = true;
       unsubscribe();
     };
-  }, [clock, entries, frameSource, startMs, spanMs]);
+  }, [clock, coverage, entries, frameSource, startMs, spanMs]);
 
   // Looks up the selected ship's name and size, an outside service; a newer selection cancels an older answer.
   useEffect(() => {
@@ -183,6 +204,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       viewer.setFramePair(pairRef.current);
       viewer.setBlend(locateMoment(entries, startMs + clock.getSnapshot().progress * spanMs).blend);
       viewer.setSelectedShip(selectedRef.current);
+      viewer.setCoverage(coverageMaskRef.current);
     },
     [clock, entries, startMs, spanMs],
   );
@@ -252,6 +274,13 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
               </svg>
               Pipeline
             </span>
+            <span className="inline-flex items-center gap-1.5" data-testid="live-coverage-legend">
+              <svg width="18" height="12" viewBox="0 0 18 12" aria-hidden="true" className="rounded-[3px]">
+                <rect width="18" height="12" fill={WEBGL_COLORS.depth40} />
+                <path d="M-3 9 L6 0 M4 13 L17 0 M11 13 L21 3" stroke={WEBGL_COLORS.depthDeep} strokeWidth="1.2" />
+              </svg>
+              No feed hears this sea
+            </span>
           </div>
           <Popover.Root>
             <Popover.Trigger
@@ -274,6 +303,11 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
                   A frame every 10 minutes holds every ship the feeds heard in it. Between two frames each ship moves in a straight line from one
                   report to the next, and a ship that leaves a frame fades out. A move faster than 50 knots is drawn as a jump: a bad position or a
                   reused identity, not a voyage.
+                </p>
+                <p className="text-small">
+                  Hatched sea: no ship heard within about 55 km in the <span className="tabular-nums">{coverageFrameCount}</span>{" "}
+                  {coverageFrameCount === 1 ? "frame" : "frames"} loaded so far. The feeds are coastal receivers, so a ship out there goes unseen; the sea
+                  is not empty.
                 </p>
                 <ul className="flex flex-col gap-1.5 text-caption font-normal text-muted">
                   {CREDITS.map((credit) => (

@@ -48,8 +48,8 @@ export function MomentCard({ minuteLabel, shipCount, digitrafficCount }: { minut
       {shipCount !== null && (
         <p className="text-caption font-normal text-muted">
           <span className="tabular-nums">{(shipCount - digitrafficCount).toLocaleString("en-US")}</span> from {SOURCE_CREDITS.aisstream},{" "}
-          <span className="tabular-nums">{digitrafficCount.toLocaleString("en-US")}</span> from {SOURCE_CREDITS.digitraffic}. Coastal receivers only: open
-          ocean looks empty because no receiver hears it, not because no ship is there.
+          <span className="tabular-nums">{digitrafficCount.toLocaleString("en-US")}</span> from {SOURCE_CREDITS.digitraffic}. Coastal receivers only: where
+          the globe is hatched none of them heard a ship. Ships sail there too; no receiver reaches them.
         </p>
       )}
     </section>

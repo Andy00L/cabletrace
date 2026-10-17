@@ -4,6 +4,7 @@ import { detectRendererKind, type RendererKind } from "@/lib/diagnostics/webgl-r
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import type { FramePair } from "@/lib/globe/frame-pairing";
 import type { LandPolygons } from "@/lib/globe/land-polygons";
+import { COVERAGE_HEIGHT, COVERAGE_WIDTH } from "@/lib/globe/coverage";
 import { createLandTexture, WORLD_BOX, type LandBox } from "@/lib/globe/land-texture";
 import { writeUnitVector } from "@/lib/globe/sphere";
 import type { WatchedLine } from "@/lib/globe/watched-line";
@@ -53,6 +54,9 @@ const RIM_RADIUS = 1.035;
 // long (docs/UI_DESIGN_SYSTEM.md, Motion: duration-large for camera moves inside the UI).
 const FOCUS_DISTANCE = 1.3;
 const FOCUS_MOVE_MS = 900;
+// The hatching over sea no feed heard (CSS px): a thin diagonal line every 7 px, in the depth-deep tone.
+const HATCH_SPACING_PX = 7;
+const HATCH_LINE_PX = 1.2;
 
 export type GlobeViewer = {
   /** The two frames to blend between, or null while none is loaded. */
@@ -60,6 +64,8 @@ export type GlobeViewer = {
   /** Where the moment sits between the pair's frames, 0 to 1. */
   setBlend: (blend: number) => void;
   setSelectedShip: (mmsi: number | null) => void;
+  /** Where the feeds heard ships (src/lib/globe/coverage.ts, renderCoverageMask), or null to hatch nothing. */
+  setCoverage: (mask: Uint8Array | null) => void;
   /** Flies the camera over a ship of the current pair; false when the pair does not hold it. */
   focusShip: (mmsi: number) => boolean;
   /** Width of a panel floating over the right edge (CSS px); the globe centres on what is left. */
@@ -81,8 +87,10 @@ const GLOBE_VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vNormal;
   varying vec3 vViewDirection;
+  varying vec3 vSurface;
   void main() {
     vUv = uv;
+    vSurface = position;
     vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
     vNormal = normalize(normalMatrix * normal);
     vViewDirection = normalize(-viewPosition.xyz);
@@ -90,16 +98,34 @@ const GLOBE_VERTEX_SHADER = /* glsl */ `
   }
 `;
 
-// The texture holds the palette as raw sRGB bytes; the limb darkens a little so the sphere reads round.
+// The texture holds the palette as raw sRGB bytes; the limb darkens a little so the sphere reads round. Sea the feeds
+// did not hear (the coverage mask, src/lib/globe/coverage.ts) is hatched in screen space, the cartographer's mark for
+// "no data", so it never reads as an empty sea. The mask is indexed by longitude and latitude from the surface point,
+// which serves the world sphere and the sharper patch over northern Europe alike.
 const GLOBE_FRAGMENT_SHADER = /* glsl */ `
   uniform sampler2D uLand;
+  uniform sampler2D uCoverage;
+  uniform float uHasCoverage;
+  uniform vec3 uWater;
+  uniform vec3 uHatch;
+  uniform float uHatchSpacing;
+  uniform float uHatchHalfWidth;
   varying vec2 vUv;
   varying vec3 vNormal;
   varying vec3 vViewDirection;
+  varying vec3 vSurface;
+  const float PI = 3.141592653589793;
   void main() {
+    vec3 color = texture2D(uLand, vUv).rgb;
+    vec3 surface = normalize(vSurface);
+    vec2 coverageUv = vec2((atan(-surface.z, surface.x) + PI) / (2.0 * PI), (0.5 * PI - asin(clamp(surface.y, -1.0, 1.0))) / PI);
+    float heard = texture2D(uCoverage, coverageUv).r;
+    float water = 1.0 - smoothstep(0.015, 0.05, distance(color, uWater));
+    float stripe = abs(fract((gl_FragCoord.x + gl_FragCoord.y) / uHatchSpacing) - 0.5) * uHatchSpacing;
+    float hatch = 1.0 - smoothstep(uHatchHalfWidth - 0.5, uHatchHalfWidth + 0.5, stripe);
+    color = mix(color, uHatch, hatch * water * (1.0 - heard) * uHasCoverage);
     float facing = clamp(dot(normalize(vNormal), normalize(vViewDirection)), 0.0, 1.0);
-    vec3 color = texture2D(uLand, vUv).rgb * mix(0.86, 1.0, sqrt(facing));
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(color * mix(0.86, 1.0, sqrt(facing)), 1.0);
   }
 `;
 
@@ -230,8 +256,24 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   landTexture.anisotropy = anisotropy;
   const detailTexture = createLandTexture(land, { box: DETAIL_BOX, width: tier.detailTextureWidth, height: tier.detailTextureWidth / 2 });
   detailTexture.anisotropy = anisotropy;
+  // Until the first frame lands nothing is known about coverage, so nothing is hatched.
+  const coverageData = new Uint8Array(COVERAGE_WIDTH * COVERAGE_HEIGHT);
+  const coverageTexture = new THREE.DataTexture(coverageData, COVERAGE_WIDTH, COVERAGE_HEIGHT, THREE.RedFormat, THREE.UnsignedByteType);
+  coverageTexture.magFilter = THREE.LinearFilter;
+  coverageTexture.minFilter = THREE.LinearFilter;
+  coverageTexture.wrapS = THREE.RepeatWrapping;
+  coverageTexture.needsUpdate = true;
+  // Shared by both surface materials, so one update reaches the world sphere and the northern Europe patch.
+  const coverageUniforms = {
+    uCoverage: { value: coverageTexture },
+    uHasCoverage: { value: 0 },
+    uWater: { value: toRawColor(WEBGL_COLORS.depth40) },
+    uHatch: { value: toRawColor(WEBGL_COLORS.depthDeep) },
+    uHatchSpacing: { value: HATCH_SPACING_PX },
+    uHatchHalfWidth: { value: HATCH_LINE_PX / 2 },
+  };
   const createSurfaceMaterial = (texture: THREE.Texture) =>
-    new THREE.ShaderMaterial({ uniforms: { uLand: { value: texture } }, vertexShader: GLOBE_VERTEX_SHADER, fragmentShader: GLOBE_FRAGMENT_SHADER });
+    new THREE.ShaderMaterial({ uniforms: { uLand: { value: texture }, ...coverageUniforms }, vertexShader: GLOBE_VERTEX_SHADER, fragmentShader: GLOBE_FRAGMENT_SHADER });
   const globe = new THREE.Mesh(new THREE.SphereGeometry(1, tier.sphereSegments, tier.sphereSegments / 2), createSurfaceMaterial(landTexture));
   // SphereGeometry puts u = 0 at -x and u = 0.25 at +z, the same frame as writeUnitVector (longitude -180 at -x,
   // -90 at +z), and v = 0 at the north pole: the equirectangular land texture lines up with the ships unrotated.
@@ -436,6 +478,8 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     const pointPx = Math.max(SHIP_POINT_MIN_PX, Math.min(SHIP_POINT_MAX_PX, SHIP_POINT_PX * ((HOME_DISTANCE - 1) / Math.max(0.02, distance - 1)) ** 0.5));
     shipMaterial.uniforms.uPointSize.value = pointPx * pixelRatio;
     ring.material.uniforms.uPointSize.value = SELECTION_RING_PX * pixelRatio;
+    coverageUniforms.uHatchSpacing.value = HATCH_SPACING_PX * pixelRatio;
+    coverageUniforms.uHatchHalfWidth.value = (HATCH_LINE_PX * pixelRatio) / 2;
     renderer.render(scene, camera);
   }
   renderer
@@ -475,6 +519,16 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
       setSelectedShip(mmsi) {
         selectedMmsi = mmsi;
         placeRing();
+        markDirty();
+      },
+      setCoverage(mask) {
+        if (mask === null) {
+          coverageUniforms.uHasCoverage.value = 0;
+        } else {
+          coverageData.set(mask.subarray(0, coverageData.length));
+          coverageTexture.needsUpdate = true;
+          coverageUniforms.uHasCoverage.value = 1;
+        }
         markDirty();
       },
       focusShip(mmsi) {
@@ -522,6 +576,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         });
         landTexture.dispose();
         detailTexture.dispose();
+        coverageTexture.dispose();
         renderer.dispose();
         renderer.forceContextLoss();
         renderer.domElement.remove();
