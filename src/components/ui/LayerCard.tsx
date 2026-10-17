@@ -1,5 +1,6 @@
 "use client";
 
+import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
 import { useRef, type ReactNode } from "react";
 import { Icon } from "@/components/icons/Icon";
@@ -23,6 +24,8 @@ type LayerCardProps = {
   hidesWhenDetached?: boolean;
   /** Room kept between the card and the boundary's edges (CSS px), wider on a side a panel covers. */
   collisionPadding?: number | Partial<Record<"top" | "right" | "bottom" | "left", number>>;
+  /** `popover` sits next to its anchor; `sheet` docks to the bottom of a phone screen, where no anchor has room. */
+  presentation?: "popover" | "sheet";
   width?: number;
   testId?: string;
   children: ReactNode;
@@ -47,11 +50,41 @@ export function LayerCard({
   followsAnchor = false,
   hidesWhenDetached = false,
   collisionPadding = 16,
+  presentation = "popover",
   width = 360,
   testId,
   children,
 }: LayerCardProps) {
   const openerRef = useRef<HTMLElement | null>(null);
+  const rememberOpener = () => {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  };
+  const returnFocus = (event: Event) => {
+    event.preventDefault();
+    openerRef.current?.focus();
+  };
+
+  if (presentation === "sheet") {
+    // Not modal, like the popover: the scene and the dock stay usable under it; Esc and the close button close it.
+    return (
+      <Dialog.Root open={isOpen} modal={false} onOpenChange={(nextIsOpen) => !nextIsOpen && onClose()}>
+        <Dialog.Portal>
+          <Dialog.Content
+            aria-describedby={undefined}
+            onOpenAutoFocus={rememberOpener}
+            onCloseAutoFocus={returnFocus}
+            onInteractOutside={(event) => event.preventDefault()}
+            className="fixed inset-x-4 bottom-4 z-(--layer-popover) flex max-h-[70svh] flex-col gap-3.5 overflow-y-auto rounded-row bg-card p-5 text-ink shadow-popover outline-none data-[state=closed]:animate-layer-exit data-[state=open]:animate-layer-enter"
+            data-testid={testId}
+          >
+            <Dialog.Title className="sr-only">{label}</Dialog.Title>
+            {children}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    );
+  }
+
   return (
     <Popover.Root open={isOpen && anchor !== null} onOpenChange={(nextIsOpen) => !nextIsOpen && onClose()}>
       {anchor && <Popover.Anchor virtualRef={{ current: anchor }} />}
@@ -65,13 +98,8 @@ export function LayerCard({
           collisionPadding={collisionPadding}
           hideWhenDetached={hidesWhenDetached}
           updatePositionStrategy={followsAnchor ? "always" : "optimized"}
-          onOpenAutoFocus={() => {
-            openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-          }}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            openerRef.current?.focus();
-          }}
+          onOpenAutoFocus={rememberOpener}
+          onCloseAutoFocus={returnFocus}
           // Orbiting the scene or using the rail must not close the card; Esc and the close button do.
           onInteractOutside={(event) => event.preventDefault()}
           style={{ width }}

@@ -33,16 +33,20 @@ const LEGEND_ITEMS = [
   { label: "Cable", stroke: "var(--color-cable)", width: 2.5 },
   { label: "Pipeline", stroke: "var(--color-pipeline)", width: 3 },
 ] as const;
-// Credits for the data drawn in the view (docs/UI_DESIGN_SYSTEM.md, Map sources and credits). The Copernicus
-// lines are the notice and the liability sentence its licence requires for modified data. Every seabed area uses
-// the same depth and land sources; who mapped the cables differs (a route traced off a published map names it).
-const DEPTH_AND_LAND_CREDITS = [
-  "Depth: EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM 2024), CC BY 4.0.",
-  "Land: produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.",
-] as const;
-const DEFAULT_LINE_SOURCES: LineSources = { cables: "OpenStreetMap contributors", pipelines: "EMODnet Human Activities" };
+// Credits for the data drawn in the view (docs/UI_DESIGN_SYSTEM.md, Map sources and credits). Every seabed area takes
+// its land from Copernicus, so its lines are fixed: the notice and the liability sentence its licence requires for
+// modified data. Depth, cables and pipelines come from each area's seabed file (scripts/seabed/build-seabed.ts writes
+// them): an area outside Europe has its depth from another grid, and a route traced off a published map names it.
+const LAND_CREDIT =
+  "Land: produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.";
+const DEFAULT_SCENE_SOURCES: SceneSources = {
+  depth: "EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM 2024), CC BY 4.0",
+  cables: "OpenStreetMap contributors",
+  pipelines: "EMODnet Human Activities",
+};
 
-export type LineSources = { cables: string; pipelines: string };
+/** Who made the depth grid and mapped the cables and pipelines of the area on screen, as its seabed file credits them. */
+export type SceneSources = { depth: string; cables: string; pipelines: string };
 
 type StageOverlaysProps = {
   stageElement: HTMLElement | null;
@@ -54,7 +58,7 @@ type StageOverlaysProps = {
   onResetView: () => void;
   /** Shows the folded rail again; null when the rail is open or not floating. */
   onShowRail: (() => void) | null;
-  lineSources: LineSources | null;
+  sceneSources: SceneSources | null;
 };
 
 function CameraButton({ icon, label, isPressed, onClick }: { icon: IconName; label: string; isPressed?: boolean; onClick: () => void }) {
@@ -72,14 +76,14 @@ function CameraButton({ icon, label, isPressed, onClick }: { icon: IconName; lab
 }
 
 /** The controls that belong to the picture, inset 16 px inside the stage (board 6). */
-export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, lineSources }: StageOverlaysProps) {
+export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, sceneSources }: StageOverlaysProps) {
   const { view, setView, detail, setDetail } = useConsole();
   const [isFullScreen, setIsFullScreen] = useState(false);
   const isCloseUp = view === "closeup";
   const scaleNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail] : OVERVIEW_SCALE_NOTE;
   const clearRight = isRailFloating ? railWidthPx : 16;
-  const { cables, pipelines } = lineSources ?? DEFAULT_LINE_SOURCES;
-  const sceneCredits = [...DEPTH_AND_LAND_CREDITS, `Cables: ${cables}. Pipelines: ${pipelines}. OpenStreetMap data is under the ODbL.`];
+  const { depth, cables, pipelines } = sceneSources ?? DEFAULT_SCENE_SOURCES;
+  const sceneCredits = [`Depth: ${depth}.`, LAND_CREDIT, `Cables: ${cables}. Pipelines: ${pipelines}. OpenStreetMap data is under the ODbL.`];
 
   // Tracks the browser's full-screen state, which React does not own (Esc can leave it too).
   useEffect(() => {

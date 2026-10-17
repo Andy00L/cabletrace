@@ -68,6 +68,7 @@ export const VEZHEN_2025: CableCase = {
     kind: "bulk-carrier",
     flag: "Malta",
     type: "Bulk carrier, 190 m",
+    lengthMetres: 190,
     imo: "9937270",
     mmsi: "229659000",
     citations: [

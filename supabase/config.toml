@@ -418,3 +418,13 @@ enabled = true
 # secret (x-recorder-secret header) instead of a user JWT.
 [functions.record-vessel-positions]
 verify_jwt = false
+
+# pg_cron calls these with a shared secret, not a JWT: verifying one would stop them silently.
+[functions.collect-ship-frames]
+verify_jwt = false
+
+[functions.detect-anchor-drag]
+verify_jwt = false
+
+[functions.match-fault-signals]
+verify_jwt = false
