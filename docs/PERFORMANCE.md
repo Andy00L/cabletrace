@@ -238,6 +238,17 @@ Measured on a local production build (`bun run start`), 2026-10-17:
 | `/cases/eagle-s-2024`, 1440 x 900 | 2,410 px tall; 3D view 38.4% of the viewport | 900 px; 3D view 65.4%, 49.6% clear of the rail |
 | `/cases/eagle-s-2024`, 1280 x 720 | 2,542 px; 32.7% | 720 px; 57.1%, 41.9% clear |
 | `/cases/eagle-s-2024`, 1024 x 768 | 3,250 px; 18.0% | 768 px; 59.3% (the rail starts folded below 1,280 px) |
-| `/`, 1280 x 720 and 1024 x 768 | 876 px | unchanged (next pull request) |
-| `/cases`, 1280 x 720 and 1024 x 768 | 801 and 774 px | unchanged (next pull request) |
+| `/`, 1280 x 720 and 1024 x 768 | 876 px | 720 and 768 px: home is one screen (board 12a) |
+| `/cases`, 1280 x 720 and 1024 x 768 | 801 and 774 px | 720 and 768 px: four tiles to a row (board 12b) |
+
+`bun scripts/perf/check-one-screen.ts` exits 0 on every page and viewport above.
+
+Compressed JavaScript per page, measured on Vercel (production at 4073ba5 against the console's preview, 2026-10-17):
+
+| Page | Before | With the console | Budget |
+|---|---|---|---|
+| `/cases/eagle-s-2024` | 362.6 KB | 402.1 KB (+39.5 KB) | +60 KB for the console |
+| `/` | 159.4 KB | 195.2 KB (Next prefetches the replay route's chunks for the case links on screen) | under 200 KB |
+
+The first console build weighed 452.4 KB on the case page and 245.1 KB on home; dropping the `motion` library for CSS transitions brought both under budget.
 

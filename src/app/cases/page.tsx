@@ -5,26 +5,31 @@ import { CABLE_CASES } from "@/data/cases";
 import { toReplaySceneInput } from "@/lib/cases/case-file";
 import { loadCaseSketch } from "@/lib/cases/load-case-sketch";
 
+const INTRO = "Baltic cable cuts replayed in 3D from the published record. Every position says how it is known.";
+
 export const metadata: Metadata = {
   title: "Cases",
-  description: "Baltic cable cuts replayed in 3D from the published record. Every position says how it is known.",
+  description: INTRO,
 };
 
-// Every case with its sketch, newest incident first. The sketches are read from the seabed files at build time.
+// Every case with its sketch, newest incident first, four to a row from 1,024 px so two rows fit one screen
+// (board 12b). The sketches are read from the seabed files at build time.
 export default async function CasesPage() {
   const sketches = await Promise.all(CABLE_CASES.map((cableCase) => loadCaseSketch(toReplaySceneInput(cableCase))));
   return (
-    <main className="mx-auto flex w-full max-w-[1120px] flex-col gap-10 px-4 pt-8 pb-16 sm:px-16 sm:pt-14">
-      <SiteHeader />
-      <section className="flex max-w-[640px] flex-col gap-3">
-        <h1 className="text-title">Cases</h1>
-        <p className="text-body text-muted">Baltic cable cuts replayed in 3D from the published record. Every position says how it is known.</p>
-      </section>
-      <div className="grid items-start gap-6 md:grid-cols-2" data-testid="case-list">
-        {CABLE_CASES.map((cableCase, index) => (
-          <CaseCard key={cableCase.slug} cableCase={cableCase} sketch={sketches[index] ?? null} />
-        ))}
-      </div>
-    </main>
+    <div className="mx-auto flex min-h-dvh w-full max-w-[1440px] flex-col px-4 pb-6 sm:px-6">
+      <SiteHeader current="cases" />
+      <main className="flex flex-col gap-5 pt-4">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-baseline lg:gap-5">
+          <h1 className="text-title">Cases</h1>
+          <p className="text-body text-muted">{INTRO}</p>
+        </div>
+        <div className="grid items-start gap-5 sm:grid-cols-2 lg:grid-cols-4" data-testid="case-list">
+          {CABLE_CASES.map((cableCase, index) => (
+            <CaseCard key={cableCase.slug} cableCase={cableCase} sketch={sketches[index] ?? null} layout="tile" />
+          ))}
+        </div>
+      </main>
+    </div>
   );
 }

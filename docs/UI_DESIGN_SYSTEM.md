@@ -182,7 +182,8 @@ One named stack, low to high: `stage` (0), `stage-controls` (10), `rail` and `do
 | `mode` | `replay`, `ship`, `evidence` | `replay` |
 | `detail` | `measured`, `illustrated` (close-up only) | `illustrated` |
 | `layer` | `vessel`, `cut-<cut slug>`, `placement-<index>`, `source-<id>`, `sources`, `aftermath`, `shortcuts` | none |
-| `follow` | `vessel` | off |
+
+Following the ship is the `vessel` view, so it has no key of its own.
 
 The codec is `src/lib/console/console-state.ts`. Opening a layer pushes a history entry, so Back closes it; time, view and mode replace the current entry. While the replay plays the URL is left alone; pausing or seeking writes `t`.
 
@@ -202,4 +203,13 @@ Primitives are written in `src/components/ui/` on the tokens above. Behaviour co
 | Timeline snapping | Idea from bencho.dev `time-scrubber` (MIT) | Kept: releasing the scrubber near an event or a cut lands on it. The ruler and fling were not adopted: the native range input keeps the keyboard and screen reader path the tests use. |
 | Toast | Idea from bencho.dev `toast-stack` (MIT) | One toast at a time ("Link copied"), bottom centre, `duration-standard`; no stack, no hover fan. |
 | Icons | `src/components/icons/` | One set drawn here on a 20 px grid, 1.6 px stroke, round caps and joins. No `lucide-react`. |
+
+## Site pages
+
+Home, the case list and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark, the sections with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Content sits 24 px from the edges up to 1,440 px wide.
+
+| Page | 1024 px and up | Under 1024 px |
+|---|---|---|
+| Home (board 12a) | One screen. Left, 400 px: the title, what CableTrace does and the live recorder card. Right: the two newest cases as wide cards (sketch beside place, date, title and three facts) sharing the column's height. Between 1,024 and 1,280 px the sketch keeps 16:9 so no cut is cropped. | One column that scrolls; the sketch sits over the text. |
+| Case list (board 12b) | Four tiles to a row (sketch over place, date, title and one line of facts), so eight cases fit one screen. | Two to a row from 640 px, one under it. |
 
