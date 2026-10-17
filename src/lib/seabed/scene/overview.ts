@@ -70,6 +70,12 @@ export type VesselFrame = { position: THREE.Vector3; heading: ScenePoint };
 
 export type OverviewViewName = "overview" | "top";
 
+/** An object in the overview a card can open on: the vessel, or one of the case's cuts by its index in the case. */
+export type SceneTarget = { kind: "vessel" } | { kind: "cut"; cutIndex: number };
+
+/** A target a click can select, where it is drawn, and the label naming it (a click on the label selects it too). */
+export type ScenePickable = { target: SceneTarget; position: THREE.Vector3; label: HTMLElement };
+
 export type OverviewScene = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -82,6 +88,13 @@ export type OverviewScene = {
   cableDirection: ScenePoint;
   /** The vessel's last drawn frame, or null while it is not on the map yet. */
   readVesselFrame: () => VesselFrame | null;
+  /**
+   * Where a target sits in the scene and the label naming it now, or null while it is not drawn (the vessel before
+   * its first position).
+   */
+  locateTarget: (target: SceneTarget) => { position: THREE.Vector3; label: HTMLElement } | null;
+  /** What a click can select at the last drawn moment: the vessel once it is on the map, each cut once it has happened. */
+  readPickables: () => ScenePickable[];
   /** Hides the land and pipeline names on a narrow view, keeping the vessel and cut labels. */
   setCompactLabels: (isCompact: boolean) => void;
   update: (atMs: number, deltaSeconds: number, nowSeconds: number) => void;
@@ -680,11 +693,27 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     plumeGeometry.getAttribute("position").needsUpdate = true;
   }
 
+  function locateTarget(target: SceneTarget): { position: THREE.Vector3; label: HTMLElement } | null {
+    if (target.kind === "vessel") return ship.visible ? { position: ship.position, label: shipLabel.object.element } : null;
+    const cutMarker = cutMarkers[target.cutIndex];
+    if (!cutMarker) return null;
+    // Before the cut the line's name marks the spot; once cut, the cut label replaces it.
+    return { position: cutMarker.marker.position, label: (cutMarker.marker.visible ? cutMarker.cutLabel : cutMarker.nameLabel).element };
+  }
+
+  function readPickables(): ScenePickable[] {
+    const pickables: ScenePickable[] = ship.visible ? [{ target: { kind: "vessel" }, position: ship.position, label: shipLabel.object.element }] : [];
+    cutMarkers.forEach((cutMarker, cutIndex) => {
+      if (cutMarker.marker.visible) pickables.push({ target: { kind: "cut", cutIndex }, position: cutMarker.marker.position, label: cutMarker.cutLabel.element });
+    });
+    return pickables;
+  }
+
   function setCompactLabels(isCompact: boolean) {
     contextLabels.forEach((label) => {
       label.visible = !isCompact;
     });
   }
 
-  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, readVesselFrame: () => vesselFrame, setCompactLabels, update };
+  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update };
 }

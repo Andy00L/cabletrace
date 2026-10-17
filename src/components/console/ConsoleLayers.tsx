@@ -1,13 +1,17 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
+import { describeCourse, describeNearestLine, describeSpeed, NumberGrid, useMomentSample } from "@/components/console/MomentNumbers";
 import { Icon } from "@/components/icons/Icon";
-import { CloseButton, LayerCard, type LayerAnchor } from "@/components/ui/LayerCard";
+import { CloseButton, LayerCard, type LayerAnchor, type LayerCardPlacement } from "@/components/ui/LayerCard";
 import { LayerSheet } from "@/components/ui/LayerSheet";
 import type { CitationView, ConsoleSource } from "@/lib/cases/case-console";
 import { toCutSlug } from "@/lib/console/console-state";
+import type { SceneTarget } from "@/lib/seabed/scene/overview";
+import type { SeabedViewer } from "@/lib/seabed/scene/viewer";
 
 const SHORTCUTS = [
   { keys: "Space", action: "Play or pause" },
@@ -17,6 +21,11 @@ const SHORTCUTS = [
   { keys: "Esc", action: "Close the card or sheet on top" },
   { keys: "?", action: "This list" },
 ] as const;
+// A card on a 3D object opens beside a box this size (CSS px) around the object's point, and beside its label too.
+const SCENE_ANCHOR_BOX_PX = 32;
+// Far outside any stage: an anchor parked here hides its card until the object is back in view.
+const OFF_VIEW_POSITION_PX = -10_000;
+const ACTION_BUTTON_CLASS = "flex h-10 items-center gap-2 rounded-full bg-soft px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]";
 
 /**
  * Where a card sits: next to the control that opened it, or, when it was opened by a link or its control has gone
@@ -31,6 +40,62 @@ function createAnchor(opener: HTMLElement | null, stageElement: HTMLElement | nu
       return new DOMRect(rect.left + rect.width / 2, rect.top + rect.height / 3, 0, 0);
     },
   };
+}
+
+/**
+ * An anchor on a 3D object, re-read every frame while its card is open: the object's point while it is in view;
+ * parked off-stage (the card hides) while it is out of view; `fallback` while the picture does not draw it (the
+ * close-up, or the ship before its first position). Tells `onVisibilityChange` when the object leaves the view or
+ * comes back, for the Show button.
+ */
+function createSceneAnchor(input: { viewer: SeabedViewer; target: SceneTarget; fallback: LayerAnchor | null; onVisibilityChange: (isInView: boolean) => void }): LayerAnchor {
+  const { viewer, target, fallback, onVisibilityChange } = input;
+  // Read every frame, so the change is reported only when it happens.
+  let wasInView: boolean | null = null;
+  return {
+    getBoundingClientRect() {
+      const projection = viewer.projectTarget(target);
+      const isInView = projection.kind !== "off-view";
+      if (isInView !== wasInView) onVisibilityChange(isInView);
+      wasInView = isInView;
+      switch (projection.kind) {
+        case "on-view": {
+          const { clientX, clientY, labelRect } = projection;
+          const halfBoxPx = SCENE_ANCHOR_BOX_PX / 2;
+          const left = Math.min(clientX - halfBoxPx, labelRect?.left ?? Number.POSITIVE_INFINITY);
+          const top = Math.min(clientY - halfBoxPx, labelRect?.top ?? Number.POSITIVE_INFINITY);
+          const right = Math.max(clientX + halfBoxPx, labelRect?.right ?? Number.NEGATIVE_INFINITY);
+          const bottom = Math.max(clientY + halfBoxPx, labelRect?.bottom ?? Number.NEGATIVE_INFINITY);
+          return new DOMRect(left, top, right - left, bottom - top);
+        }
+        case "off-view":
+          return new DOMRect(OFF_VIEW_POSITION_PX, OFF_VIEW_POSITION_PX, 0, 0);
+        case "not-drawn":
+          return fallback?.getBoundingClientRect() ?? new DOMRect(OFF_VIEW_POSITION_PX, OFF_VIEW_POSITION_PX, 0, 0);
+        default: {
+          const unhandledProjection: never = projection;
+          return unhandledProjection;
+        }
+      }
+    },
+  };
+}
+
+/** The vessel's figures at the replay moment, and what they rest on. */
+function VesselMoment() {
+  const sample = useMomentSample();
+  if (!sample) return <p className="text-small text-muted">No position for the ship at this moment: the track starts later or has ended.</p>;
+  return (
+    <>
+      <NumberGrid numbers={[describeSpeed(sample), describeCourse(sample), describeNearestLine(sample)]} />
+      <p className="text-caption font-normal text-muted">
+        {sample.basis === "recorded"
+          ? "Speed as the ship broadcast it; course and distance from its AIS positions."
+          : "Between two placed positions: speed and course are straight-line averages, never recorded."}
+        {sample.nearestLine ? ` Nearest line: ${sample.nearestLine.name}.` : ""}
+      </p>
+    </>
+  );
 }
 
 function Quote({ citation }: { citation: CitationView }) {
@@ -74,13 +139,48 @@ function SourceLinks({ source }: { source: ConsoleSource }) {
   );
 }
 
+type ConsoleLayersProps = {
+  stageElement: HTMLElement | null;
+  /** The control the open layer was opened from; null when the 3D view or a link opened it. */
+  opener: HTMLElement | null;
+  /** The 3D view, for cards that sit on an object in it; null until it draws. */
+  viewer: SeabedViewer | null;
+  /** Width the floating rail covers at the stage's right edge (CSS px); 0 when it is folded or not floating. */
+  stageRightInsetPx: number;
+  /** True under 1024 px, where the stage is too narrow for a card beside an object. */
+  isStageNarrow: boolean;
+};
+
 /** Every card, sheet and dialog the console can open, driven by the `layer` state (one at a time). */
-export function ConsoleLayers({ stageElement, opener }: { stageElement: HTMLElement | null; opener: HTMLElement | null }) {
-  const { consoleCase, layer, closeLayer, seekTo, setView } = useConsole();
+export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx, isStageNarrow }: ConsoleLayersProps) {
+  const { consoleCase, layer, closeLayer, seekTo, view, setView, setMode } = useConsole();
   const [sourceFilter, setSourceFilter] = useState("");
   const anchor = useMemo(() => createAnchor(opener, stageElement), [opener, stageElement]);
   // A card opened from the dock opens above it; anything else opens beside its control, toward the stage.
   const cardSide = opener?.closest("[data-console-dock]") ? "top" : "left";
+  const controlPlacement: LayerCardPlacement = { boundary: null, side: cardSide, align: cardSide === "top" ? "center" : "start", collisionPadding: 16 };
+
+  // The 3D object the open card sits on: the vessel card always sits on the ship; a cut card sits on its marker when
+  // the scene or a link opened it, and beside its control otherwise.
+  const sceneTarget = useMemo<SceneTarget | null>(() => {
+    if (layer.kind === "vessel") return { kind: "vessel" };
+    if (layer.kind === "cut" && opener === null) return { kind: "cut", cutIndex: layer.cutIndex };
+    return null;
+  }, [layer, opener]);
+  // The target whose card is hidden because it left the view; compared by identity, so a new card starts visible.
+  const [hiddenTarget, setHiddenTarget] = useState<SceneTarget | null>(null);
+  const sceneAnchor = useMemo(() => {
+    if (!sceneTarget) return null;
+    const stageAnchor = createAnchor(null, stageElement);
+    if (!viewer) return stageAnchor;
+    return createSceneAnchor({ viewer, target: sceneTarget, fallback: stageAnchor, onVisibilityChange: (isInView) => setHiddenTarget(isInView ? null : sceneTarget) });
+  }, [sceneTarget, viewer, stageElement]);
+  // A card on an object opens beside it, in the part of the stage the rail leaves clear; a narrow stage has no room
+  // beside it, so the card opens under or over it and only has to stay on the screen.
+  const scenePlacement: LayerCardPlacement = isStageNarrow
+    ? { boundary: null, side: "bottom", align: "center", collisionPadding: 16 }
+    : { boundary: stageElement, side: "right", align: "center", collisionPadding: { top: 16, right: 16 + stageRightInsetPx, bottom: 16, left: 16 } };
+  const isCutOnScene = sceneTarget?.kind === "cut";
 
   const filteredSources = useMemo(() => {
     const needle = sourceFilter.trim().toLowerCase();
@@ -94,7 +194,16 @@ export function ConsoleLayers({ stageElement, opener }: { stageElement: HTMLElem
 
   return (
     <>
-      <LayerCard isOpen={layer.kind === "cut" && cut !== undefined} onClose={closeLayer} anchor={anchor} label={cut ? `${cut.label} cut` : "Cut"} boundary={null} side={cardSide} align={cardSide === "top" ? "center" : "start"} testId="cut-card">
+      <LayerCard
+        isOpen={layer.kind === "cut" && cut !== undefined}
+        onClose={closeLayer}
+        anchor={isCutOnScene ? sceneAnchor : anchor}
+        label={cut ? `${cut.label} cut` : "Cut"}
+        {...(isCutOnScene ? scenePlacement : controlPlacement)}
+        followsAnchor={isCutOnScene}
+        hidesWhenDetached={isCutOnScene}
+        testId="cut-card"
+      >
         {cut && (
           <>
             <CardHeader
@@ -124,7 +233,7 @@ export function ConsoleLayers({ stageElement, opener }: { stageElement: HTMLElem
                   seekTo(cut.atMs);
                   setView("closeup");
                 }}
-                className="flex h-10 items-center rounded-full bg-soft px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]"
+                className={ACTION_BUTTON_CLASS}
               >
                 Go to the close-up
               </button>
@@ -145,7 +254,7 @@ export function ConsoleLayers({ stageElement, opener }: { stageElement: HTMLElem
             <button
               type="button"
               onClick={() => seekTo(position.atMs)}
-              className="flex h-10 items-center self-start rounded-full bg-soft px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]"
+              className={`${ACTION_BUTTON_CLASS} self-start`}
             >
               Move the replay to {position.timeLabel}
             </button>
@@ -171,11 +280,57 @@ export function ConsoleLayers({ stageElement, opener }: { stageElement: HTMLElem
         )}
       </LayerCard>
 
-      <LayerCard isOpen={layer.kind === "vessel"} onClose={closeLayer} anchor={anchor} label={vessel.name} boundary={stageElement} testId="vessel-card">
+      <LayerCard
+        isOpen={layer.kind === "vessel"}
+        onClose={closeLayer}
+        anchor={sceneAnchor}
+        label={vessel.name}
+        {...scenePlacement}
+        followsAnchor
+        hidesWhenDetached
+        width={340}
+        testId="vessel-card"
+      >
         <CardHeader eyebrow={`${vessel.type}, ${vessel.flag} flag`} title={vessel.name} onClose={closeLayer} />
-        <p className="text-caption font-normal text-muted">{vessel.evidence}</p>
+        <VesselMoment />
+        <p className="text-caption font-normal text-muted">{vessel.evidenceBrief}.</p>
         <CitationButtons citations={vessel.citations} />
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setView(view === "vessel" ? "overview" : "vessel")} aria-pressed={view === "vessel"} className={ACTION_BUTTON_CLASS} data-testid="vessel-card-follow">
+            <Icon name="follow" />
+            {view === "vessel" ? "Stop following" : "Follow"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("ship");
+              closeLayer();
+            }}
+            className={ACTION_BUTTON_CLASS}
+          >
+            Ship details
+          </button>
+        </div>
       </LayerCard>
+
+      {sceneTarget !== null &&
+        hiddenTarget === sceneTarget &&
+        stageElement !== null &&
+        viewer !== null &&
+        createPortal(
+          <button
+            type="button"
+            onClick={() => viewer.centerOnTarget(sceneTarget)}
+            // Stacked 8 px over the camera controls (StageOverlays: 16 px from the bottom, 44 px tall), clear of the rail.
+            className="absolute bottom-[68px] z-(--layer-stage-controls) flex h-10 items-center gap-2 rounded-full bg-card px-3.5 text-label text-ink shadow-row transition-shadow duration-140 ease-standard hover:shadow-raised active:scale-[0.97]"
+            style={{ right: stageRightInsetPx + 16 }}
+            data-testid="show-card-target"
+          >
+            <Icon name="follow" />
+            {sceneTarget.kind === "vessel" ? "Show the ship" : "Show the cut"}
+          </button>,
+          stageElement,
+        )}
 
       <LayerSheet
         isOpen={layer.kind === "sources"}

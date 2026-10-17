@@ -6,7 +6,7 @@ import type { Result } from "@/lib/result";
 import { clampValue, easeOutCubic } from "@/lib/seabed/math";
 import { createCaustics } from "@/lib/seabed/scene/caustics";
 import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
-import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName } from "@/lib/seabed/scene/overview";
+import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneTarget } from "@/lib/seabed/scene/overview";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
 import type { SeabedData } from "@/lib/seabed/seabed-data";
 import { createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
@@ -32,6 +32,12 @@ const FOLLOW_ABOVE_KM = 0.62;
 const FOLLOW_EASE_PER_SECOND = 3.5;
 // The follow camera counts as arrived within this distance (km), and stops asking for frames.
 const FOLLOW_SETTLED_KM = 0.002;
+// A press that ends within this distance (CSS px) and time of where it started is a click; anything longer orbits.
+const CLICK_SLOP_PX = 6;
+const CLICK_MAX_MS = 500;
+// How far from a target's point a click still selects it (CSS px): a finger covers more than a mouse pointer.
+const MOUSE_PICK_RADIUS_PX = 20;
+const TOUCH_PICK_RADIUS_PX = 32;
 
 /**
  * Drawing budget per renderer. On a CPU renderer (SwiftShader, llvmpipe: headless test browsers and machines
@@ -46,6 +52,14 @@ const RENDER_TIERS: Record<RendererKind, { antialias: boolean; shadows: boolean;
 
 export type SeabedViewName = OverviewViewName | "vessel" | "closeup";
 
+/**
+ * Where a target is on screen, for a card that follows it. `not-drawn`: the picture holds no such object now (the
+ * close-up, or the vessel before its first position), so the card keeps a place of its own. `off-view`: drawn, but
+ * behind the camera or outside the part of the view the rail leaves clear. `on-view`: its point in client px, and
+ * the box of the label naming it (null when the label is hidden), so a card can open clear of both.
+ */
+export type SceneProjection = { kind: "not-drawn" } | { kind: "off-view" } | { kind: "on-view"; clientX: number; clientY: number; labelRect: DOMRect | null };
+
 export type SeabedViewer = {
   setView: (view: SeabedViewName) => void;
   setIllustrated: (isIllustrated: boolean) => void;
@@ -56,6 +70,10 @@ export type SeabedViewer = {
    * subject sits in the middle of the part still visible; 0 centres it on the whole view again.
    */
   setRightInset: (insetPx: number) => void;
+  /** Read every frame by a card anchored to a target; reflects the last drawn frame. */
+  projectTarget: (target: SceneTarget) => SceneProjection;
+  /** Slides the overview camera sideways until the target sits in the middle of the clear part, keeping angle and zoom. */
+  centerOnTarget: (target: SceneTarget) => void;
   dispose: () => void;
 };
 
@@ -66,6 +84,8 @@ type ViewerOptions = {
   /** Read once per frame: the replay moment to draw. */
   readTimeMs: () => number;
   prefersReducedMotion: boolean;
+  /** Called when a click or tap lands on the vessel or a cut marker (or on its label) in the overview. */
+  onTargetPick: (target: SceneTarget) => void;
 };
 
 type CameraMove = {
@@ -111,7 +131,7 @@ function fitOverviewFov(aspect: number): number {
  * a frame is drawn only when the replay moment, the camera, the view or the size changes. Never throws.
  */
 export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer> {
-  const { container, data, input, readTimeMs, prefersReducedMotion } = options;
+  const { container, data, input, readTimeMs, prefersReducedMotion, onTargetPick } = options;
   const rendererKind = detectRendererKind();
   const tier = RENDER_TIERS[rendererKind];
   const isCalm = prefersReducedMotion || rendererKind === "software";
@@ -290,6 +310,101 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   });
   visibilityObserver.observe(container);
 
+  const projectedPoint = new THREE.Vector3();
+  /** A scene point in client px on the last drawn frame, or null when it lies at or behind the camera's near plane. */
+  function projectToClient(position: THREE.Vector3, canvasRect: DOMRect): { clientX: number; clientY: number } | null {
+    // The camera looks down its own negative z axis.
+    projectedPoint.copy(position).applyMatrix4(overview.camera.matrixWorldInverse);
+    if (projectedPoint.z > -overview.camera.near) return null;
+    // The projection matrix carries the view offset, so these coordinates already match the shifted picture.
+    projectedPoint.copy(position).project(overview.camera);
+    return { clientX: canvasRect.left + ((projectedPoint.x + 1) / 2) * canvasRect.width, clientY: canvasRect.top + ((1 - projectedPoint.y) / 2) * canvasRect.height };
+  }
+
+  // A label's text box, without the padding that lifts it off its point (labels.ts): what a click on a name hits.
+  const labelTextRange = document.createRange();
+  function readLabelTextRect(label: HTMLElement): DOMRect | null {
+    labelTextRange.selectNodeContents(label);
+    const textRect = labelTextRange.getBoundingClientRect();
+    return textRect.width > 0 ? textRect : null;
+  }
+
+  function projectTarget(target: SceneTarget): SceneProjection {
+    if (activeView === "closeup") return { kind: "not-drawn" };
+    const located = overview.locateTarget(target);
+    if (!located) return { kind: "not-drawn" };
+    const canvasRect = renderer.domElement.getBoundingClientRect();
+    const screenPoint = projectToClient(located.position, canvasRect);
+    if (!screenPoint) return { kind: "off-view" };
+    const isInClearPart =
+      screenPoint.clientX >= canvasRect.left && screenPoint.clientX <= canvasRect.right - rightInsetPx && screenPoint.clientY >= canvasRect.top && screenPoint.clientY <= canvasRect.bottom;
+    return isInClearPart ? { kind: "on-view", ...screenPoint, labelRect: readLabelTextRect(located.label) } : { kind: "off-view" };
+  }
+
+  function centerOnTarget(target: SceneTarget) {
+    // The follow camera already frames the vessel, and the close-up has its own camera.
+    if (activeView === "closeup" || activeView === "vessel") return;
+    const located = overview.locateTarget(target);
+    if (!located) return;
+    const shift = new THREE.Vector3(located.position.x - overview.controls.target.x, 0, located.position.z - overview.controls.target.z);
+    const toPosition = overview.camera.position.clone().add(shift);
+    const toTarget = overview.controls.target.clone().add(shift);
+    if (isCalm) {
+      overview.camera.position.copy(toPosition);
+      overview.controls.target.copy(toTarget);
+      markDirty();
+      return;
+    }
+    cameraMove = { fromPosition: overview.camera.position.clone(), fromTarget: overview.controls.target.clone(), toPosition, toTarget, startedAt: performance.now(), durationMs: VIEW_MOVE_MS };
+  }
+
+  /** The target drawn nearest a client point, within `radiusPx` of its point or on its name; null when there is none. */
+  function findTargetAt(clientX: number, clientY: number, radiusPx: number): SceneTarget | null {
+    if (activeView === "closeup") return null;
+    const canvasRect = renderer.domElement.getBoundingClientRect();
+    let nearest: { target: SceneTarget; distancePx: number } | null = null;
+    for (const pickable of overview.readPickables()) {
+      const screenPoint = projectToClient(pickable.position, canvasRect);
+      if (!screenPoint) continue;
+      const textRect = readLabelTextRect(pickable.label);
+      const isOnLabel = textRect !== null && clientX >= textRect.left && clientX <= textRect.right && clientY >= textRect.top && clientY <= textRect.bottom;
+      const pointDistancePx = Math.hypot(screenPoint.clientX - clientX, screenPoint.clientY - clientY);
+      // A click on a name counts as within reach; where two names overlap, the target whose point is nearer wins.
+      const distancePx = isOnLabel ? Math.min(pointDistancePx, radiusPx) : pointDistancePx;
+      if (distancePx <= radiusPx && (nearest === null || distancePx < nearest.distancePx)) nearest = { target: pickable.target, distancePx };
+    }
+    return nearest?.target ?? null;
+  }
+
+  // Picking listens on the canvas next to the orbit controls: a short press is a click, a drag stays an orbit.
+  let press: { clientX: number; clientY: number; atMs: number } | null = null;
+  let isPointerOverTarget = false;
+  const handlePointerDown = (event: PointerEvent) => {
+    press = { clientX: event.clientX, clientY: event.clientY, atMs: event.timeStamp };
+  };
+  const handlePointerUp = (event: PointerEvent) => {
+    const started = press;
+    press = null;
+    if (!started || event.timeStamp - started.atMs > CLICK_MAX_MS || Math.hypot(event.clientX - started.clientX, event.clientY - started.clientY) > CLICK_SLOP_PX) return;
+    const target = findTargetAt(event.clientX, event.clientY, event.pointerType === "mouse" ? MOUSE_PICK_RADIUS_PX : TOUCH_PICK_RADIUS_PX);
+    if (target) onTargetPick(target);
+  };
+  const handlePointerCancel = () => {
+    press = null;
+  };
+  // A mouse hovering a target gets the pointer cursor; the style is written only when that changes.
+  const handlePointerMove = (event: PointerEvent) => {
+    if (event.pointerType !== "mouse" || event.buttons !== 0) return;
+    const isOverTarget = findTargetAt(event.clientX, event.clientY, MOUSE_PICK_RADIUS_PX) !== null;
+    if (isOverTarget === isPointerOverTarget) return;
+    isPointerOverTarget = isOverTarget;
+    renderer.domElement.style.cursor = isOverTarget ? "pointer" : "";
+  };
+  renderer.domElement.addEventListener("pointerdown", handlePointerDown);
+  renderer.domElement.addEventListener("pointerup", handlePointerUp);
+  renderer.domElement.addEventListener("pointercancel", handlePointerCancel);
+  renderer.domElement.addEventListener("pointermove", handlePointerMove);
+
   let frameHandle = 0;
   let isDisposed = false;
   let lastFrameAt: number | null = null;
@@ -390,12 +505,18 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
         rightInsetPx = nextInsetPx;
         resize();
       },
+      projectTarget,
+      centerOnTarget,
       dispose() {
         isDisposed = true;
         cancelAnimationFrame(frameHandle);
         if (switchTimer !== null) clearTimeout(switchTimer);
         resizeObserver.disconnect();
         visibilityObserver.disconnect();
+        renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
+        renderer.domElement.removeEventListener("pointerup", handlePointerUp);
+        renderer.domElement.removeEventListener("pointercancel", handlePointerCancel);
+        renderer.domElement.removeEventListener("pointermove", handlePointerMove);
         overview.controls.removeEventListener("start", stopCameraMove);
         overview.controls.removeEventListener("change", markDirty);
         overview.controls.dispose();

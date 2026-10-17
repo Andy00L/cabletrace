@@ -12,6 +12,12 @@ export const SERIES_SAMPLE_COUNT = 241;
 // One international nautical mile is 1.852 km (BIPM SI Brochure, 9th edition, table 8).
 const KM_PER_NAUTICAL_MILE = 1.852;
 const MS_PER_HOUR = 3_600_000;
+// Course is read across this span around each sample, the span the 3D ship turns its hull by (HEADING_SPAN_MS in
+// src/lib/seabed/scene/overview.ts), so a few metres of AIS position noise between close fixes do not swing it.
+const COURSE_SPAN_MS = 2 * 60 * 1000;
+// Under this much movement across the span (km; 0.4 knots over 4 minutes) the ship is holding still: no course.
+const MIN_COURSE_KM = 0.05;
+const DEGREES_PER_RADIAN = 180 / Math.PI;
 
 /**
  * `recorded`: both ends of the stretch are AIS fixes, so speed is what the ship broadcast.
@@ -24,6 +30,11 @@ export type SeriesSample = {
   atMs: number;
   basis: SeriesBasis;
   speedKnots: number;
+  /**
+   * Course over ground in degrees clockwise from north, from where the ship was a span before and after; null while
+   * it holds still. The tracks carry no reported heading, so this is the direction of travel, not where the bow points.
+   */
+  courseDegrees: number | null;
   nearestLine: { name: string; distanceKm: number } | null;
   /** Positive metres of water under the vessel; null where the grid says land or the vessel is outside it. */
   depthMetres: number | null;
@@ -42,6 +53,13 @@ function distanceToSegmentKm(point: ScenePoint, start: ScenePoint, end: ScenePoi
   const lengthSquared = segmentX * segmentX + segmentZ * segmentZ;
   const amount = lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, ((point.x - start.x) * segmentX + (point.z - start.z) * segmentZ) / lengthSquared));
   return Math.hypot(point.x - (start.x + segmentX * amount), point.z - (start.z + segmentZ * amount));
+}
+
+/** Degrees clockwise from north from one scene point to another (scene x runs east, z runs south); null when they nearly meet. */
+function courseBetween(start: ScenePoint, end: ScenePoint): number | null {
+  if (distanceKm(start, end) < MIN_COURSE_KM) return null;
+  const degrees = Math.atan2(end.x - start.x, start.z - end.z) * DEGREES_PER_RADIAN;
+  return (degrees + 360) % 360;
 }
 
 /** The two track positions around a moment, or null outside the track. */
@@ -80,6 +98,10 @@ export function buildCaseSeries(seabed: SeabedData, input: ReplaySceneInput): Ca
     const speedKnots = isRecorded ? (previous.recordedSpeedKnots ?? averageKnots) : averageKnots;
 
     const point = projection.toScene(position.longitude, position.latitude);
+    // positionAtTime has nothing before the first position and holds the last one, so the span shortens at the ends.
+    const before = positionAtTime(input.track, atMs - COURSE_SPAN_MS) ?? position;
+    const after = positionAtTime(input.track, atMs + COURSE_SPAN_MS) ?? position;
+    const courseDegrees = courseBetween(projection.toScene(before.longitude, before.latitude), projection.toScene(after.longitude, after.latitude));
     let nearestLine: SeriesSample["nearestLine"] = null;
     for (const line of lines) {
       for (let pointIndex = 1; pointIndex < line.points.length; pointIndex += 1) {
@@ -96,6 +118,7 @@ export function buildCaseSeries(seabed: SeabedData, input: ReplaySceneInput): Ca
       atMs,
       basis: isRecorded ? "recorded" : "interpolated",
       speedKnots,
+      courseDegrees,
       nearestLine,
       depthMetres: elevation !== null && elevation < 0 ? -elevation : null,
     };

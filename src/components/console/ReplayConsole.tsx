@@ -15,6 +15,7 @@ import type { CaseSeries } from "@/lib/cases/case-series";
 import { formatConsoleState, parseConsoleState, type ConsoleContext, type ConsoleLayer, type ConsoleMode, type SeabedDetail } from "@/lib/console/console-state";
 import { createReplayClock } from "@/lib/replay/replay-clock";
 import { progressToTimeMs, timeMsToProgress, type ReplaySceneInput } from "@/lib/replay/replay-scene";
+import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewer, SeabedViewName } from "@/lib/seabed/scene/viewer";
 
 // A full replay takes this long to play, whatever span of time the case window covers.
@@ -89,7 +90,9 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
   const [isRailOpen, setIsRailOpen] = useState(() => matchesMedia(ROOMY_LAYOUT_QUERY));
   const [isWide, setIsWide] = useState(() => matchesMedia(WIDE_LAYOUT_QUERY));
   const [stageElement, setStageElement] = useState<HTMLElement | null>(null);
-  const viewerRef = useRef<SeabedViewer | null>(null);
+  const [viewer, setViewer] = useState<SeabedViewer | null>(null);
+  // The state as last written, so two changes made in one handler (a new mode, then a closed card) both land.
+  const uiRef = useRef(ui);
 
   const writeUrl = useCallback(
     (state: UiState, entry: "push" | "replace") => {
@@ -102,31 +105,38 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
     [input, clock, urlContext],
   );
   const updateUi = useCallback(
-    (next: UiState, entry: "push" | "replace") => {
+    (change: Partial<UiState>, entry: "push" | "replace") => {
+      const next = { ...uiRef.current, ...change };
+      uiRef.current = next;
       setUi(next);
       writeUrl(next, entry);
     },
     [writeUrl],
   );
 
-  const setView = useCallback((view: SeabedViewName) => updateUi({ ...ui, view }, "replace"), [ui, updateUi]);
+  const setView = useCallback((view: SeabedViewName) => updateUi({ view }, "replace"), [updateUi]);
   const setMode = useCallback(
     (mode: ConsoleMode) => {
       setIsRailOpen(true);
-      updateUi({ ...ui, mode }, "replace");
+      updateUi({ mode }, "replace");
     },
-    [ui, updateUi],
+    [updateUi],
   );
-  const setDetail = useCallback((detail: SeabedDetail) => updateUi({ ...ui, detail }, "replace"), [ui, updateUi]);
+  const setDetail = useCallback((detail: SeabedDetail) => updateUi({ detail }, "replace"), [updateUi]);
   const openLayer = useCallback(
     (layer: ConsoleLayer, nextOpener?: HTMLElement | null) => {
       setOpener(nextOpener ?? null);
       // One history entry per opened layer, so Back closes it; switching from one layer to another replaces it.
-      updateUi({ ...ui, layer }, ui.layer.kind === "none" ? "push" : "replace");
+      updateUi({ layer }, uiRef.current.layer.kind === "none" ? "push" : "replace");
     },
-    [ui, updateUi],
+    [updateUi],
   );
-  const closeLayer = useCallback(() => updateUi({ ...ui, layer: { kind: "none" } }, "replace"), [ui, updateUi]);
+  const closeLayer = useCallback(() => updateUi({ layer: { kind: "none" } }, "replace"), [updateUi]);
+  // A click on the ship or a cut marker in the 3D view opens its card there, on the object.
+  const openTargetCard = useCallback(
+    (target: SceneTarget) => openLayer(target.kind === "vessel" ? { kind: "vessel" } : { kind: "cut", cutIndex: target.cutIndex }, null),
+    [openLayer],
+  );
   const seekTo = useCallback((atMs: number) => clock.seek(timeMsToProgress(input, atMs)), [clock, input]);
 
   // The clock schedules animation frames, a browser system React does not own; stop them when the console goes.
@@ -157,7 +167,9 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
   useEffect(() => {
     const handlePopState = () => {
       const restored = parseConsoleState(new URLSearchParams(window.location.search), urlContext);
-      setUi({ view: restored.view, mode: restored.mode, detail: restored.detail, layer: restored.layer });
+      const restoredUi = { view: restored.view, mode: restored.mode, detail: restored.detail, layer: restored.layer };
+      uiRef.current = restoredUi;
+      setUi(restoredUi);
       clock.seek(timeMsToProgress(input, restored.atMs));
     };
     window.addEventListener("popstate", handlePopState);
@@ -242,16 +254,15 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
                 view={ui.view}
                 isIllustrated={ui.detail === "illustrated"}
                 rightInsetPx={rightInsetPx}
-                onViewerChange={(viewer) => {
-                  viewerRef.current = viewer;
-                }}
+                onViewerChange={setViewer}
+                onTargetPick={openTargetCard}
               />
               <StageOverlays
                 stageElement={stageElement}
                 isCompact={!isWide}
                 isRailFloating={isRailFloating}
                 railWidthPx={isWide ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : 0}
-                onResetView={() => viewerRef.current?.resetView()}
+                onResetView={() => viewer?.resetView()}
                 onShowRail={isWide && !isRailOpen ? () => setIsRailOpen(true) : null}
                 lineSources={lineSources}
               />
@@ -273,7 +284,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
               </div>
             )}
           </div>
-          <ConsoleLayers stageElement={stageElement} opener={opener} />
+          <ConsoleLayers stageElement={stageElement} opener={opener} viewer={viewer} stageRightInsetPx={rightInsetPx} isStageNarrow={!isWide} />
         </div>
     </ConsoleControllerContext.Provider>
   );

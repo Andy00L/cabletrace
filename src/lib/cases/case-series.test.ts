@@ -70,6 +70,15 @@ describe("buildCaseSeries", () => {
     expect(sample?.depthMetres).toBe(40);
   });
 
+  test("reads the course over ground, and none while the ship holds still", () => {
+    const eastbound = buildCaseSeries(SEABED, makeInput([{ atMs: START_MS, longitude: 25.3, latitude: 59.5, recordedSpeedKnots: 6 }, { atMs: START_MS + 4 * HOUR_MS, longitude: 25.7, latitude: 59.5, recordedSpeedKnots: 6 }]));
+    expect(eastbound.samples[100]?.courseDegrees).toBeCloseTo(90, 0);
+    const southbound = buildCaseSeries(SEABED, makeInput([{ atMs: START_MS, longitude: 25.4, latitude: 59.8, recordedSpeedKnots: 6 }, { atMs: START_MS + 4 * HOUR_MS, longitude: 25.4, latitude: 59.2, recordedSpeedKnots: 6 }]));
+    expect(southbound.samples[100]?.courseDegrees).toBeCloseTo(180, 0);
+    const anchored = buildCaseSeries(SEABED, makeInput([{ atMs: START_MS, longitude: 25.4, latitude: 59.5, recordedSpeedKnots: 0 }, { atMs: START_MS + 4 * HOUR_MS, longitude: 25.4, latitude: 59.5, recordedSpeedKnots: 0 }]));
+    expect(anchored.samples[100]?.courseDegrees).toBeNull();
+  });
+
   test("gives no depth where the grid says land", () => {
     const series = buildCaseSeries(SEABED, makeInput([{ atMs: START_MS, longitude: 25, latitude: 59.5, recordedSpeedKnots: 0 }, { atMs: START_MS + HOUR_MS, longitude: 25, latitude: 59.5, recordedSpeedKnots: 0 }]));
     expect(series.samples[0]?.depthMetres).toBeNull();

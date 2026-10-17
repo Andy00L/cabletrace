@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReplayClock } from "@/lib/replay/replay-clock";
 import { progressToTimeMs, type ReplaySceneInput } from "@/lib/replay/replay-scene";
+import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewer, SeabedViewName } from "@/lib/seabed/scene/viewer";
 import { loadSeabedData } from "@/lib/seabed/seabed-data";
 
@@ -17,19 +18,23 @@ type SeabedViewProps = {
   rightInsetPx: number;
   /** Receives the viewer once it is drawing, and null when it goes, for controls such as Reset view. */
   onViewerChange: (viewer: SeabedViewer | null) => void;
+  /** A click or tap on the vessel or a cut marker in the 3D view. */
+  onTargetPick: (target: SceneTarget) => void;
 };
 
 /** The 3D seabed: the replay's main view. Time comes from the shared replay clock, read once per frame. */
-export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, onViewerChange }: SeabedViewProps) {
+export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, onViewerChange, onTargetPick }: SeabedViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SeabedViewer | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
-  // The latest callback, so passing a new function does not rebuild the scene.
+  // The latest callbacks, so passing new functions does not rebuild the scene.
   const onViewerChangeRef = useRef(onViewerChange);
+  const onTargetPickRef = useRef(onTargetPick);
   useEffect(() => {
     onViewerChangeRef.current = onViewerChange;
-  }, [onViewerChange]);
+    onTargetPickRef.current = onTargetPick;
+  }, [onViewerChange, onTargetPick]);
 
   // Syncs with three.js, a WebGL scene React does not own: built on mount (and on retry), disposed on unmount.
   useEffect(() => {
@@ -52,6 +57,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
         input,
         readTimeMs: () => progressToTimeMs(input, clock.getSnapshot().progress),
         prefersReducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        onTargetPick: (target) => onTargetPickRef.current(target),
       });
       if (!created.ok) {
         console.error(`[SeabedView] ${created.reason}`);

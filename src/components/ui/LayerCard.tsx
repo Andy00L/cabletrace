@@ -19,17 +19,38 @@ type LayerCardProps = {
   align?: "start" | "center" | "end";
   /** Re-measure the anchor every frame, for a card that follows a moving object. */
   followsAnchor?: boolean;
+  /** Hide the card (without closing it) while its anchor lies outside the boundary, for a card on a 3D object. */
+  hidesWhenDetached?: boolean;
+  /** Room kept between the card and the boundary's edges (CSS px), wider on a side a panel covers. */
+  collisionPadding?: number | Partial<Record<"top" | "right" | "bottom" | "left", number>>;
   width?: number;
   testId?: string;
   children: ReactNode;
 };
+
+/** Where a card goes relative to its anchor and what it must stay inside, chosen together by the caller. */
+export type LayerCardPlacement = Pick<LayerCardProps, "boundary" | "side" | "align" | "collisionPadding">;
 
 /**
  * A card that opens over the console next to what it explains (docs/UI_DESIGN_SYSTEM.md, Console, Layers): it stays
  * inside the stage, flips side near an edge, stays open while the scene is orbited, closes on Esc or its close
  * button, and gives focus back to the control that opened it.
  */
-export function LayerCard({ isOpen, onClose, anchor, label, boundary, side = "left", align = "start", followsAnchor = false, width = 360, testId, children }: LayerCardProps) {
+export function LayerCard({
+  isOpen,
+  onClose,
+  anchor,
+  label,
+  boundary,
+  side = "left",
+  align = "start",
+  followsAnchor = false,
+  hidesWhenDetached = false,
+  collisionPadding = 16,
+  width = 360,
+  testId,
+  children,
+}: LayerCardProps) {
   const openerRef = useRef<HTMLElement | null>(null);
   return (
     <Popover.Root open={isOpen && anchor !== null} onOpenChange={(nextIsOpen) => !nextIsOpen && onClose()}>
@@ -41,7 +62,8 @@ export function LayerCard({ isOpen, onClose, anchor, label, boundary, side = "le
           align={align}
           sideOffset={12}
           collisionBoundary={boundary}
-          collisionPadding={16}
+          collisionPadding={collisionPadding}
+          hideWhenDetached={hidesWhenDetached}
           updatePositionStrategy={followsAnchor ? "always" : "optimized"}
           onOpenAutoFocus={() => {
             openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
