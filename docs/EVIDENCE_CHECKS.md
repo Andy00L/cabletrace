@@ -112,6 +112,86 @@ Rerun before relying on any of these.
 
 ### Sources (`check-sources.ts`, exit 1)
 
+Run at main `902475e` merged into this branch: 127 sources in 10 cases; 118 have an archived copy and all 118 answer.
+101 originals answer, 24 refuse automated readers (403 from poliisi.fi, raja.fi, valtioneuvosto.fi, verkkouutiset.fi
+and centcom.mil; they open in a browser), 2 are gone. 9 sources fail, all for want of an archived copy:
+
+| Case, source | Why there is no archive |
+| --- | --- |
+| Vezhen 18, 19; Newnew Polar Bear 19 | Danish Maritime Authority AIS archives of 575 MB, about 575 MB and 17.2 GB. Save Page Now answered 520 for the 575 MB file. |
+| Yi Peng 3, 10 | The cited address answers 404: the file moved to `.../aisdata.ais.dk/2024/aisdk-2024-11-18.zip` (554 MB). |
+| Eagle S 15 | The quote comes from the Nord Pool message data (`ummapi.nordpoolgroup.com`), not the page the source cites; the old archive was a 2017 capture of the site's home page. A capture of the data exists (`20261017160918`). |
+| Rubymar 1, 2, 3 | U.S. Central Command pages; they refuse this script (403). Not attempted here: they came with main after the archiving pass. |
+| Svalbard 9 | A Kystverket API query that answers 405 to HEAD and GET without its request body; an API call has no page to archive. |
+
+### Evidence within two interactions
+
+The list of what must be reachable comes from the case data, not from the page: each source's title, its link and
+its archived link (as `href`s of visible links), every quote and every translation wherever they are cited, each
+placed position's and each cut's placement note, the recorded track's selection note, each aftermath step, the three
+scale sentences (`src/lib/seabed/scene-scales.ts`) and the data credits (depth, cables and pipelines from the case's
+seabed file, the Copernicus land notice and liability line).
+
+An interaction is one click on a visible control that nothing covers, or one console shortcut key (`?`, `1` to `4`,
+`F`, Space, the arrows). Controls behind a modal layer (aria-hidden) do not count, links are read rather than
+clicked, and the controls that only move the camera, the clipboard or the window are skipped (Copy link, Reset the
+view, Full screen, Leave full screen). Text counts when it is rendered: inside a panel that scrolls counts, inside a closed `<details>`
+does not.
+
+The search is breadth first: the first state, then every single interaction, then two interactions, starting with
+the controls the first one revealed (a card's source numbers, a sheet's rows) and going on to every other control
+only while something is still missing. It stops as soon as everything has been seen. States after one interaction
+that have the same address (apart from `t`) and the same controls as an earlier one are not explored again; this can
+only under-count, never report something as reachable that is not. Between paths the console is put back in its
+first state in place (Esc, the case's own address through `popstate`, the island, the rail and playing set back) and
+compared word for word with the first state; when anything differs, the page reloads.
+
+A run reports, per case, how many items it saw on the first screen, after one interaction and after two, and lists
+every item it could not reach. A missing item is a finding to read, not proof the item is lost: the list says what
+needs three or more interactions today.
+
+### Keyboard path
+
+For each layer (vessel card, cut card, source card, placement card, sources sheet, aftermath dialog, shortcuts) the
+check loads the console fresh and presses only Tab and Enter: Tab until the opening control has focus (the Evidence
+mode button first for the placement card, the sources sheet and the aftermath dialog), Enter. Then it checks the
+layer is on screen with focus inside it, presses Esc, checks the layer is gone, and waits up to 2 s for focus to come
+back to the very element that opened it. On a phone the rail's controls sit in the folded case panel, which the
+check opens with the keyboard first. The report gives the key presses each layer took.
+
+### Deep links
+
+For each case the check builds links from the case's own data and its codec (`src/lib/console/console-state.ts`):
+the first cut's card at the cut's minute in the close-up and Evidence mode, the vessel card in the Vessel view and
+Ship mode, the sources sheet from above at the window's end, the shortcuts at the window's start, a source card, the
+last placed position's card, the aftermath dialog, and one link of values the codec must reject (`t=yesterday`,
+`view=sideways`, `mode=cinema`, `layer=cut-nowhere`, which must open the defaults). For each it compares the clock,
+the pressed view and mode buttons, the open layer and a line of its content, and the address read back through the
+codec, with the state the link encodes.
+
+Back: it opens the vessel card from the ship's name, presses Back and expects the card closed, no `layer` in the
+address and the console still open; then opens the vessel card and the first cut's card from the timeline (which
+replaces the history entry) and expects one Back to close the cut card.
+
+### What the browser checks change
+
+All three load the console in headless Chromium with the software renderer (`--use-angle=swiftshader
+--enable-unsafe-swiftshader`), wait for the 3D view to finish loading the seabed (`seabed-view` leaves
+`data-state="loading"`), and switch off CSS animations and transitions. A busy machine can starve the software
+renderer's frames for seconds, and Radix keeps a closing layer in the page until its exit animation ends, so with
+animations on a check would measure the machine. They check reachability and focus, not motion. Clicks in
+`evidence-reach.ts` hit-test the control's centre in the page, then click there with the mouse; Playwright's own click
+also waits for two still animation frames, which the software renderer can starve the same way.
+
+## Last results
+
+Recorded on 2026-10-17 on one WSL2 machine (8 cores) shared with other jobs (load average 6 to 20), headless Chrome
+for Testing from the Playwright cache, 1440 x 900 unless stated. "Local" is a production build of this branch at
+commit `a465df1` (`bun run build`, `bun run start -p 3102`); "live" is https://cabletrace.vercel.app the same day.
+Rerun before relying on any of these.
+
+### Sources (`check-sources.ts`, exit 1)
+
 102 sources in 8 cases; 97 have an archived copy and all 97 answer. 80 originals answer, 21 refuse automated readers
 (403 from poliisi.fi, raja.fi, valtioneuvosto.fi and verkkouutiset.fi; all open in a browser and all have a live
 archive), 1 is gone. 5 sources fail, all without an archived copy:
@@ -147,13 +227,14 @@ Two patterns explain every miss:
 
 ### Keyboard path (`keyboard-path.ts`, exit 1)
 
-Local build, all 8 cases at 1440 x 900: the vessel card, cut card, source card and placement card pass in every case
-(19 to 55 key presses). The sources sheet, the aftermath dialog and the shortcuts dialog fail in every case: Esc closes
+Live, all 10 cases at 1440 x 900 (and the local build, the first 8 cases): the vessel card, cut card, source card and
+placement card pass in every case (19 to 55 key presses; Svalbard has no placed positions, so no placement row). The sources sheet, the aftermath dialog and the shortcuts dialog fail in every case: Esc closes
 them, but focus lands on the page body instead of the control that opened them. Confirmed with animations on as well.
 At 390 x 844 (Eagle S) the same three fail; the four cards pass.
 
 ### Deep links (`deep-links.ts`, exit 0)
 
-Local build: 72 of 72 checks pass over the 8 cases (9 per case: 8 links and the Back sequence). Live, Eagle S: 9 of 9.
+Live: 89 of 89 checks pass over the 10 cases (8 links and the Back sequence per case; Svalbard has no placement link).
+Local build: 72 of 72 over the first 8 cases.
 One earlier local run failed the Vezhen placement link once because the card waits for the camera to frame its
 position; the check now waits up to 8 s for a linked card to show, and the rerun passed.

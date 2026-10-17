@@ -133,8 +133,10 @@ async function main(): Promise<number> {
       const firstUrl = `${baseUrl}/cases/${cableCase.slug}`;
       const results: string[] = [];
       for (const path of LAYER_PATHS) {
-        // The case has nothing behind this control (a case without aftermath has no What followed row).
+        // The case has nothing behind this control: no What followed row without aftermath, no position rows when
+        // every position comes from AIS (Svalbard 2022).
         if (path.layer === "aftermath" && cableCase.aftermath.length === 0) continue;
+        if (path.layer === "placement" && cableCase.track.length === 0) continue;
         let outcome: Result<number>;
         try {
           outcome = await checkLayer(page, firstUrl, path);
