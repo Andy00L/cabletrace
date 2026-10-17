@@ -208,15 +208,17 @@ own view of the Gulf never reaches Storage.
 
 Exit codes: 0 agree, 1 disagree, 2 could not judge. The same verdict over the last 6 hours is in `/api/health`
 (`crossSource`, beside the status, which it does not change) and in the `/live` moment card, where a disagreement is
-an alert line (`src/lib/health/cross-source-health.ts`). The first day disagreed: on 17 Oct 2026, 26 samples gave 80%
+an alert line read from that cached health answer (`src/lib/health/cross-source-health.ts`,
+`src/lib/health/feed-check-report.ts`). The first day disagreed: on 17 Oct 2026, 26 samples gave 80%
 of aisstream's Gulf ships in Digitraffic against the 90% target, while 99.9% of 692 matched positions agreed within
 250 m. In the newest frame, 11 of the 14 ships only aisstream heard sat at 0 knots in Helsinki and Turku harbours,
 which points to the two feeds' scope (moored or small craft), not to bad positions; the target stays until that is
 confirmed.
 
-The table has no public policy
-(`20261019060000_close_public_reads.sql`); the script reads with the site's publishable key through
-`public.cross_source_samples_since(hours)`, a security definer function capped at 7 days and 1,008 rows (about 150 KB).
+The table has no public policy (`20261019060000_close_public_reads.sql`). `public.cross_source_samples_since(hours)`,
+a security definer function capped at 7 days and 1,008 rows (about 150 KB), is callable by the service role only
+(`20261019600200_cross_source_server_only.sql`): the health route and the script read it with the secret key, so an
+anonymous loop cannot spend the plan's egress on it, and `/api/health` refuses query strings so its CDN cache holds.
 `public.watched_regions` and `public.position_archives` have no public read at all.
 
 ## Commands for the lead
