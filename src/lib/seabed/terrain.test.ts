@@ -48,9 +48,10 @@ describe("downsampleElevations", () => {
 });
 
 describe("elevationToSceneY", () => {
-  test("exaggerates water 20 times and land 10 times, in kilometres", () => {
-    expect(elevationToSceneY(-100)).toBeCloseTo(-2, 6);
-    expect(elevationToSceneY(50)).toBeCloseTo(0.5, 6);
+  test("exaggerates water and land by the area's own factors, in kilometres", () => {
+    expect(elevationToSceneY(-100, { water: 20, land: 10 })).toBeCloseTo(-2, 6);
+    expect(elevationToSceneY(50, { water: 20, land: 10 })).toBeCloseTo(0.5, 6);
+    expect(elevationToSceneY(-3200, { water: 2, land: 2 })).toBeCloseTo(-6.4, 6);
   });
 });
 

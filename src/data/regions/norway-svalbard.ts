@@ -12,8 +12,8 @@ export const NORWAY_SVALBARD: Region = {
   liveSources: ["aisstream"],
   lineSources: ["openstreetmap"],
   recording: DEFAULT_RECORDING,
-  seabedAreaIds: [],
-  incidents: [{ name: "Svalbard cable, a trawler crossed it about 20 times (Space Norway)", year: 2022, caseSlug: null }],
+  seabedAreaIds: ["svalbard"],
+  incidents: [{ name: "Svalbard cable, a trawler crossed it about 20 times (Space Norway)", year: 2022, caseSlug: "svalbard-2022" }],
   reason:
     "Ranked third (ambition-pass 6.4): the 2022 Svalbard cable damage and regular trawler crossings. aisstream hears a median 16 ships in the box per frame and none within 3 km of a cable (40 frames, 17 Oct 2026); BarentsWatch is the feed that would fill it.",
 };

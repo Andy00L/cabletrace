@@ -1,6 +1,6 @@
 // Builds the seabed files the 3D view loads for one area of SEABED_AREAS:
 //   <out>/<area>-terrain.bin  little-endian int16 elevations in decimetres, row 0 = north
-//   <out>/<area>-seabed.json  region, grid, cable and pipeline lines, place names, sources
+//   <out>/<area>-seabed.json  region, grid, elevation range, cable and pipeline lines, place names, sources
 // Water depth comes from the EMODnet DTM where it covers the area (European seas) and from the GEBCO grid
 // elsewhere; each area's JSON names the grid in `sources.depth`, with its citation and licence. Land height and the
 // coastline come from the Copernicus GLO-30 DEM everywhere (sea pixels are exactly 0 in that product, and a 1 degree
@@ -196,6 +196,40 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
       { name: "Ölands södra udde", longitude: 16.39853, latitude: 56.19606 },
       { name: "Visby", longitude: 18.29798, latitude: 57.63794 },
       { name: "Hoburg fyr", longitude: 18.15104, latitude: 56.92173 },
+    ],
+    tracedLines: [],
+    cablesCredit: OSM_CABLES_CREDIT,
+  },
+  // West Spitsbergen from Longyearbyen out through Isfjorden to the Fram Strait: both Svalbard cables from their
+  // landing to where they turn south at 2,400 m, about 220 by 111 km. At 78 N an EMODnet cell is about 24 m east
+  // to west and 116 m north to south, so vertices are about 386 m apart east to west and 463 m north to south.
+  // Sea-only Copernicus tiles (west of 12 E in N77, west of 10 E in N78) are not published. The EMODnet pipelines
+  // layer has none in the box.
+  svalbard: {
+    region: { west: 6.8, east: 16.2, south: 77.5, north: 78.5 },
+    cellsPerVertex: { longitude: 16, latitude: 4 },
+    depth: { kind: "emodnet", file: "svalbard-depth.txt" },
+    cablesFile: "osm-cables-svalbard.json",
+    pipelines: { file: "pipelines-svalbard.json", displayNames: {} },
+    demTiles: [
+      "N77_00_E012_00",
+      "N77_00_E013_00",
+      "N77_00_E014_00",
+      "N77_00_E015_00",
+      "N77_00_E016_00",
+      "N78_00_E010_00",
+      "N78_00_E011_00",
+      "N78_00_E012_00",
+      "N78_00_E013_00",
+      "N78_00_E014_00",
+      "N78_00_E015_00",
+      "N78_00_E016_00",
+    ],
+    // OpenStreetMap Nominatim lookups, 17 Oct 2026 (Kapp Linné is the cape node beside Isfjord Radio).
+    places: [
+      { name: "Longyearbyen", longitude: 15.64637, latitude: 78.22316 },
+      { name: "Barentsburg", longitude: 14.21724, latitude: 78.06536 },
+      { name: "Kapp Linné", longitude: 13.60608, latitude: 78.06433 },
     ],
     tracedLines: [],
     cablesCredit: OSM_CABLES_CREDIT,
@@ -557,9 +591,17 @@ async function main() {
   const terrain = buildTerrain(grid, tiles, lattice);
   await mkdir(outDir, { recursive: true });
   await writeFile(path.join(outDir, `${areaName}-terrain.bin`), new Uint8Array(terrain.decimetres.buffer));
+  let deepest = 0;
+  let highest = 0;
+  for (const value of terrain.decimetres) {
+    deepest = Math.min(deepest, value);
+    highest = Math.max(highest, value);
+  }
   const features = {
     region: area.region,
     grid: { width: terrain.width, height: terrain.height, unit: "decimetres", rowOrder: "north to south" },
+    // The replay picks its vertical exaggeration from this range (src/lib/seabed/scene-scales.ts).
+    elevationRange: { lowestMetres: deepest / 10, highestMetres: highest / 10 },
     lines,
     places: area.places,
     sources: {
@@ -570,12 +612,6 @@ async function main() {
     },
   };
   await writeFile(path.join(outDir, `${areaName}-seabed.json`), JSON.stringify(features));
-  let deepest = 0;
-  let highest = 0;
-  for (const value of terrain.decimetres) {
-    deepest = Math.min(deepest, value);
-    highest = Math.max(highest, value);
-  }
   console.log(`[main] ${areaName} terrain ${terrain.width}x${terrain.height}, ${deepest / 10} m to ${highest / 10} m, land share ${terrain.landShare.toFixed(3)}`);
   console.log(`[main] ${lines.length} line runs: ${[...new Set(lines.map((line) => line.name))].join(", ")}`);
   console.log(`[main] done in ${Math.round(performance.now() - startedAt)} ms`);

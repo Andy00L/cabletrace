@@ -16,6 +16,14 @@ const TONE_CLASSES: Record<LabelTone, string> = {
   ink: "text-caption font-semibold text-ink",
 };
 
+// Which label keeps its place when two overlap on screen: the lower rank wins, and between equal ranks the label made
+// first. The vessel and the cuts are the story; a cable's name and a place name give way to them (Rubymar's three cut
+// labels sit within 7 km; Minlianyu's name covered its cable's).
+const STACKED_LABEL_RANK = 0;
+const TONE_RANKS: Record<LabelTone, number> = { alarm: 1, ink: 2, cable: 3, pipeline: 3, muted: 4, land: 5 };
+// Room kept between two labels' text (CSS px), about the width of their white halo.
+const LABEL_GAP_PX = 2;
+
 // The renderer centres the element on its point, so padding on one side moves the text off the point.
 const PLACEMENT_CLASSES: Record<LabelPlacement, string> = {
   center: "",
@@ -26,6 +34,7 @@ const PLACEMENT_CLASSES: Record<LabelPlacement, string> = {
 export function makeLabel(text: string, tone: LabelTone, placement: LabelPlacement = "center"): CSS2DObject {
   const element = document.createElement("div");
   element.className = `map-label-halo whitespace-nowrap ${TONE_CLASSES[tone]} ${PLACEMENT_CLASSES[placement]}`;
+  element.dataset.labelRank = String(TONE_RANKS[tone]);
   element.textContent = text;
   return new CSS2DObject(element);
 }
@@ -44,6 +53,7 @@ export type StackedLabel = { object: CSS2DObject; setNote: (note: string) => voi
 export function makeStackedLabel(title: string, note: string, placement: LabelPlacement = "center"): StackedLabel {
   const element = document.createElement("div");
   element.className = `map-label-halo flex flex-col items-center whitespace-nowrap ${PLACEMENT_CLASSES[placement]}`;
+  element.dataset.labelRank = String(STACKED_LABEL_RANK);
   const titleElement = document.createElement("strong");
   titleElement.className = "text-caption font-semibold text-ink";
   titleElement.textContent = title;
@@ -58,4 +68,29 @@ export function makeStackedLabel(title: string, note: string, placement: LabelPl
       if (noteElement.textContent !== nextNote) noteElement.textContent = nextNote;
     },
   };
+}
+
+function isOverlapping(first: DOMRect, second: DOMRect): boolean {
+  return first.left < second.right + LABEL_GAP_PX && second.left < first.right + LABEL_GAP_PX && first.top < second.bottom + LABEL_GAP_PX && second.top < first.bottom + LABEL_GAP_PX;
+}
+
+/**
+ * Hides each label whose text would overlap a label that outranks it, and shows it again once it is clear. Called
+ * after every render of a label layer. The renderer hides labels behind the camera or switched off with
+ * `display: none`; those are skipped, and this toggles `visibility` only, so the two never fight.
+ */
+export function hideOverlappingLabels(layer: HTMLElement) {
+  const rankedLabels = [...layer.querySelectorAll<HTMLElement>("[data-label-rank]")]
+    .filter((element) => element.style.display !== "none")
+    .sort((first, second) => Number(first.dataset.labelRank) - Number(second.dataset.labelRank));
+  const textRange = document.createRange();
+  const shownRects: DOMRect[] = [];
+  for (const element of rankedLabels) {
+    // The text alone: a label's padding lifts it off its point and must not count as covering anything.
+    textRange.selectNodeContents(element);
+    const textRect = textRange.getBoundingClientRect();
+    const isCovered = shownRects.some((shownRect) => isOverlapping(shownRect, textRect));
+    element.style.visibility = isCovered ? "hidden" : "";
+    if (!isCovered) shownRects.push(textRect);
+  }
 }

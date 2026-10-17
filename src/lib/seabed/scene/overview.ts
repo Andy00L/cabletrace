@@ -19,7 +19,7 @@ import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
 import { buildShip } from "@/lib/ships/build-ship";
 import { estimateCaseShipChain, readChainSpan, shapeCatenary, type ChainShape } from "@/lib/ships/anchor-chain";
 import { createKelvinWake } from "@/lib/ships/kelvin-wake";
-import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
+import { chooseSceneExaggeration, SCENE_SCALES, type SceneExaggeration } from "@/lib/seabed/scene-scales";
 import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, type ScenePoint } from "@/lib/seabed/terrain";
 
 // Sediment the overview block stands on, below the deepest sounding (km).
@@ -175,7 +175,10 @@ function sampleRamp(ramp: { value: number; color: THREE.Color }[], value: number
 // (illustrative texture, not survey data; mipmaps fade it to nothing in the overview).
 const RIPPLE_TILE_KM = 0.12;
 
-function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection, lighting: TerrainLighting, rippleNormalMap: THREE.Texture | null): THREE.Mesh {
+type TerrainLook = { lighting: TerrainLighting; rippleNormalMap: THREE.Texture | null };
+
+function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection, exaggeration: SceneExaggeration, look: TerrainLook): THREE.Mesh {
+  const { lighting, rippleNormalMap } = look;
   const { width: columns, height: rows } = features.grid;
   const geometry = new THREE.PlaneGeometry(projection.widthKm, projection.depthKm, columns - 1, rows - 1);
   geometry.rotateX(-Math.PI / 2);
@@ -187,7 +190,7 @@ function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, pr
   const vertexColor = new THREE.Color();
   for (let index = 0; index < positions.count; index += 1) {
     const elevation = elevations[index] ?? 0;
-    const sceneY = elevationToSceneY(elevation);
+    const sceneY = elevationToSceneY(elevation, exaggeration);
     positions.setY(index, sceneY);
     sceneHeights[index] = sceneY;
     if (elevation < 0) sampleRamp(depthRamp, -elevation, vertexColor);
@@ -304,9 +307,11 @@ function unitDirection(from: ScenePoint, to: ScenePoint, fallback: ScenePoint): 
 
 export function buildOverview(options: OverviewOptions): OverviewScene {
   const { renderer, features, elevations, projection, sampleElevationMetres, input, softDot, prefersReducedMotion } = options;
-  const sampleSeabedHeight = (sceneX: number, sceneZ: number) => elevationToSceneY(sampleElevationMetres(sceneX, sceneZ));
+  // Deep areas are drawn less exaggerated than the shallow Baltic (scene-scales.ts); the page states the same factors.
+  const exaggeration = chooseSceneExaggeration(features.elevationRange);
+  const sampleSeabedHeight = (sceneX: number, sceneZ: number) => elevationToSceneY(sampleElevationMetres(sceneX, sceneZ), exaggeration);
   const deepestElevation = elevations.reduce((deepest, elevation) => Math.min(deepest, elevation), 0);
-  const deepestY = elevationToSceneY(deepestElevation);
+  const deepestY = elevationToSceneY(deepestElevation, exaggeration);
   const baseY = deepestY - BLOCK_BASE_THICKNESS_KM;
   const toScene = (longitude: number, latitude: number) => projection.toScene(longitude, latitude);
 
@@ -329,7 +334,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   sunLight.shadow.radius = SUN_SHADOW_SOFTNESS_TEXELS;
   scene.add(sunLight);
 
-  const terrain = buildTerrainMesh(elevations, features, projection, { levelIrradiance: measureLevelIrradiance(sunLight, skyLight) }, options.rippleNormalMap);
+  const terrain = buildTerrainMesh(elevations, features, projection, exaggeration, { lighting: { levelIrradiance: measureLevelIrradiance(sunLight, skyLight) }, rippleNormalMap: options.rippleNormalMap });
   const water = buildWaterBody(projection, deepestY, options.isHighDetail);
   scene.add(terrain, buildBlockSides(terrain, features, baseY), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
@@ -658,9 +663,10 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   controls.minDistance = 1.5;
   controls.maxDistance = topHeightKm * 1.4;
   controls.maxPolarAngle = Math.PI * 0.46;
-  // The overview frames the whole track (the story at a glance); without one it frames the block.
+  // The overview frames the whole track and every cut (the story at a glance: Svalbard's cut marker sits away from
+  // the trawler's track); without a track it frames the block.
   const trackBounds = new THREE.Box3();
-  trackScene.forEach((point) => trackBounds.expandByPoint(new THREE.Vector3(point.x, OVERVIEW_TARGET_Y, point.z)));
+  [...trackScene, ...input.cuts.map((cut) => toScene(cut.longitude, cut.latitude))].forEach((point) => trackBounds.expandByPoint(new THREE.Vector3(point.x, OVERVIEW_TARGET_Y, point.z)));
   const focusTarget = trackScene.length >= 2 ? trackBounds.getCenter(new THREE.Vector3()) : new THREE.Vector3(0, OVERVIEW_TARGET_Y, 0);
   const focusRadiusKm = trackScene.length >= 2 ? Math.max(OVERVIEW_MIN_RADIUS_KM, trackBounds.getSize(new THREE.Vector3()).length() / 2 + OVERVIEW_PADDING_KM) : blockRadiusKm;
   const presets: OverviewScene["presets"] = {

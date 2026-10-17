@@ -11,12 +11,13 @@ export const TAIWAN_STRAIT: Region = {
   liveSources: ["aisstream"],
   lineSources: ["openstreetmap"],
   recording: DEFAULT_RECORDING,
-  seabedAreaIds: [],
+  seabedAreaIds: ["taiwan-penghu", "taiwan-keelung", "matsu"],
   incidents: [
     { name: "Taiwan-Matsu No. 2 and No. 3", year: 2023, caseSlug: null },
     { name: "TPE and TPKM-3 off Keelung (Shunxin 39)", year: 2025, caseSlug: null },
-    { name: "Taiwan-Penghu No. 3 (Hong Tai 58)", year: 2025, caseSlug: null },
-    { name: "Taiwan-Matsu No. 3 off Dongyin (Hai Hong Gong 66)", year: 2026, caseSlug: null },
+    { name: "Taiwan-Penghu No. 3 (Hong Tai 58)", year: 2025, caseSlug: "hong-tai-58-2025" },
+    { name: "Taiwan-Matsu No. 2 off Dongyin (Minlianyu 60138)", year: 2025, caseSlug: "minlianyu-60138-2025" },
+    { name: "Taiwan-Matsu No. 3 off Dongyin (Hai Hong Gong 66)", year: 2026, caseSlug: "hai-hong-gong-66-2026" },
   ],
   reason:
     "Ranked fourth (ambition-pass 6.4): five ship-caused cable cases since 2023, one with a final conviction (Hong Tai 58). aisstream hears a median 4 ships in the box per frame and 0.2 positions a minute within 3 km of a cable (40 frames, 17 Oct 2026).",

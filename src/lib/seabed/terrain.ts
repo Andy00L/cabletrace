@@ -1,5 +1,5 @@
 import { clampValue, interpolate } from "@/lib/seabed/math";
-import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
+import type { SceneExaggeration } from "@/lib/seabed/scene-scales";
 
 export type SeabedRegion = { west: number; east: number; south: number; north: number };
 export type SeabedGrid = { width: number; height: number };
@@ -12,10 +12,6 @@ export type Projection = {
   toScene: (longitude: number, latitude: number) => ScenePoint;
 };
 
-// Overview: water depth drawn 20 times deeper than it is and land 10 times, so 120 m of relief reads across a
-// 145 km block without turning narrow shoals into needles (values in scene-scales.ts, shared with the UI).
-export const WATER_EXAGGERATION = SCENE_SCALES.waterExaggeration;
-export const LAND_EXAGGERATION = SCENE_SCALES.landExaggeration;
 // Kilometres per degree (WGS 84 mean values).
 const KM_PER_DEG_LAT = 110.57;
 const KM_PER_DEG_LON_AT_EQUATOR = 111.32;
@@ -78,9 +74,9 @@ export function downsampleElevations(elevations: Float32Array, grid: SeabedGrid,
   return { elevations: reduced, grid: reducedGrid };
 }
 
-/** Overview scene height (km) of an elevation in metres; water and land use different exaggerations. */
-export function elevationToSceneY(elevationMetres: number): number {
-  return (elevationMetres / 1000) * (elevationMetres >= 0 ? LAND_EXAGGERATION : WATER_EXAGGERATION);
+/** Overview scene height (km) of an elevation in metres, at the area's exaggeration (chooseSceneExaggeration). */
+export function elevationToSceneY(elevationMetres: number, exaggeration: SceneExaggeration): number {
+  return (elevationMetres / 1000) * (elevationMetres >= 0 ? exaggeration.land : exaggeration.water);
 }
 
 /** Equirectangular projection around the region's centre latitude; the block is centred on the origin. */

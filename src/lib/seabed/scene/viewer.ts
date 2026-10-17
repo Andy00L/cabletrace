@@ -5,6 +5,7 @@ import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { Result } from "@/lib/result";
 import { clampValue, easeOutCubic } from "@/lib/seabed/math";
 import { createCaustics } from "@/lib/seabed/scene/caustics";
+import { hideOverlappingLabels } from "@/lib/seabed/scene/labels";
 import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
 import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneTarget } from "@/lib/seabed/scene/overview";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
@@ -500,6 +501,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     lastDrawnAtMs = atMs;
     renderer.render(overview.scene, overview.camera);
     overviewLabels.render(overview.scene, overview.camera);
+    hideOverlappingLabels(overviewLabels.domElement);
     recordDrawnFrame(atMs);
     if (renderer.domElement.dataset.lookdev === "on") recordColorProbes();
   }
