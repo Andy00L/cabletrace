@@ -1,9 +1,11 @@
-import { FRAME_INDEX_PATH, FRAMES_FOLDER, SLOT_MS, frameObjectUrl, parseFrameObjectName } from "@/lib/live/frame-layout";
+import { fetchFrameObject, readFrameStorageConfig } from "@/lib/frames/frame-storage";
+import { FRAME_INDEX_PATH, FRAME_RETENTION_MS, FRAMES_FOLDER, SLOT_MS, parseFrameObjectName } from "@/lib/live/frame-layout";
 
-// Serves the /live globe's ship frames and their index from Vercel's CDN instead of straight from Supabase Storage.
-// A frame never changes once the collector has written it, so the CDN keeps it for two days and every later viewer
-// costs Supabase nothing: a full day of frames is about 32 MB, which per viewer would use up the free plan's 5 GB of
-// Storage egress within a few hundred visits (plan/decision-log.md, 2026-10-17).
+// Serves the /live globe's ship frames and their index from Vercel's CDN. A frame never changes once the collector has
+// written it, so the CDN keeps it for two days and every later viewer costs Supabase nothing: a full day of frames is
+// about 32 MB, which per viewer would use up the free plan's 5 GB of Storage egress within a few hundred visits
+// (plan/decision-log.md, 2026-10-17). The bucket is private, so this route is the only way in, and it answers only
+// the canonical URLs the cache can hold: no query string, no slot outside the stored window.
 
 const UPSTREAM_TIMEOUT_MS = 15_000;
 // The index changes every 10 minutes (one collector run per slot): a minute at the CDN keeps it fresh.
@@ -26,6 +28,8 @@ function resolveObject(segments: readonly string[], nowMs: number): ObjectReques
   if (segments.length !== 2 || folder !== FRAMES_FOLDER || name === undefined) return null;
   const slotStart = parseFrameObjectName(name);
   if (!slotStart.ok) return null;
+  // A slot older than the retention or later than the current one cannot be stored: answer it without asking Storage.
+  if (slotStart.value < nowMs - FRAME_RETENTION_MS || slotStart.value > nowMs + SLOT_MS) return null;
   const isSealed = slotStart.value + 2 * SLOT_MS <= nowMs;
   return {
     objectPath: `${FRAMES_FOLDER}/${name}`,
@@ -34,23 +38,24 @@ function resolveObject(segments: readonly string[], nowMs: number): ObjectReques
   };
 }
 
-export async function GET(_request: Request, context: RouteContext<"/api/ship-frames/[...objectPath]">) {
+export async function GET(request: Request, context: RouteContext<"/api/ship-frames/[...objectPath]">) {
+  // A query string would make each request a new cache key and send it to Storage: the globe never adds one.
+  if (new URL(request.url).search !== "") return Response.json({ ok: false, reason: "ship frame URLs take no query string" }, { status: 404, headers: { "Cache-Control": MISSING_CACHE_CONTROL } });
   const { objectPath } = await context.params;
   const requested = resolveObject(objectPath, Date.now());
-  if (!requested) return Response.json({ ok: false, reason: "not a ship frame or the frame index" }, { status: 404 });
-  const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!projectUrl) {
-    console.error("[shipFramesRoute] NEXT_PUBLIC_SUPABASE_URL is not set");
+  if (!requested) return Response.json({ ok: false, reason: "not a ship frame or the frame index" }, { status: 404, headers: { "Cache-Control": MISSING_CACHE_CONTROL } });
+  const config = readFrameStorageConfig();
+  if (!config.ok) {
+    console.error(`[shipFramesRoute] ${config.reason}`);
     return Response.json({ ok: false, reason: "frame storage is not configured" }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
-  let upstream: Response;
-  try {
-    upstream = await fetch(frameObjectUrl(projectUrl, requested.objectPath), { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), cache: "no-store" });
-  } catch (error) {
-    console.error(`[shipFramesRoute] ${requested.objectPath} unreachable: ${error instanceof Error ? error.message : String(error)}`);
+  const fetched = await fetchFrameObject(config.value, requested.objectPath, UPSTREAM_TIMEOUT_MS);
+  if (!fetched.ok) {
+    console.error(`[shipFramesRoute] ${fetched.reason}`);
     return Response.json({ ok: false, reason: "frame storage unreachable" }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
-  // Supabase Storage answers 400 for a missing object in a public bucket, so both read as "not stored yet".
+  const upstream = fetched.value;
+  // Supabase Storage answers 400 or 404 for a missing object, so both read as "not stored yet".
   if (upstream.status === 404 || upstream.status === 400) {
     return Response.json({ ok: false, reason: `${requested.objectPath} is not stored` }, { status: 404, headers: { "Cache-Control": MISSING_CACHE_CONTROL } });
   }

@@ -1,4 +1,5 @@
-import { FRAME_INDEX_PATH, frameObjectUrl, parseFrameIndex, SLOT_MS } from "@/lib/live/frame-layout";
+import { fetchFrameObject, readFrameStorageConfig } from "@/lib/frames/frame-storage";
+import { FRAME_INDEX_PATH, parseFrameIndex, SLOT_MS } from "@/lib/live/frame-layout";
 import type { Result } from "@/lib/result";
 
 // Whether the world ship collector still writes frames: it rewrites ship-frames/index.json on every run, every
@@ -11,17 +12,18 @@ const MS_PER_MINUTE = 60_000;
 
 export type CollectorHealth = { state: "collecting" | "stale"; minutesSinceIndex: number; framesStored: number; newestFrameAt: string | null };
 
-/** Reads the frame index from public storage and judges it against `nowMs`. */
+/** Reads the frame index from the (private) frame bucket and judges it against `nowMs`. */
 export async function checkCollectorHealth(nowMs: number): Promise<Result<CollectorHealth>> {
-  const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!projectUrl) return { ok: false, reason: "NEXT_PUBLIC_SUPABASE_URL is not set" };
+  const config = readFrameStorageConfig();
+  if (!config.ok) return config;
+  const fetched = await fetchFrameObject(config.value, FRAME_INDEX_PATH, INDEX_TIMEOUT_MS);
+  if (!fetched.ok) return fetched;
+  if (!fetched.value.ok) return { ok: false, reason: `the frame index answered ${fetched.value.status}` };
   let payload: unknown;
   try {
-    const response = await fetch(frameObjectUrl(projectUrl, FRAME_INDEX_PATH), { cache: "no-store", signal: AbortSignal.timeout(INDEX_TIMEOUT_MS) });
-    if (!response.ok) return { ok: false, reason: `the frame index answered ${response.status}` };
-    payload = JSON.parse(await response.text());
+    payload = JSON.parse(await fetched.value.text());
   } catch (error) {
-    return { ok: false, reason: `the frame index could not be read: ${error instanceof Error ? error.message : String(error)}` };
+    return { ok: false, reason: `the frame index is not JSON: ${error instanceof Error ? error.message : String(error)}` };
   }
   const frameIndex = parseFrameIndex(payload);
   if (!frameIndex.ok) return frameIndex;

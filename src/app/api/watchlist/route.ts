@@ -15,7 +15,9 @@ function respond(status: number, body: Record<string, unknown>): Response {
 
 /**
  * A change must come from this site: browsers send Origin on POST and DELETE, so a mismatch is a request another site
- * made with the reader's cookies. (Clerk's session cookie is SameSite=Lax as a first guard.)
+ * made with the reader's cookies. (Clerk's session cookie is SameSite=Lax as a first guard.) A `no-referrer` referrer
+ * policy would make browsers send "Origin: null" and refuse every change here: next.config.ts sets
+ * strict-origin-when-cross-origin, which keeps the real origin.
  */
 function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
