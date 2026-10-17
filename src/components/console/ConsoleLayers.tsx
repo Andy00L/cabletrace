@@ -401,12 +401,18 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
                   {entry.uses.map((use, index) => (
                     <div key={index} className="flex flex-col gap-1">
                       <span className="text-micro text-muted">{use.supports}</span>
-                      <p className="rounded-field bg-card px-3 py-2.5 text-small">{use.translation ?? use.quote}</p>
+                      <div className="flex flex-col gap-1 rounded-field bg-card px-3 py-2.5">
+                        <p className="text-small">{use.translation ?? use.quote}</p>
+                        {use.translation && <p className="text-caption font-normal text-muted">{use.quote}</p>}
+                      </div>
                     </div>
                   ))}
-                  <SourceLinks source={entry} />
                 </div>
               </details>
+              {/* The links stay visible under the row, so a source's page and its archive are one step from the list. */}
+              <div className="px-2.5 pb-2 pl-[48px]">
+                <SourceLinks source={entry} />
+              </div>
             </li>
           ))}
         </ol>
@@ -417,8 +423,11 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
           {consoleCase.aftermath.map((step) => (
             <li key={`${step.atMs}-${step.title}`} className="grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 rounded-field px-2 py-2.5">
               <span className="text-small text-muted tabular-nums">{step.dateLabel}</span>
-              <span className="flex flex-col gap-1">
+              <span className="flex flex-col gap-2">
                 <span className="text-small">{step.title}</span>
+                {step.citations.map((citation, index) => (
+                  <Quote key={`${citation.sourceId}-${index}`} citation={citation} />
+                ))}
                 <CitationButtons citations={step.citations} />
               </span>
             </li>

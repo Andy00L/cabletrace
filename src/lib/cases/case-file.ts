@@ -10,11 +10,12 @@ export type CaseSource = {
   url: string;
   /** YYYY-MM-DD. */
   publishedOn: string;
-  /** A Wayback Machine capture of `url` (https://web.archive.org/web/...), or null when none exists. */
+  /** A dated Wayback Machine (https://web.archive.org/web/...) or archive.today snapshot of `url`, or null when none exists. */
   archivedUrl: string | null;
 };
 
-// Every archived copy is a Wayback Machine capture, so a reader can open the page as it was when cited.
+// Every archived copy is a dated snapshot, so a reader can open the page as it was when cited: a Wayback Machine
+// capture under this prefix, or an archive.today snapshot (findCaseProblems checks both).
 const WAYBACK_PREFIX = "https://web.archive.org/web/";
 
 export type Citation = {

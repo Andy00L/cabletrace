@@ -3,7 +3,8 @@
 // Usage: bun scripts/cases/check-sources.ts
 // A source fails when it has no archived copy or its archived copy does not answer, so a dead original always has
 // a live archive behind it. Originals that refuse automated readers (401, 403, 429) are listed apart from dead ones:
-// a browser usually opens them. Static checks (snapshot address shape, capture date, duplicate ids) live in
+// a browser usually opens them. A source listed in UNARCHIVABLE_SOURCES has no archive by decision and passes while its
+// original still answers. Static checks (snapshot address shape, capture date, duplicate ids) live in
 // findCaseProblems (src/lib/cases/case-file.ts) and run with `bun test src`.
 // Exit codes: 0 every source passes, 1 a source failed, 2 the check could not run (no network).
 import { CABLE_CASES } from "../../src/data/cases";
@@ -21,6 +22,21 @@ const ARCHIVE_RETRY_DELAYS_MS = [15_000, 45_000];
 // Answers when the network itself works; if it does not, the run stops with exit code 2 instead of failing every
 // source.
 const NETWORK_PROBE_URL = "https://web.archive.org/";
+
+// Sources that cannot be archived, keyed "<case slug>:<source id>", with the reason (reviewed by the lead,
+// 17 Oct 2026; docs/EVIDENCE_CHECKS.md). With no archive behind it, the original is all a reader has, so such a
+// source still fails when its original stops answering. `expectedAnswer` names a non-2xx status that still means the
+// original answers (an API that wants a POST body answers a bare GET with 405).
+const UNARCHIVABLE_SOURCES: ReadonlyMap<string, { reason: string; expectedAnswer?: string }> = new Map([
+  ["vezhen-2025:18", { reason: "a 575 MB Danish Maritime Authority AIS zip; Save Page Now answered 520" }],
+  ["vezhen-2025:19", { reason: "a Danish Maritime Authority AIS zip of about 575 MB" }],
+  ["newnew-polar-bear-2023:19", { reason: "a 17.2 GB Danish Maritime Authority AIS zip" }],
+  ["yi-peng-3-2024:10", { reason: "a 554 MB Danish Maritime Authority AIS zip" }],
+  ["svalbard-2022:9", { reason: "a Kystverket AIS API query sent as a POST; an API call has no page to archive", expectedAnswer: "HTTP 405" }],
+  ["rubymar-2024:1", { reason: "centcom.mil refuses Save Page Now (520 on three requests, 17 Oct 2026)" }],
+  ["rubymar-2024:2", { reason: "centcom.mil refuses Save Page Now (520 on three requests, 17 Oct 2026)" }],
+  ["rubymar-2024:3", { reason: "centcom.mil refuses Save Page Now (520 on three requests, 17 Oct 2026)" }],
+]);
 
 /** What one address answered after redirects. */
 type Reach =
@@ -140,7 +156,11 @@ async function main(): Promise<number> {
   }));
 
   const label = (row: SourceRow) => `${row.caseSlug} source ${row.source.id} (${row.source.publisher})`;
+  const exemptionOf = (row: SourceRow) => UNARCHIVABLE_SOURCES.get(`${row.caseSlug}:${row.source.id}`);
+  const doesOriginalAnswer = (row: SourceRow) => row.original.kind !== "dead" || row.original.reason === exemptionOf(row)?.expectedAnswer;
+  const unarchivable = rows.filter((row) => row.archive === null && exemptionOf(row) !== undefined);
   const failures = rows.flatMap((row) => {
+    if (row.archive === null && exemptionOf(row) !== undefined && doesOriginalAnswer(row)) return [];
     if (row.archive === null) return [`${label(row)}: no archived copy; original ${describeReach(row.original)} ${row.source.url}`];
     if (row.archive.kind !== "live") return [`${label(row)}: archived copy ${describeReach(row.archive)} ${row.source.archivedUrl}; original ${describeReach(row.original)}`];
     return [];
@@ -156,6 +176,10 @@ async function main(): Promise<number> {
   if (deadOriginals.length > 0) {
     console.log(`[checkSources] originals that no longer answer:`);
     deadOriginals.forEach((row) => console.log(`[checkSources]   ${label(row)}: ${describeReach(row.original)} ${row.source.url}; archive ${row.archive ? describeReach(row.archive) : "none"}`));
+  }
+  if (unarchivable.length > 0) {
+    console.log(`[checkSources] no archive by decision (UNARCHIVABLE_SOURCES):`);
+    unarchivable.forEach((row) => console.log(`[checkSources]   ${label(row)}: ${exemptionOf(row)?.reason}; original ${describeReach(row.original)}`));
   }
   if (failures.length > 0) {
     console.log(`[checkSources] failed:`);

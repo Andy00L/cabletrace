@@ -9,7 +9,11 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test src",
-    "perf": "bun scripts/perf/measure-pages.ts"
+    "perf": "bun scripts/perf/measure-pages.ts",
+    "check:sources": "bun scripts/cases/check-sources.ts",
+    "check:evidence": "bun scripts/checks/evidence-reach.ts",
+    "check:keyboard": "bun scripts/checks/keyboard-path.ts",
+    "check:links": "bun scripts/checks/deep-links.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.17",

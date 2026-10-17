@@ -13,15 +13,10 @@ import { formatPublishedDate } from "../../src/lib/cases/case-view";
 import type { CableCase, Citation } from "../../src/lib/cases/case-file";
 import type { Result } from "../../src/lib/result";
 import { chooseSceneExaggeration, CLOSE_UP_SCALE_NOTES, describeOverviewScale } from "../../src/lib/seabed/scene-scales";
+import { LAND_CREDIT } from "../../src/lib/seabed/scene-credits";
 import { parseSeabedFeatures } from "../../src/lib/seabed/seabed-data";
 import { describeError, LAYER_SETTLE_MS, launchBrowser, openConsole, parseCheckArguments, type Viewport } from "./console-page";
 
-// The land credit's notice and liability sentence, fixed for every area. sourceRef: LAND_CREDIT in
-// src/components/console/StageOverlays.tsx, which does not export it.
-const LAND_CREDIT_MARKERS = [
-  { label: "land credit", text: "Land: produced using Copernicus WorldDEM-30" },
-  { label: "Copernicus liability line", text: "do not incur any liability for any use of the Copernicus WorldDEM-30." },
-] as const;
 // Single-key shortcuts the console listens for (src/components/console/ReplayConsole.tsx).
 const SHORTCUT_KEYS = ["?", "1", "2", "3", "4", "f", "Space", "ArrowLeft", "ArrowRight"] as const;
 // Controls that cannot reveal evidence, left out to keep the search short: they act on the camera, the clipboard
@@ -120,7 +115,7 @@ function listEvidence(cableCase: CableCase, sceneFacts: SceneFacts): EvidenceIte
   addText("scale sentence", "close-up scale sentence (illustrated)", CLOSE_UP_SCALE_NOTES.illustrated);
   addText("scale sentence", "close-up scale sentence (measured)", CLOSE_UP_SCALE_NOTES.measured);
   addText("data credit", "depth credit", sceneFacts.depthCredit);
-  LAND_CREDIT_MARKERS.forEach((marker) => addText("data credit", marker.label, marker.text));
+  addText("data credit", "land credit with its liability sentence", LAND_CREDIT);
   addText("data credit", "cable and pipeline credit", sceneFacts.lineCredit);
   return items;
 }

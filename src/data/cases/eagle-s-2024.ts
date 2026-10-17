@@ -395,9 +395,11 @@ export const EAGLE_S_2024: CableCase = {
       id: 15,
       publisher: "Nord Pool market message, published by Fingrid",
       title: "Estlink 2 unavailability",
-      url: "https://umm.nordpoolgroup.com/#/messages/79210ee1-3395-4f75-a972-7b03888b107a/5",
+      // The message itself from Nord Pool's UMM API: the umm.nordpoolgroup.com page is a single-page app that archives
+      // empty. The capture holds "eventStart":"2024-12-25T10:26:00.0000000Z" (checked 17 Oct 2026).
+      url: "https://ummapi.nordpoolgroup.com/messages/79210ee1-3395-4f75-a972-7b03888b107a",
       publishedOn: "2024-12-25",
-      archivedUrl: null,
+      archivedUrl: "https://web.archive.org/web/20261017160918/https://ummapi.nordpoolgroup.com/messages/79210ee1-3395-4f75-a972-7b03888b107a",
     },
     {
       id: 19,
