@@ -11,11 +11,6 @@ import { combineGlobeLines, parseWorldLines, type GlobeLine } from "@/lib/globe/
 const LAND_URL = "/globe/land.json";
 const CABLES_URL = "/globe/cables.json";
 
-/** Resolves after the browser has painted the next frame, so work queued behind it never delays what was just shown. */
-function afterNextPaint(): Promise<void> {
-  return new Promise((resolve) => window.requestAnimationFrame(() => window.setTimeout(resolve, 0)));
-}
-
 /** Downloads and parses one of the globe's static files; never throws. */
 async function fetchJson(url: string): Promise<Result<unknown>> {
   try {
@@ -48,6 +43,8 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
   const viewerRef = useRef<GlobeViewer | null>(null);
   const [stageState, setStageState] = useState<StageState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
+  // The world's lines for the current globe: requested once it shows, laid out once (effect below).
+  const cablesDownloadRef = useRef<{ viewer: GlobeViewer; download: Promise<Result<unknown>> | null; isApplied: boolean } | null>(null);
   // The latest callbacks, so new functions from the parent do not rebuild the globe.
   const callbacksRef = useRef({ onViewerChange, onPick, onLinesChange });
   useEffect(() => {
@@ -62,8 +59,6 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
     let viewer: GlobeViewer | null = null;
 
     async function startGlobe(host: HTMLDivElement) {
-      // The world's lines download beside the land but never hold the globe back: they are drawn when they land.
-      const cablesDownload = fetchJson(CABLES_URL);
       const landDownload = await fetchJson(LAND_URL);
       if (!landDownload.ok) {
         console.error(`[LiveGlobeStage] ${landDownload.reason}`);
@@ -95,21 +90,8 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
       created.value.setLines(watchedOnly);
       callbacksRef.current.onLinesChange(watchedOnly, "loading");
       callbacksRef.current.onViewerChange(created.value);
+      cablesDownloadRef.current = { viewer: created.value, download: null, isApplied: false };
       setStageState({ kind: "ready" });
-
-      // Building the world's lines takes a few hundred ms on a software renderer: the globe shows first.
-      await afterNextPaint();
-      const cablesDownloaded = await cablesDownload;
-      const worldLines = cablesDownloaded.ok ? parseWorldLines(cablesDownloaded.value) : cablesDownloaded;
-      if (isCancelled) return;
-      if (!worldLines.ok) {
-        console.error(`[LiveGlobeStage] ${worldLines.reason}`);
-        callbacksRef.current.onLinesChange(watchedOnly, "failed");
-        return;
-      }
-      const allLines = combineGlobeLines(worldLines.value.lines, watchedLines);
-      created.value.setLines(allLines);
-      callbacksRef.current.onLinesChange(allLines, "loaded");
     }
 
     void startGlobe(container);
@@ -120,6 +102,32 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
       callbacksRef.current.onViewerChange(null);
     };
   }, [watchedLines, attempt]);
+
+  // Downloads and lays out the world's lines once the ready globe has been committed: the file (567 KB of JSON) and
+  // building 4,000 lines take a few hundred ms of main thread on a software renderer, which must not hold back the globe
+  // showing. Syncs the three.js scene React does not own.
+  useEffect(() => {
+    const pending = cablesDownloadRef.current;
+    if (stageState.kind !== "ready" || !pending || pending.isApplied) return;
+    let isCurrent = true;
+    pending.download ??= fetchJson(CABLES_URL);
+    void pending.download.then((downloaded) => {
+      if (!isCurrent || pending.isApplied || viewerRef.current !== pending.viewer) return;
+      pending.isApplied = true;
+      const worldLines = downloaded.ok ? parseWorldLines(downloaded.value) : downloaded;
+      if (!worldLines.ok) {
+        console.error(`[LiveGlobeStage] ${worldLines.reason}`);
+        callbacksRef.current.onLinesChange(combineGlobeLines([], watchedLines), "failed");
+        return;
+      }
+      const allLines = combineGlobeLines(worldLines.value.lines, watchedLines);
+      pending.viewer.setLines(allLines);
+      callbacksRef.current.onLinesChange(allLines, "loaded");
+    });
+    return () => {
+      isCurrent = false;
+    };
+  }, [stageState.kind, watchedLines]);
 
   useEffect(() => {
     viewerRef.current?.setRightInset(rightInsetPx);
