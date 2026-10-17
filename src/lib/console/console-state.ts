@@ -31,6 +31,12 @@ export type ConsoleState = {
 export type ConsoleContext = {
   windowStartMs: number;
   windowEndMs: number;
+  /**
+   * Where the replay opens when a link carries no time: the ship's first known position, so the first frame shows
+   * the ship. A case window can start earlier, for an event before the first position (Eagle S entering Finland's
+   * zone at 10:23 UTC, its first position at 10:26); those stay a scrub away.
+   */
+  openingMs: number;
   /** One slug per cut, in case order (see `toCutSlug`). */
   cutSlugs: readonly string[];
   placementCount: number;
@@ -61,9 +67,9 @@ function pickOne<TValue extends string>(options: readonly TValue[], raw: string 
 
 function parseMinute(raw: string | undefined, context: ConsoleContext): number {
   const match = raw ? MINUTE_PATTERN.exec(raw) : null;
-  if (!match) return context.windowStartMs;
+  if (!match) return context.openingMs;
   const atMs = Date.parse(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:00Z`);
-  if (!Number.isFinite(atMs)) return context.windowStartMs;
+  if (!Number.isFinite(atMs)) return context.openingMs;
   return Math.min(context.windowEndMs, Math.max(context.windowStartMs, atMs));
 }
 
@@ -140,7 +146,7 @@ export function parseConsoleState(params: Readonly<Record<string, string | strin
 /** Writes the state as a query string, leaving out every value that equals its default. */
 export function formatConsoleState(state: ConsoleState, context: ConsoleContext): string {
   const params = new URLSearchParams();
-  if (Math.floor(state.atMs / MS_PER_MINUTE) !== Math.floor(context.windowStartMs / MS_PER_MINUTE)) params.set("t", formatMinute(state.atMs));
+  if (Math.floor(state.atMs / MS_PER_MINUTE) !== Math.floor(context.openingMs / MS_PER_MINUTE)) params.set("t", formatMinute(state.atMs));
   if (state.view !== DEFAULT_VIEW) params.set("view", state.view);
   if (state.mode !== DEFAULT_MODE) params.set("mode", state.mode);
   if (state.detail !== DEFAULT_DETAIL) params.set("detail", state.detail);
