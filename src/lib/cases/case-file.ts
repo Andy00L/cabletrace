@@ -135,7 +135,7 @@ export function toReplaySceneInput(cableCase: CableCase): ReplaySceneInput {
 /**
  * Checks a case for the mistakes that would mislead a reader: unparseable times, citations pointing at
  * missing sources, a window that does not contain the events, aftermath inside the window, an unsorted track
- * or list of AIS fixes.
+ * or list of AIS fixes, a source id used twice, an archived copy that is not a dated snapshot of the cited page.
  * Returns every problem found.
  */
 export function findCaseProblems(cableCase: CableCase): string[] {
@@ -189,8 +189,32 @@ export function findCaseProblems(cableCase: CableCase): string[] {
     });
   }
   if (cableCase.dragWindow) checkCitations("drag window", cableCase.dragWindow.citations);
+
+  // An archived copy must be a dated snapshot of the cited page itself, taken no earlier than the page: a Wayback
+  // Machine capture (https://web.archive.org/web/<YYYYMMDDhhmmss>/<original>) or an archive.today snapshot (a short
+  // id, or <YYYY.MM.DD-hhmmss>/<original>). Whether each one still answers is checked over the network by
+  // scripts/cases/check-sources.ts.
+  const waybackCapture = /^(\d{4})(\d{2})(\d{2})\d{6}\/(https?:\/\/\S+)$/;
+  const archiveTodaySnapshot = /^https:\/\/archive\.(?:today|ph|is|li|vn|fo|md)\/(?:[A-Za-z0-9]{4,10}|(\d{4})\.(\d{2})\.(\d{2})-\d{6}\/(https?:\/\/\S+))$/;
+  // Scheme, a leading "www.", a trailing slash and the fragment (archives never store it) differ between a page and
+  // its capture without changing which page it is.
+  const toComparableUrl = (url: string) => url.replace(/#.*$/, "").replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
+  // `publishedOn` is a local date; a page published just after midnight in Europe or Asia is the previous UTC day.
+  const publicationSlackMs = 24 * 60 * 60 * 1000;
+  const seenSourceIds = new Set<number>();
   cableCase.sources.forEach((source) => {
-    if (source.archivedUrl !== null && !source.archivedUrl.startsWith(WAYBACK_PREFIX)) problems.push(`source ${source.id}: archived copy is not a Wayback Machine capture`);
+    if (seenSourceIds.has(source.id)) problems.push(`source ${source.id}: id used twice`);
+    seenSourceIds.add(source.id);
+    if (source.archivedUrl === null) return;
+    const capture = source.archivedUrl.startsWith(WAYBACK_PREFIX) ? waybackCapture.exec(source.archivedUrl.slice(WAYBACK_PREFIX.length)) : archiveTodaySnapshot.exec(source.archivedUrl);
+    if (!capture) {
+      problems.push(`source ${source.id}: archived copy is not a Wayback Machine or archive.today snapshot`);
+      return;
+    }
+    const [, year, month, day, capturedUrl] = capture;
+    if (capturedUrl !== undefined && toComparableUrl(capturedUrl) !== toComparableUrl(source.url)) problems.push(`source ${source.id}: archived copy is a snapshot of ${capturedUrl}, not of the cited page`);
+    const capturedOnMs = year === undefined ? Number.NaN : Date.parse(`${year}-${month}-${day}T00:00:00Z`);
+    if (capturedOnMs + publicationSlackMs < toMs(`${source.publishedOn}T00:00:00Z`)) problems.push(`source ${source.id}: archived copy from ${year}-${month}-${day} predates the page (${source.publishedOn})`);
   });
   return problems;
 }
