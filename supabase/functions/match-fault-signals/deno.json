@@ -1,0 +1,30 @@
+{
+  "nodeModulesDir": "none",
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.118.0",
+    "@/lib/result": "../../../src/lib/result.ts",
+    "@/lib/detection/anchor-model": "../../../src/lib/detection/anchor-model.ts",
+    "@/lib/detection/anchor-path": "../../../src/lib/detection/anchor-path.ts",
+    "@/lib/detection/assess-fleet": "../../../src/lib/detection/assess-fleet.ts",
+    "@/lib/detection/detect-anchor-drag": "../../../src/lib/detection/detect-anchor-drag.ts",
+    "@/lib/detection/detection-inputs": "../../../src/lib/detection/detection-inputs.ts",
+    "@/lib/detection/detection-types": "../../../src/lib/detection/detection-types.ts",
+    "@/lib/detection/drag-rules": "../../../src/lib/detection/drag-rules.ts",
+    "@/lib/detection/geodesy": "../../../src/lib/detection/geodesy.ts",
+    "@/lib/detection/track-cleaning": "../../../src/lib/detection/track-cleaning.ts",
+    "@/lib/fault-signals/bidding-zones": "../../../src/lib/fault-signals/bidding-zones.ts",
+    "@/lib/fault-signals/cable-matcher": "../../../src/lib/fault-signals/cable-matcher.ts",
+    "@/lib/fault-signals/draft-case": "../../../src/lib/fault-signals/draft-case.ts",
+    "@/lib/fault-signals/entsoe-unavailability": "../../../src/lib/fault-signals/entsoe-unavailability.ts",
+    "@/lib/fault-signals/fault-inputs": "../../../src/lib/fault-signals/fault-inputs.ts",
+    "@/lib/fault-signals/fault-signal-types": "../../../src/lib/fault-signals/fault-signal-types.ts",
+    "@/lib/fault-signals/ioda-alerts": "../../../src/lib/fault-signals/ioda-alerts.ts",
+    "@/lib/fault-signals/nga-warnings": "../../../src/lib/fault-signals/nga-warnings.ts",
+    "@/lib/fault-signals/read-json": "../../../src/lib/fault-signals/read-json.ts",
+    "@/lib/fault-signals/zip-entries": "../../../src/lib/fault-signals/zip-entries.ts",
+    "@/lib/seabed/math": "../../../src/lib/seabed/math.ts",
+    "@/lib/seabed/scene-scales": "../../../src/lib/seabed/scene-scales.ts",
+    "@/lib/seabed/seabed-data": "../../../src/lib/seabed/seabed-data.ts",
+    "@/lib/seabed/terrain": "../../../src/lib/seabed/terrain.ts"
+  }
+}
