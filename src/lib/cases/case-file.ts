@@ -129,6 +129,7 @@ export function toReplaySceneInput(cableCase: CableCase): ReplaySceneInput {
     windowStartMs: toMs(cableCase.window.startUtc),
     windowEndMs: toMs(cableCase.window.endUtc),
     track,
+    placements: cableCase.track.map((position) => ({ longitude: position.longitude, latitude: position.latitude })),
     dragWindow: cableCase.dragWindow ? { startMs: toMs(cableCase.dragWindow.startUtc), endMs: toMs(cableCase.dragWindow.endUtc) } : null,
     cuts: [toCut(primaryCut), ...otherCuts.map(toCut)],
     vessel: { name: cableCase.vessel.name, kind: cableCase.vessel.kind, lengthMetres: cableCase.vessel.lengthMetres },

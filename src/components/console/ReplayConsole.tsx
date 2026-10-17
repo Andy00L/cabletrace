@@ -2,13 +2,15 @@
 
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CaseSketchMap } from "@/components/cases/CaseCard";
 import { ConsoleControllerContext, type ConsoleController } from "@/components/console/console-context";
 import { ConsoleDock } from "@/components/console/ConsoleDock";
 import { ConsoleLayers } from "@/components/console/ConsoleLayers";
 import { ConsoleRail } from "@/components/console/ConsoleRail";
 import { ConsoleTopBar, type CaseSwitcherItem } from "@/components/console/ConsoleTopBar";
-import { StageOverlays, type LineSources } from "@/components/console/StageOverlays";
+import { StageOverlays, type SceneSources } from "@/components/console/StageOverlays";
 import { SeabedView } from "@/components/replay/SeabedView";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
 import type { ConsoleCase } from "@/lib/cases/case-console";
 import type { CaseSeries } from "@/lib/cases/case-series";
@@ -23,8 +25,13 @@ const REPLAY_DURATION_SECONDS = 40;
 // The rail's width and its inset from the stage edge (docs/UI_DESIGN_SYSTEM.md, Console, Layout), in CSS px.
 const RAIL_WIDTH_PX = 360;
 const RAIL_INSET_PX = 16;
-// At this width and up the rail floats over the stage; below it the rail's content sits under the dock.
+// Layouts (docs/UI_DESIGN_SYSTEM.md, Console, Layout): from 1024 px the full console with the charts in the dock;
+// from 768 px the rail floats over the stage as a sheet and the charts move into Ship mode; under 768 px the rail's
+// content lives in a bottom sheet and cards open as bottom sheets.
 const WIDE_LAYOUT_QUERY = "(min-width: 1024px)";
+const FLOATING_RAIL_QUERY = "(min-width: 768px)";
+// What the folded bottom sheet keeps on a phone screen (CSS px): its handle and the mode switch.
+const SHEET_PEEK_PX = 96;
 // From this width the open rail still leaves the view room for its controls, so the rail starts open.
 const ROOMY_LAYOUT_QUERY = "(min-width: 1280px)";
 // Seeking writes the minute into the URL once the hand stops: Safari refuses more than 100 history writes in 30 s.
@@ -43,13 +50,29 @@ type ReplayConsoleProps = {
   consoleCase: ConsoleCase;
   series: CaseSeries | null;
   switcherCases: CaseSwitcherItem[];
-  /** Who mapped the area's cables and pipelines, from its seabed file; null when it could not be read. */
-  lineSources: LineSources | null;
+  /** Who made the area's depth grid and mapped its cables and pipelines, from its seabed file; null when it could not be read. */
+  sceneSources: SceneSources | null;
   caseFileSha256: string | null;
 };
 
 function matchesMedia(query: string): boolean {
   return typeof window !== "undefined" && window.matchMedia(query).matches;
+}
+
+/** The card a 3D object opens. */
+function toTargetLayer(target: SceneTarget): ConsoleLayer {
+  switch (target.kind) {
+    case "vessel":
+      return { kind: "vessel" };
+    case "cut":
+      return { kind: "cut", cutIndex: target.cutIndex };
+    case "placement":
+      return { kind: "placement", positionIndex: target.positionIndex };
+    default: {
+      const unhandledTarget: never = target;
+      return unhandledTarget;
+    }
+  }
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -61,7 +84,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * of cards over the stage's right edge, the dock with the clock, the timeline and the charts, and the layers that
  * open over them. Owns the replay clock and keeps view, mode, open layer and time in the URL.
  */
-export function ReplayConsole({ input, consoleCase, series, switcherCases, lineSources, caseFileSha256 }: ReplayConsoleProps) {
+export function ReplayConsole({ input, consoleCase, series, switcherCases, sceneSources, caseFileSha256 }: ReplayConsoleProps) {
   const searchParams = useSearchParams();
   const urlContext = useMemo<ConsoleContext>(
     () => ({
@@ -87,8 +110,10 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   // The console renders only in the browser (it reads the URL behind a Suspense boundary), so the first render can
   // ask the media queries directly and the layout does not jump once the effect below subscribes.
-  const [isRailOpen, setIsRailOpen] = useState(() => matchesMedia(ROOMY_LAYOUT_QUERY));
+  // A link that names Ship or Evidence mode opens the rail (or the phone's sheet) on it, whatever the width.
+  const [isRailOpen, setIsRailOpen] = useState(() => matchesMedia(ROOMY_LAYOUT_QUERY) || initialState.mode !== "replay");
   const [isWide, setIsWide] = useState(() => matchesMedia(WIDE_LAYOUT_QUERY));
+  const [hasFloatingRail, setHasFloatingRail] = useState(() => matchesMedia(FLOATING_RAIL_QUERY));
   const [stageElement, setStageElement] = useState<HTMLElement | null>(null);
   const [viewer, setViewer] = useState<SeabedViewer | null>(null);
   // The state as last written, so two changes made in one handler (a new mode, then a closed card) both land.
@@ -132,11 +157,9 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
     [updateUi],
   );
   const closeLayer = useCallback(() => updateUi({ layer: { kind: "none" } }, "replace"), [updateUi]);
-  // A click on the ship or a cut marker in the 3D view opens its card there, on the object.
-  const openTargetCard = useCallback(
-    (target: SceneTarget) => openLayer(target.kind === "vessel" ? { kind: "vessel" } : { kind: "cut", cutIndex: target.cutIndex }, null),
-    [openLayer],
-  );
+  // A click on the ship, a cut marker or a placed position in the 3D view opens its card there, on the object.
+  const openTargetCard = useCallback((target: SceneTarget) => openLayer(toTargetLayer(target), null), [openLayer]);
+  const focusTarget = useCallback((target: SceneTarget) => viewer?.centerOnTarget(target), [viewer]);
   const seekTo = useCallback((atMs: number) => clock.seek(timeMsToProgress(input, atMs)), [clock, input]);
 
   // The clock schedules animation frames, a browser system React does not own; stop them when the console goes.
@@ -176,19 +199,24 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
     return () => window.removeEventListener("popstate", handlePopState);
   }, [clock, input, urlContext]);
 
-  // The layout switches at 1024 px, and the rail starts open only from 1280 px: follows media queries, a browser
-  // system React does not own.
+  // The layout switches at 768 and 1024 px, and the rail starts open only from 1280 px: follows media queries, a
+  // browser system React does not own.
   useEffect(() => {
     const wideQuery = window.matchMedia(WIDE_LAYOUT_QUERY);
+    const floatingQuery = window.matchMedia(FLOATING_RAIL_QUERY);
     const roomyQuery = window.matchMedia(ROOMY_LAYOUT_QUERY);
-    const update = () => setIsWide(wideQuery.matches);
+    const update = () => {
+      setIsWide(wideQuery.matches);
+      setHasFloatingRail(floatingQuery.matches);
+    };
     const updateRail = () => setIsRailOpen(roomyQuery.matches);
     update();
-    updateRail();
     wideQuery.addEventListener("change", update);
+    floatingQuery.addEventListener("change", update);
     roomyQuery.addEventListener("change", updateRail);
     return () => {
       wideQuery.removeEventListener("change", update);
+      floatingQuery.removeEventListener("change", update);
       roomyQuery.removeEventListener("change", updateRail);
     };
   }, []);
@@ -227,13 +255,15 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [clock, input, consoleCase, seekTo, setView, openLayer]);
 
-  const isRailFloating = isWide && isRailOpen;
+  const isPhone = !hasFloatingRail;
+  const isRailFloating = hasFloatingRail && isRailOpen;
+  const caseSketch = switcherCases.find((item) => item.slug === consoleCase.slug)?.sketch ?? null;
   // The 3D picture frames its subject in the part the floating rail leaves visible.
   const rightInsetPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
 
   const controller = useMemo<ConsoleController>(
-    () => ({ input, consoleCase, series, clock, ...ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo, caseFileSha256 }),
-    [input, consoleCase, series, clock, ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo, caseFileSha256],
+    () => ({ input, consoleCase, series, clock, ...ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256 }),
+    [input, consoleCase, series, clock, ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256],
   );
 
   return (
@@ -241,11 +271,12 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
         <div className="flex h-dvh flex-col overflow-hidden" data-testid="replay-console">
           <h1 className="sr-only">{consoleCase.title}</h1>
           <ConsoleTopBar switcherCases={switcherCases} />
-          <div className={`flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 ${isWide ? "" : "overflow-y-auto"}`}>
+          {/* On a phone the folded bottom sheet covers the screen's last SHEET_PEEK_PX, so the dock stops above it. */}
+          <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4" style={isPhone ? { paddingBottom: SHEET_PEEK_PX + 16 } : undefined}>
             <section
               ref={setStageElement}
               aria-label="3D replay"
-              className={`relative overflow-hidden rounded-card bg-soft shadow-card ${isWide ? "min-h-0 flex-1" : "h-[52svh] min-h-[300px] flex-none"}`}
+              className="relative min-h-0 flex-1 overflow-hidden rounded-card bg-soft shadow-card"
               data-testid="case-replay"
             >
               <SeabedView
@@ -256,15 +287,16 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
                 rightInsetPx={rightInsetPx}
                 onViewerChange={setViewer}
                 onTargetPick={openTargetCard}
+                still={caseSketch ? <CaseSketchMap sketch={caseSketch} vesselName={consoleCase.vessel.name} /> : null}
               />
               <StageOverlays
                 stageElement={stageElement}
                 isCompact={!isWide}
                 isRailFloating={isRailFloating}
-                railWidthPx={isWide ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : 0}
+                railWidthPx={hasFloatingRail ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : 0}
                 onResetView={() => viewer?.resetView()}
-                onShowRail={isWide && !isRailOpen ? () => setIsRailOpen(true) : null}
-                lineSources={lineSources}
+                onShowRail={hasFloatingRail && !isRailOpen ? () => setIsRailOpen(true) : null}
+                sceneSources={sceneSources}
               />
               {isRailFloating && (
                 <div
@@ -272,19 +304,32 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
                   style={{ width: RAIL_WIDTH_PX }}
                   data-overlays-stage="true"
                 >
-                  <ConsoleRail onHide={() => setIsRailOpen(false)} />
+                  <ConsoleRail onHide={() => setIsRailOpen(false)} showsCharts={!isWide} />
                 </div>
               )}
             </section>
             <ConsoleDock showCharts={isWide} />
-            {!isWide && (
-              <div className="flex flex-col gap-3" data-testid="console-panel">
-                <SegmentedControl label="Mode" options={MODE_OPTIONS} value={ui.mode} onChange={setMode} testId="mode-switch" />
-                <ConsoleRail onHide={null} />
-              </div>
-            )}
           </div>
-          <ConsoleLayers stageElement={stageElement} opener={opener} viewer={viewer} stageRightInsetPx={rightInsetPx} isStageNarrow={!isWide} />
+          {isPhone && (
+            <BottomSheet
+              label="case panel"
+              isExpanded={isRailOpen}
+              onExpandedChange={setIsRailOpen}
+              peekHeightPx={SHEET_PEEK_PX}
+              header={<SegmentedControl label="Mode" options={MODE_OPTIONS} value={ui.mode} onChange={setMode} testId="mode-switch" />}
+              testId="console-panel"
+            >
+              <ConsoleRail onHide={null} showsCharts />
+            </BottomSheet>
+          )}
+          <ConsoleLayers
+            stageElement={stageElement}
+            opener={opener}
+            viewer={viewer}
+            stageRightInsetPx={rightInsetPx}
+            isStageNarrow={!isWide}
+            cardPresentation={isPhone ? "sheet" : "popover"}
+          />
         </div>
     </ConsoleControllerContext.Provider>
   );

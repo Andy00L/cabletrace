@@ -26,6 +26,7 @@ function makeInput(track: ReplaySceneInput["track"]): ReplaySceneInput {
     windowStartMs: START_MS,
     windowEndMs: START_MS + 4 * HOUR_MS,
     track,
+    placements: track.filter((position) => position.recordedSpeedKnots === null).map((position) => ({ longitude: position.longitude, latitude: position.latitude })),
     dragWindow: null,
     cuts: [{ cableName: "Fixture cable", label: "Fixture cable", atMs: START_MS, longitude: 25.5, latitude: 59.5 }],
     vessel: { name: "Vessel", kind: "tanker", lengthMetres: 200 },

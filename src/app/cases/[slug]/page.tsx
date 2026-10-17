@@ -54,7 +54,7 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
           consoleCase={toConsoleCase(cableCase)}
           series={series}
           switcherCases={switcherCases}
-          lineSources={seabedSources ? { cables: seabedSources.cables, pipelines: seabedSources.pipelines } : null}
+          sceneSources={seabedSources ? { depth: seabedSources.depth, cables: seabedSources.cables, pipelines: seabedSources.pipelines } : null}
           caseFileSha256={caseFile?.contentSha256 ?? null}
         />
       </Suspense>
