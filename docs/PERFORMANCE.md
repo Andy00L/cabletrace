@@ -229,7 +229,7 @@ playback moved the replay clock 55 minutes (the intended pace is 58).
 
 ## One screen
 
-`bun scripts/perf/check-one-screen.ts <baseUrl>` loads `/`, `/cases` and every published case page at 1440 x 900, 1280 x 720 and 1024 x 768 in headless Chromium and checks that the document does not scroll or overflow sideways, and that on a case page the 3D view covers at least 65% of a 1440 x 900 viewport (plan/prompts/ui-console.md, section 6). It also prints the share no panel floats over. Exit codes: 0 every target met, 1 a target missed, 2 the pages could not be measured.
+`bun scripts/perf/check-one-screen.ts <baseUrl>` loads `/`, `/cases`, `/live` and every published case page at 1440 x 900, 1280 x 720 and 1024 x 768 in headless Chromium and checks that the document does not scroll or overflow sideways, and that on a case page the 3D view covers at least 65% of a 1440 x 900 viewport (plan/prompts/ui-console.md, section 6). It also prints the share no panel floats over. Exit codes: 0 every target met, 1 a target missed, 2 the pages could not be measured.
 
 Measured on a local production build (`bun run start`), 2026-10-17:
 

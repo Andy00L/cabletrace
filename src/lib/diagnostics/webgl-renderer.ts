@@ -19,3 +19,16 @@ export function readRendererName(context: WebGLRenderingContext | WebGL2Renderin
   const genericName: unknown = context.getParameter(context.RENDERER);
   return typeof genericName === "string" && genericName !== "" ? genericName : "unknown";
 }
+
+/**
+ * Asks a throwaway WebGL 2 context which renderer the browser runs on, for a 3D view to pick its drawing budget
+ * before it creates its own context (antialiasing is fixed at creation). Browser only.
+ */
+export function detectRendererKind(): RendererKind {
+  const probeCanvas = document.createElement("canvas");
+  const context = probeCanvas.getContext("webgl2");
+  if (!context) return "hardware";
+  const kind = classifyRenderer(readRendererName(context));
+  context.getExtension("WEBGL_lose_context")?.loseContext();
+  return kind;
+}

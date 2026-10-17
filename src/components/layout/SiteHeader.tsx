@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { BrandMark } from "@/components/brand/BrandMark";
 
-type SitePage = "home" | "cases" | "diagnostics";
+type SitePage = "home" | "cases" | "live" | "diagnostics";
 
 const NAV_ITEMS: { page: SitePage; href: string; label: string }[] = [
   { page: "home", href: "/", label: "Home" },
   { page: "cases", href: "/cases", label: "Cases" },
+  { page: "live", href: "/live", label: "Live" },
 ];
 
 /**
