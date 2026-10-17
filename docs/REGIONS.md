@@ -206,7 +206,15 @@ own view of the Gulf never reaches Storage.
   reckoning at 20 knots with a 5 degree course error drift about 110 m);
 - at least 20 matched pairs, or no verdict.
 
-Exit codes: 0 agree, 1 disagree, 2 could not judge. The table has no public policy
+Exit codes: 0 agree, 1 disagree, 2 could not judge. The same verdict over the last 6 hours is in `/api/health`
+(`crossSource`, beside the status, which it does not change) and in the `/live` moment card, where a disagreement is
+an alert line (`src/lib/health/cross-source-health.ts`). The first day disagreed: on 17 Oct 2026, 26 samples gave 80%
+of aisstream's Gulf ships in Digitraffic against the 90% target, while 99.9% of 692 matched positions agreed within
+250 m. In the newest frame, 11 of the 14 ships only aisstream heard sat at 0 knots in Helsinki and Turku harbours,
+which points to the two feeds' scope (moored or small craft), not to bad positions; the target stays until that is
+confirmed.
+
+The table has no public policy
 (`20261019060000_close_public_reads.sql`); the script reads with the site's publishable key through
 `public.cross_source_samples_since(hours)`, a security definer function capped at 7 days and 1,008 rows (about 150 KB).
 `public.watched_regions` and `public.position_archives` have no public read at all.

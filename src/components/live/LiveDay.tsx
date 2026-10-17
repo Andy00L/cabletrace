@@ -2,7 +2,7 @@
 
 import * as Popover from "@radix-ui/react-popover";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
 import { LiveGlobeStage, type WorldLinesState } from "@/components/live/LiveGlobeStage";
@@ -152,13 +152,15 @@ type LiveDayProps = {
   incidents: readonly GlobeIncident[];
   detectionsState: DetectionsState;
   draftCasesState: DraftCasesState;
+  /** Whether the two feeds agree where both cover a region, shown in the moment card. */
+  feedCheck: ReactNode;
 };
 
 /**
  * One recorded day on the globe (the console shell of the replay: stage, floating rail, dock). Owns the day's clock;
  * as it moves, the frames on either side of the moment are loaded, paired ship by ship and blended on the GPU.
  */
-export function LiveDay({ entries, frameSource, watchedLines, incidents, detectionsState, draftCasesState }: LiveDayProps) {
+export function LiveDay({ entries, frameSource, watchedLines, incidents, detectionsState, draftCasesState, feedCheck }: LiveDayProps) {
   const router = useRouter();
   const [divingSlug, setDivingSlug] = useState<string | null>(null);
   // The globe's box, which takes a view-transition name for the dive's crossfade.
@@ -539,7 +541,7 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
 
   const railCards = (
     <>
-      <MomentCard minuteLabel={minuteLabel} shipCount={moment?.frame.shipCount ?? null} digitrafficCount={moment?.digitrafficCount ?? 0} />
+      <MomentCard minuteLabel={minuteLabel} shipCount={moment?.frame.shipCount ?? null} digitrafficCount={moment?.digitrafficCount ?? 0} feedCheck={feedCheck} />
       {selectedIncident && (
         <IncidentCard
           incident={selectedIncident}
