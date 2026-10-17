@@ -206,6 +206,8 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
       { name: "Hoburg fyr", longitude: 18.15104, latitude: 56.92173 },
     ],
     pipelineNames: { "NORD STREAM 1": "Nord Stream 1", "NORD STREAM 2": "Nord Stream 2" },
+    tracedLines: [],
+    cablesCredit: OSM_CABLES_CREDIT,
   },
 };
 

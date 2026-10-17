@@ -7,7 +7,7 @@ import { ConsoleDock } from "@/components/console/ConsoleDock";
 import { ConsoleLayers } from "@/components/console/ConsoleLayers";
 import { ConsoleRail } from "@/components/console/ConsoleRail";
 import { ConsoleTopBar, type CaseSwitcherItem } from "@/components/console/ConsoleTopBar";
-import { StageOverlays } from "@/components/console/StageOverlays";
+import { StageOverlays, type LineSources } from "@/components/console/StageOverlays";
 import { SeabedView } from "@/components/replay/SeabedView";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
 import type { ConsoleCase } from "@/lib/cases/case-console";
@@ -42,6 +42,8 @@ type ReplayConsoleProps = {
   consoleCase: ConsoleCase;
   series: CaseSeries | null;
   switcherCases: CaseSwitcherItem[];
+  /** Who mapped the area's cables and pipelines, from its seabed file; null when it could not be read. */
+  lineSources: LineSources | null;
 };
 
 function matchesMedia(query: string): boolean {
@@ -57,7 +59,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * of cards over the stage's right edge, the dock with the clock, the timeline and the charts, and the layers that
  * open over them. Owns the replay clock and keeps view, mode, open layer and time in the URL.
  */
-export function ReplayConsole({ input, consoleCase, series, switcherCases }: ReplayConsoleProps) {
+export function ReplayConsole({ input, consoleCase, series, switcherCases, lineSources }: ReplayConsoleProps) {
   const searchParams = useSearchParams();
   const urlContext = useMemo<ConsoleContext>(
     () => ({
@@ -249,6 +251,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases }: Rep
                 railWidthPx={isWide ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : 0}
                 onResetView={() => viewerRef.current?.resetView()}
                 onShowRail={isWide && !isRailOpen ? () => setIsRailOpen(true) : null}
+                lineSources={lineSources}
               />
               {isRailFloating && (
                 <div

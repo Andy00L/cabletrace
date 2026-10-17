@@ -34,12 +34,15 @@ const LEGEND_ITEMS = [
   { label: "Pipeline", stroke: "var(--color-pipeline)", width: 3 },
 ] as const;
 // Credits for the data drawn in the view (docs/UI_DESIGN_SYSTEM.md, Map sources and credits). The Copernicus
-// lines are the notice and the liability sentence its licence requires for modified data.
-const SCENE_CREDITS = [
+// lines are the notice and the liability sentence its licence requires for modified data. Every seabed area uses
+// the same depth and land sources; who mapped the cables differs (a route traced off a published map names it).
+const DEPTH_AND_LAND_CREDITS = [
   "Depth: EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM 2024), CC BY 4.0.",
   "Land: produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.",
-  "Cables: OpenStreetMap contributors (ODbL). Pipelines: EMODnet Human Activities.",
 ] as const;
+const DEFAULT_LINE_SOURCES: LineSources = { cables: "OpenStreetMap contributors", pipelines: "EMODnet Human Activities" };
+
+export type LineSources = { cables: string; pipelines: string };
 
 type StageOverlaysProps = {
   stageElement: HTMLElement | null;
@@ -51,6 +54,7 @@ type StageOverlaysProps = {
   onResetView: () => void;
   /** Shows the folded rail again; null when the rail is open or not floating. */
   onShowRail: (() => void) | null;
+  lineSources: LineSources | null;
 };
 
 function CameraButton({ icon, label, isPressed, onClick }: { icon: IconName; label: string; isPressed?: boolean; onClick: () => void }) {
@@ -68,12 +72,14 @@ function CameraButton({ icon, label, isPressed, onClick }: { icon: IconName; lab
 }
 
 /** The controls that belong to the picture, inset 16 px inside the stage (board 6). */
-export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail }: StageOverlaysProps) {
+export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, lineSources }: StageOverlaysProps) {
   const { view, setView, detail, setDetail } = useConsole();
   const [isFullScreen, setIsFullScreen] = useState(false);
   const isCloseUp = view === "closeup";
   const scaleNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail] : OVERVIEW_SCALE_NOTE;
   const clearRight = isRailFloating ? railWidthPx : 16;
+  const { cables, pipelines } = lineSources ?? DEFAULT_LINE_SOURCES;
+  const sceneCredits = [...DEPTH_AND_LAND_CREDITS, `Cables: ${cables}. Pipelines: ${pipelines}. OpenStreetMap data is under the ODbL.`];
 
   // Tracks the browser's full-screen state, which React does not own (Esc can leave it too).
   useEffect(() => {
@@ -155,7 +161,7 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
                 {scaleNote}
               </p>
               <ul className="flex flex-col gap-1.5 text-caption font-normal text-muted">
-                {SCENE_CREDITS.map((credit) => (
+                {sceneCredits.map((credit) => (
                   <li key={credit}>{credit}</li>
                 ))}
               </ul>

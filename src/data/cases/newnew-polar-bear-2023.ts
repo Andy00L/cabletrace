@@ -127,7 +127,21 @@ export const NEWNEW_POLAR_BEAR_2023: CableCase = {
     endUtc: "2023-10-07T22:20:00Z",
     citations: [DRAG_CROSSES_CABLES_CITATION, DRAG_TRAIL_CITATION, ANCHOR_BESIDE_CITATION],
   },
+  // In time order: EE-S1 failed first, so it is the primary cut the replay's signal and close-up show; the
+  // Balticconnector is a pipeline, which the overview marks as damaged rather than cut.
   cuts: [
+    {
+      cableName: "EE-S1",
+      label: "EE-S1",
+      owner: "Arelion",
+      atUtc: "2023-10-07T15:00:00Z",
+      longitude: 21.30112,
+      latitude: 59.16763,
+      precision: "area",
+      placement:
+        "The point of the EE-S1 route read off Yle's map 50 km from Hiiumaa's western tip. Arelion gives only 'the afternoon'; the time is when MarineTraffic shows the ship over the cable. The route is good to a few kilometres.",
+      citations: [EE_S1_AFTERNOON_CITATION, EE_S1_PLACE_CITATION, EE_S1_EEZ_CITATION, EE_S1_CROSSING_CITATION],
+    },
     {
       cableName: "Balticconnector",
       label: "Balticconnector",
@@ -148,18 +162,6 @@ export const NEWNEW_POLAR_BEAR_2023: CableCase = {
           quote: "The Balticconnector gas pipeline was shut down at midnight on 8 October when gas transmission companies Gasgrid in Finland and Elering in Estonia detected a breach.",
         },
       ],
-    },
-    {
-      cableName: "EE-S1",
-      label: "EE-S1",
-      owner: "Arelion",
-      atUtc: "2023-10-07T15:00:00Z",
-      longitude: 21.30112,
-      latitude: 59.16763,
-      precision: "area",
-      placement:
-        "The point of the EE-S1 route read off Yle's map 50 km from Hiiumaa's western tip. Arelion gives only 'the afternoon'; the time is when MarineTraffic shows the ship over the cable. The route is good to a few kilometres.",
-      citations: [EE_S1_AFTERNOON_CITATION, EE_S1_PLACE_CITATION, EE_S1_EEZ_CITATION, EE_S1_CROSSING_CITATION],
     },
   ],
   events: [
