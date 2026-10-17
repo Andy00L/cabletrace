@@ -12,7 +12,7 @@ values ('ship-frames', 'ship-frames', true, 5242880, array['application/octet-st
 on conflict (id) do nothing;
 
 -- Latest static data per ship, from AIS messages 5, 19 and 24 (aisstream) and Digitraffic vessel
--- metadata. Rows not refreshed for 47 hours are deleted (20261018200100_ship_frames_schedule.sql).
+-- metadata. Rows not refreshed for 47 hours are deleted (20261018400100_ship_frames_schedule.sql).
 create table public.live_ships (
   mmsi integer primary key check (mmsi between 1 and 999999999),
   name text,

@@ -1,5 +1,5 @@
 // Ship frame collector for the /live globe. pg_cron calls it on the schedule in
-// supabase/migrations/20261018200100_ship_frames_schedule.sql; each call listens to aisstream.io,
+// supabase/migrations/20261018400100_ship_frames_schedule.sql; each call listens to aisstream.io,
 // adds Fintraffic Digitraffic, and writes one frame to the public ship-frames bucket (collect.ts).
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Result } from "../../../src/lib/result.ts";

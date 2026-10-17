@@ -1,5 +1,5 @@
 // Storage and database ports of the collector, backed by supabase-js with the project's secret key.
-// Tables, functions and the bucket come from supabase/migrations/20261018200000_ship_frames.sql.
+// Tables, functions and the bucket come from supabase/migrations/20261018400000_ship_frames.sql.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Result } from "../../../src/lib/result.ts";
 import type { ShipStatic } from "../../../src/lib/live/ais-reports.ts";
