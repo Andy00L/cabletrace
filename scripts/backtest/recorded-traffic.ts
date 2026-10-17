@@ -20,7 +20,7 @@ const QUERY_TIMEOUT_MS = 60_000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
- * Same payload shape as public.detection_inputs() in supabase/migrations/20261018300000_detections.sql, for a fixed
+ * Same payload shape as public.detection_inputs() in supabase/migrations/20261019500000_regional_recording.sql, for a fixed
  * time span instead of the last hours. Keep the two in step. It sends every ship: the live query's candidate filter
  * depends on the window, so the replay applies it per tick (isDetectionCandidate) and checks that it drops nothing.
  */
@@ -47,9 +47,11 @@ function buildInputsQuery(fromMs: number, toMs: number): string {
         from window_positions p
       ), '[]'::jsonb),
       'vessels', coalesce((
-        select jsonb_agg(jsonb_build_object('mmsi', v.mmsi, 'name', v.name, 'shipType', v.ship_type, 'draughtMetres', v.draught_metres))
-        from public.vessels v
-        where v.mmsi in (select distinct mmsi from window_positions)
+        select jsonb_agg(jsonb_build_object('mmsi', ship.mmsi, 'name', coalesce(v.name, live.name), 'shipType', coalesce(v.ship_type, live.ship_type), 'draughtMetres', coalesce(v.draught_metres, live.draught_metres)))
+        from (select distinct mmsi from window_positions) as ship
+        left join public.vessels v on v.mmsi = ship.mmsi
+        left join public.live_ships live on live.mmsi = ship.mmsi
+        where v.mmsi is not null or live.mmsi is not null
       ), '[]'::jsonb),
       'cables', coalesce((
         select jsonb_agg(jsonb_build_object('name', c.name, 'kind', c.kind, 'route', extensions.st_asgeojson(c.route::extensions.geometry, 6)::jsonb) order by c.id)
