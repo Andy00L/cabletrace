@@ -9,7 +9,7 @@ import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progre
 import { LAND_RAMP, SCENE_COLORS, SEABED_RAMP } from "@/lib/seabed/scene/scene-colors";
 import { buildShipModel } from "@/lib/seabed/scene/ship-model";
 import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
-import { FULL_WIDTH_DISTANCE_KM, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
+import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
 import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
@@ -44,6 +44,12 @@ const PLUME_PARTICLE_COUNT = 140;
 const HEADING_SPAN_MS = 2 * 60 * 1000;
 // The light along the healthy cable takes this long to run its length.
 const SIGNAL_LAP_SECONDS = 7;
+// Lookdev colour probes: shares along each data tube, how many points of each track tone are probed, and points
+// around each cut marker's ring (radius in km, the ring's own).
+const COLOR_PROBE_SHARES = [0.1, 0.3, 0.5, 0.7, 0.9];
+const TRACK_PROBES_PER_TONE = 16;
+const CUT_RING_RADIUS_KM = 0.75;
+const CUT_RING_PROBE_ANGLES = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
 // Model metres to scene kilometres. The vessel is drawn 6 times its real size and the anchor 30 times, so
 // both read across a block 145 to 300 km wide; the disclosure under the view says so.
 const METRES_TO_KM = 1 / 1000;
@@ -76,6 +82,12 @@ export type SceneTarget = { kind: "vessel" } | { kind: "cut"; cutIndex: number }
 /** A target a click can select, where it is drawn, and the label naming it (a click on the label selects it too). */
 export type ScenePickable = { target: SceneTarget; position: THREE.Vector3; label: HTMLElement };
 
+/** The data colours a frame must show exactly (docs/UI_DESIGN_SYSTEM.md, Data): `suspect` is the vessel's ink track. */
+export type DataTone = "cable" | "pipeline" | "suspect" | "alarm";
+
+/** A point in the scene where a data line of one tone is drawn on the current frame (scripts/lookdev samples it). */
+export type ColorProbe = { tone: DataTone; position: THREE.Vector3 };
+
 export type OverviewScene = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -98,6 +110,8 @@ export type OverviewScene = {
   /** Hides the land and pipeline names on a narrow view, keeping the vessel and cut labels. */
   setCompactLabels: (isCompact: boolean) => void;
   update: (atMs: number, deltaSeconds: number, nowSeconds: number) => void;
+  /** Points on the data lines drawn at the last updated moment, seen from `cameraPosition`, for the lookdev colour check. */
+  readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
 };
 
 type OverviewOptions = {
@@ -336,6 +350,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   // Each cut cable swaps its intact tube for two pieces once its cut time has passed.
   const cutSwitches: { cut: ReplayCut; intact: THREE.Object3D[]; pieces: THREE.Object3D[] }[] = [];
   const pipelineCurves = new Map<string, THREE.CatmullRomCurve3[]>();
+  // Every data tube, for the lookdev colour probes.
+  const dataTubes: { tone: DataTone; radius: number; tube: ReturnType<typeof createSeabedTube> }[] = [];
 
   for (const line of features.lines) {
     const scenePoints = densifyScenePoints(line.points.map(([longitude, latitude]) => toScene(longitude, latitude)), LINE_STEP_KM);
@@ -343,6 +359,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (line.kind === "pipeline") {
         const pipeline = createSeabedTube(run, tubeRadii.pipeline, pipelineMaterial, sampleSeabedHeight);
         scene.add(pipeline.mesh);
+        dataTubes.push({ tone: "pipeline", radius: tubeRadii.pipeline, tube: pipeline });
         pipelineCurves.set(line.name, [...(pipelineCurves.get(line.name) ?? []), pipeline.curve]);
         continue;
       }
@@ -350,6 +367,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       const cableMaterial = cableMaterials[line.kind];
       const intact = createSeabedTube(run, radius, cableMaterial, sampleSeabedHeight);
       scene.add(intact.mesh);
+      dataTubes.push({ tone: "cable", radius, tube: intact });
       const matchingCut = input.cuts
         .filter((cut) => cut.cableName === line.name)
         .map((cut) => ({ cut, nearest: nearestIndex(run, toScene(cut.longitude, cut.latitude)) }))
@@ -364,6 +382,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       before.mesh.visible = false;
       after.mesh.visible = false;
       scene.add(before.mesh, after.mesh);
+      dataTubes.push({ tone: "cable", radius, tube: before }, { tone: "cable", radius, tube: after });
       const intactObjects: THREE.Object3D[] = [intact.mesh];
       if (cut === primaryCut) {
         // The signature "signal": a faint halo and a light that runs along the cable under watch.
@@ -434,6 +453,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   }, []);
   const totalTrackKm = cumulativeKm[cumulativeKm.length - 1] ?? 0;
   let pastTrack: ProgressLine | null = null;
+  // The drawn track's points and their tones, for the lookdev colour probes.
+  let trackProbePoints: { position: THREE.Vector3; tone: DataTone; atMs: number }[] = [];
   if (trackScene.length >= 2 && totalTrackKm > 0) {
     const path = new THREE.CurvePath<THREE.Vector3>();
     for (let index = 1; index < trackScene.length; index += 1) {
@@ -447,8 +468,14 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       const isDragging = input.dragWindow !== null && atMs >= input.dragWindow.startMs && atMs <= input.dragWindow.endMs;
       return isDragging ? WEBGL_COLORS.alarm : WEBGL_COLORS.ink;
     });
-    pastTrack = createProgressLine({ points: path.getSpacedPoints(TRACK_SEGMENTS), color: trackColors, widthPx: TRACK_WIDTH_PX });
+    const trackPoints = path.getSpacedPoints(TRACK_SEGMENTS);
+    pastTrack = createProgressLine({ points: trackPoints, color: trackColors, widthPx: TRACK_WIDTH_PX });
     scene.add(pastTrack.line);
+    trackProbePoints = trackPoints.map((position, index) => ({
+      position,
+      tone: trackColors[index] === WEBGL_COLORS.alarm ? "alarm" : "suspect",
+      atMs: timeAtTrackKm((totalTrackKm * index) / TRACK_SEGMENTS),
+    }));
   }
 
   /** The moment the vessel had sailed `km` along the track (the inverse of trackKmAt). */
@@ -521,7 +548,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     const point = toScene(cut.longitude, cut.latitude);
     const seabedY = sampleSeabedHeight(point.x, point.z) + 0.2;
     const marker = new THREE.Group();
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.07, 10, 48), new THREE.MeshBasicMaterial({ color: WEBGL_COLORS.alarm }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_KM, 0.07, 10, 48), new THREE.MeshBasicMaterial({ color: WEBGL_COLORS.alarm }));
     ring.rotation.x = Math.PI / 2;
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 8), new THREE.MeshBasicMaterial({ color: WEBGL_COLORS.alarm, transparent: true, opacity: 0.7 }));
     beam.scale.y = -seabedY + 1.2;
@@ -715,5 +742,35 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     });
   }
 
-  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update };
+  function readColorProbes(cameraPosition: THREE.Vector3): ColorProbe[] {
+    const probes: ColorProbe[] = [];
+    for (const { tone, radius, tube } of dataTubes) {
+      if (!tube.mesh.visible) continue;
+      for (const share of COLOR_PROBE_SHARES) {
+        const centre = tube.curve.getPointAt(share);
+        centre.y += readThinnedTubeMiddle(radius, centre.distanceTo(cameraPosition), fullWidthDistanceKm);
+        probes.push({ tone, position: centre });
+      }
+    }
+    // The track up to the vessel, leaving out the stretch under the hull and the wake (the last minutes sailed).
+    const revealedCount = pastTrack ? pastTrack.line.geometry.instanceCount + 1 : 0;
+    const coveredFromMs = lastAtMs - WAKE_STEP_MS * WAKE_SAMPLE_COUNT;
+    const drawnTrack = trackProbePoints.slice(0, revealedCount).filter((point) => point.atMs < coveredFromMs);
+    for (const tone of ["suspect", "alarm"] as const) {
+      const toned = drawnTrack.filter((point) => point.tone === tone);
+      const step = Math.max(1, Math.floor(toned.length / TRACK_PROBES_PER_TONE));
+      toned.forEach((point, index) => {
+        if (index % step === 0) probes.push({ tone, position: point.position });
+      });
+    }
+    for (const cutMarker of cutMarkers) {
+      if (!cutMarker.marker.visible) continue;
+      for (const angle of CUT_RING_PROBE_ANGLES) {
+        probes.push({ tone: "alarm", position: new THREE.Vector3(Math.cos(angle) * CUT_RING_RADIUS_KM, 0, Math.sin(angle) * CUT_RING_RADIUS_KM).add(cutMarker.marker.position) });
+      }
+    }
+    return probes;
+  }
+
+  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes };
 }

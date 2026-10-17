@@ -409,8 +409,20 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   let isDisposed = false;
   let lastFrameAt: number | null = null;
   let lastDrawnAtMs = Number.NaN;
+  let drawnFrameCount = 0;
   const followPosition = new THREE.Vector3();
   const followTarget = new THREE.Vector3();
+
+  // Test hooks on the canvas: what the last frame showed and how many frames were drawn, so a screenshot tool
+  // (scripts/lookdev) can wait until the picture it asked for has been drawn and has stopped changing.
+  function recordDrawnFrame(atMs: number) {
+    drawnFrameCount += 1;
+    const canvasData = renderer.domElement.dataset;
+    canvasData.frameCount = String(drawnFrameCount);
+    if (canvasData.drawnView !== activeView) canvasData.drawnView = activeView;
+    const drawnAt = String(Math.round(atMs));
+    if (canvasData.drawnAtMs !== drawnAt) canvasData.drawnAtMs = drawnAt;
+  }
 
   function renderCloseUp(closeUpScene: CloseUpScene, nowSeconds: number, deltaSeconds: number) {
     const hasCameraMoved = closeUpScene.controls.update();
@@ -419,6 +431,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     renderer.render(closeUpScene.scene, closeUpScene.camera);
     closeUpLabels.render(closeUpScene.scene, closeUpScene.camera);
     isDirty = false;
+    recordDrawnFrame(readTimeMs());
   }
 
   function renderOverview(now: number, elapsedSeconds: number, deltaSeconds: number) {
@@ -455,6 +468,23 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     lastDrawnAtMs = atMs;
     renderer.render(overview.scene, overview.camera);
     overviewLabels.render(overview.scene, overview.camera);
+    recordDrawnFrame(atMs);
+    if (renderer.domElement.dataset.lookdev === "on") recordColorProbes();
+  }
+
+  // Lookdev hook (scripts/lookdev sets data-lookdev="on" on the canvas): where each data line is on this frame, in
+  // canvas px, so the harness can check those pixels hold the exact data colour. Skips points under the rail.
+  function recordColorProbes() {
+    const canvasRect = renderer.domElement.getBoundingClientRect();
+    const probes = overview.readColorProbes(overview.camera.position).flatMap((probe) => {
+      const screenPoint = projectToClient(probe.position, canvasRect);
+      if (!screenPoint) return [];
+      const canvasX = screenPoint.clientX - canvasRect.left;
+      const canvasY = screenPoint.clientY - canvasRect.top;
+      const isInClearPart = canvasX >= 0 && canvasX <= canvasRect.width - rightInsetPx && canvasY >= 0 && canvasY <= canvasRect.height;
+      return isInClearPart ? [{ tone: probe.tone, x: Math.round(canvasX * 10) / 10, y: Math.round(canvasY * 10) / 10 }] : [];
+    });
+    renderer.domElement.dataset.colorProbes = JSON.stringify(probes);
   }
 
   function renderFrame(now: number) {

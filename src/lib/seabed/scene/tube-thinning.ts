@@ -14,6 +14,15 @@ vec3 transformed = tubeCentre + normal * tubeRadius * tubeWidthShare - vec3(0.0,
 `;
 
 /**
+ * Height (km, relative to the tube's centreline) of the middle of the drawn tube at a camera distance: the same
+ * arithmetic as the shader above, for code that must point at the tube on screen (the lookdev colour probes).
+ */
+export function readThinnedTubeMiddle(radiusKm: number, cameraDistanceKm: number, fullWidthDistanceKm: number): number {
+  const widthShare = Math.min(1, Math.max(MIN_WIDTH_SHARE, cameraDistanceKm / fullWidthDistanceKm));
+  return radiusKm * (widthShare - 1);
+}
+
+/**
  * Makes `material` narrow its tube with camera distance. Only for TubeGeometry built with `radiusKm`: the shader
  * finds each vertex's centreline point from the tube's radial normal. A block drawn with wider tubes passes a
  * longer `fullWidthDistanceKm` in step, so the tubes look the same up close.
