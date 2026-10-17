@@ -9,8 +9,10 @@ import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplayScen
 import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
-import { LAND_RAMP, SCENE_COLORS, SEABED_RAMP } from "@/lib/seabed/scene/scene-colors";
-import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
+import { DEPTH_TOKEN_RAMP, LAND_TOKEN_RAMP, SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
+import { bakeReliefOcclusion } from "@/lib/seabed/scene/relief-occlusion";
+import { createTerrainMaterial, measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
+import { buildWaterBody } from "@/lib/seabed/scene/water-surface";
 import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
@@ -72,6 +74,12 @@ const WAKE_SAMPLE_COUNT = 40;
 // The overview camera looks from the south-east, down about 35 degrees (the approved prototype angle).
 const OVERVIEW_DIRECTION = new THREE.Vector3(14, 19, 26).normalize();
 const OVERVIEW_TARGET_Y = -1.8;
+const SUN_SHADOW_SOFTNESS_TEXELS = 4;
+// The ship's contact shadow: a soft ellipse a little longer and wider than the hull, just over the water (model metres).
+const CONTACT_SHADOW_LENGTH_SHARE = 1.2;
+const CONTACT_SHADOW_BEAM_SHARE = 2.4;
+const CONTACT_SHADOW_OPACITY = 0.2;
+const CONTACT_SHADOW_LIFT_METRES = 0.3;
 // Room kept around the track when the overview frames it (km), and the smallest framed radius.
 const OVERVIEW_PADDING_KM = 6;
 const OVERVIEW_MIN_RADIUS_KM = 12;
@@ -141,8 +149,10 @@ type OverviewOptions = {
   input: ReplaySceneInput;
   softDot: THREE.Texture;
   prefersReducedMotion: boolean;
-  /** The GPU tier: finer detail (hull plating relief) that a CPU renderer would pay for every frame. */
+  /** The GPU tier: finer detail (hull plating relief, waves, ripples) that a CPU renderer would pay for every frame. */
   isHighDetail: boolean;
+  /** The sand-ripple detail normal map (GPU tier), or null. */
+  rippleNormalMap: THREE.Texture | null;
 };
 
 function buildRamp(stops: readonly [number, string][]) {
@@ -161,25 +171,35 @@ function sampleRamp(ramp: { value: number; color: THREE.Color }[], value: number
   return last ? target.copy(last.color) : target;
 }
 
-function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection): THREE.Mesh {
-  const geometry = new THREE.PlaneGeometry(projection.widthKm, projection.depthKm, features.grid.width - 1, features.grid.height - 1);
+// The sand-ripple detail repeats every this many km of seabed: drawn about 120 m across so it reads in the Vessel view
+// (illustrative texture, not survey data; mipmaps fade it to nothing in the overview).
+const RIPPLE_TILE_KM = 0.12;
+
+function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection, lighting: TerrainLighting, rippleNormalMap: THREE.Texture | null): THREE.Mesh {
+  const { width: columns, height: rows } = features.grid;
+  const geometry = new THREE.PlaneGeometry(projection.widthKm, projection.depthKm, columns - 1, rows - 1);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute("position");
   const colors = new Float32Array(positions.count * 3);
-  const seabedRamp = buildRamp(SEABED_RAMP);
-  const landRamp = buildRamp(LAND_RAMP);
+  const sceneHeights = new Float32Array(positions.count);
+  const depthRamp = buildRamp(DEPTH_TOKEN_RAMP);
+  const landRamp = buildRamp(LAND_TOKEN_RAMP);
   const vertexColor = new THREE.Color();
   for (let index = 0; index < positions.count; index += 1) {
     const elevation = elevations[index] ?? 0;
-    positions.setY(index, elevationToSceneY(elevation));
-    if (elevation < 0) sampleRamp(seabedRamp, -elevation, vertexColor);
+    const sceneY = elevationToSceneY(elevation);
+    positions.setY(index, sceneY);
+    sceneHeights[index] = sceneY;
+    if (elevation < 0) sampleRamp(depthRamp, -elevation, vertexColor);
     else sampleRamp(landRamp, elevation, vertexColor);
     vertexColor.toArray(colors, index * 3);
   }
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.setAttribute("elevation", new THREE.BufferAttribute(elevations, 1));
+  geometry.setAttribute("reliefOcclusion", new THREE.BufferAttribute(bakeReliefOcclusion(sceneHeights, columns, rows, projection.widthKm / (columns - 1), projection.depthKm / (rows - 1)), 1));
   geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, createTerrainMaterial());
+  if (rippleNormalMap) rippleNormalMap.repeat.set(projection.widthKm / RIPPLE_TILE_KM, projection.depthKm / RIPPLE_TILE_KM);
+  const mesh = new THREE.Mesh(geometry, createTerrainMaterial(lighting, rippleNormalMap));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -220,31 +240,6 @@ function buildBlockSides(terrain: THREE.Mesh, features: SeabedFeatures, baseY: n
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide }));
   mesh.castShadow = true;
   return mesh;
-}
-
-function buildWater(projection: Projection, deepestY: number): THREE.Group {
-  const inset = 0.04;
-  const height = -deepestY;
-  const geometry = new THREE.BoxGeometry(projection.widthKm - inset, height, projection.depthKm - inset);
-  geometry.translate(0, -height / 2, 0);
-  const water = new THREE.Mesh(
-    geometry,
-    new THREE.MeshPhysicalMaterial({ color: SCENE_COLORS.water, transparent: true, opacity: 0.16, roughness: 0.16, metalness: 0, depthWrite: false }),
-  );
-  water.renderOrder = 2;
-  const halfWidth = projection.widthKm / 2;
-  const halfDepth = projection.depthKm / 2;
-  const rimPoints = [
-    [-halfWidth, -halfDepth],
-    [halfWidth, -halfDepth],
-    [halfWidth, halfDepth],
-    [-halfWidth, halfDepth],
-    [-halfWidth, -halfDepth],
-  ].map(([pointX = 0, pointZ = 0]) => new THREE.Vector3(pointX, 0.01, pointZ));
-  const rim = new THREE.Line(new THREE.BufferGeometry().setFromPoints(rimPoints), new THREE.LineBasicMaterial({ color: SCENE_COLORS.waterRim, transparent: true, opacity: 0.85 }));
-  const group = new THREE.Group();
-  group.add(water, rim);
-  return group;
 }
 
 // A tube resting on the seabed; its height is evened out along the line so it does not jitter over every ridge.
@@ -320,7 +315,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   scene.environment = environmentGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
   environmentGenerator.dispose();
   scene.environmentIntensity = 0.38;
-  scene.add(new THREE.HemisphereLight(SCENE_COLORS.skyLight, SCENE_COLORS.groundLight, 0.95));
+  const skyLight = new THREE.HemisphereLight(SCENE_COLORS.skyLight, SCENE_COLORS.groundLight, 0.95);
+  scene.add(skyLight);
   const sunLight = new THREE.DirectionalLight(SCENE_COLORS.skyLight, 2.1);
   const blockRadiusKm = Math.hypot(projection.widthKm, projection.depthKm) / 2;
   sunLight.position.set(-42, 78, -26).setLength(blockRadiusKm * 1.6);
@@ -329,10 +325,13 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   Object.assign(sunLight.shadow.camera, { left: -blockRadiusKm, right: blockRadiusKm, top: blockRadiusKm, bottom: -blockRadiusKm, near: 1, far: blockRadiusKm * 3.2 });
   sunLight.shadow.bias = -0.0004;
   sunLight.shadow.normalBias = 0.04;
+  // Soft sun shadows: three.js r186's PCF filter blurs over this many shadow-map texels.
+  sunLight.shadow.radius = SUN_SHADOW_SOFTNESS_TEXELS;
   scene.add(sunLight);
 
-  const terrain = buildTerrainMesh(elevations, features, projection);
-  scene.add(terrain, buildBlockSides(terrain, features, baseY), buildWater(projection, deepestY));
+  const terrain = buildTerrainMesh(elevations, features, projection, { levelIrradiance: measureLevelIrradiance(sunLight, skyLight) }, options.rippleNormalMap);
+  const water = buildWaterBody(projection, deepestY, options.isHighDetail);
+  scene.add(terrain, buildBlockSides(terrain, features, baseY), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = baseY - 0.02;
@@ -543,6 +542,16 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   ship.add(shipLabel.object);
   ship.visible = false;
   scene.add(ship);
+  // A soft contact shadow on the water around the hull (ambient occlusion where hull meets sea), so the ship sits in
+  // the water instead of hovering over a sea that is mostly transparent from above.
+  const contactShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(input.vessel.lengthMetres * CONTACT_SHADOW_LENGTH_SHARE, shipModel.form.halfBeam * 2 * CONTACT_SHADOW_BEAM_SHARE),
+    new THREE.MeshBasicMaterial({ map: softDot, color: SCENE_COLORS.contactShadow, transparent: true, opacity: CONTACT_SHADOW_OPACITY, depthWrite: false }),
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.y = CONTACT_SHADOW_LIFT_METRES;
+  contactShadow.renderOrder = 2.6;
+  ship.add(contactShadow);
   // The GPU tier draws the bow wave and the Kelvin wake on a patch that sails with the hull.
   const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form) : null;
   if (kelvinWake) ship.add(kelvinWake.mesh);
@@ -692,6 +701,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const wakeTrail: ScenePoint[] = [];
 
   function update(atMs: number, deltaSeconds: number, nowSeconds: number) {
+    water.setWaveTime((atMs - input.windowStartMs) / 1000);
     const shipPoint = sceneAt(atMs);
     ship.visible = shipPoint !== null;
     if (shipPoint) {

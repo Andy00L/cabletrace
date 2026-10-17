@@ -127,7 +127,8 @@ async function waitForSettledFrame(page: Page, shot: LookdevShot): Promise<strin
     ({ view, atMs }) => {
       const canvas = document.querySelector("canvas[data-renderer]");
       if (!(canvas instanceof HTMLCanvasElement)) return false;
-      return canvas.dataset.drawnView === view && Math.abs(Number(canvas.dataset.drawnAtMs) - atMs) < 1000;
+      const isLoaded = (canvas.dataset.pendingAssets ?? "0") === "0";
+      return isLoaded && canvas.dataset.drawnView === view && Math.abs(Number(canvas.dataset.drawnAtMs) - atMs) < 1000;
     },
     { view: shot.view, atMs: shot.atMs },
     { timeout: FRAME_TIMEOUT_MS, polling: 100 },

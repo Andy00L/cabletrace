@@ -42,6 +42,8 @@ const CLICK_MAX_MS = 500;
 // How far from a target's point a click still selects it (CSS px): a finger covers more than a mouse pointer.
 const MOUSE_PICK_RADIUS_PX = 20;
 const TOUCH_PICK_RADIUS_PX = 32;
+// Poly Haven's aerial_beach_01 normal map (CC0), reduced to 512 px.
+const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
 
 /**
  * Drawing budget per renderer. On a CPU renderer (SwiftShader, llvmpipe: headless test browsers and machines
@@ -165,6 +167,27 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   const projection = createProjection(features.region);
   const sampleElevationMetres = createElevationSampler(elevations, grid.grid, projection);
   const softDot = createSoftDotTexture();
+  // The sand-ripple detail (GPU tier only): a CC0 normal map from Poly Haven (docs/LOOKDEV.md, Credits) that arrives
+  // after the first frame. The canvas says how many such assets are still loading, so a screenshot tool can wait.
+  let pendingAssetCount = 0;
+  renderer.domElement.dataset.pendingAssets = "0";
+  function settleAsset() {
+    pendingAssetCount -= 1;
+    renderer.domElement.dataset.pendingAssets = String(pendingAssetCount);
+    markDirty();
+  }
+  let rippleNormalMap: THREE.Texture | null = null;
+  if (rendererKind === "hardware") {
+    pendingAssetCount += 1;
+    renderer.domElement.dataset.pendingAssets = String(pendingAssetCount);
+    rippleNormalMap = new THREE.TextureLoader().load(RIPPLE_NORMAL_MAP_URL, settleAsset, undefined, () => {
+      console.error(`[createSeabedViewer] the sand-ripple map ${RIPPLE_NORMAL_MAP_URL} did not load`);
+      settleAsset();
+    });
+    rippleNormalMap.wrapS = THREE.RepeatWrapping;
+    rippleNormalMap.wrapT = THREE.RepeatWrapping;
+    rippleNormalMap.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  }
   const overview = buildOverview({
     renderer,
     domElement: renderer.domElement,
@@ -176,6 +199,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     softDot,
     prefersReducedMotion: isCalm,
     isHighDetail: rendererKind === "hardware",
+    rippleNormalMap,
   });
 
   // Set whenever the picture must be redrawn even though the replay moment did not change.
@@ -566,6 +590,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
         }
         overview.scene.environment?.dispose();
         softDot.dispose();
+        rippleNormalMap?.dispose();
         renderer.dispose();
         // Frees the GPU context now instead of at garbage collection.
         renderer.forceContextLoss();
