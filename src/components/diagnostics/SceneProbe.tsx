@@ -23,6 +23,11 @@ type SeabedScene = {
 
 // Frames timed per run: about three seconds at 60 frames per second.
 const MEASURED_FRAME_COUNT = 180;
+// A software renderer (SwiftShader, llvmpipe) draws a frame in 30 ms or more, which stretched a 180-frame run to
+// 6 or 7 seconds (docs/PERFORMANCE.md). Timing stops here instead; a 60 Hz display finishes 180 frames first.
+const MAX_TIMED_MS = 3500;
+// Longest wait for the map probe to settle before timing starts anyway.
+const MAP_SETTLE_TIMEOUT_MS = 5000;
 // Seabed patch in scene units and its grid (25,921 vertices), close to one tile of the replay's terrain.
 // It reaches past the fog on every side, so the orbiting camera never sees its edge.
 const SEABED_SIZE = 64;
@@ -42,6 +47,29 @@ const MAX_PIXEL_RATIO = 2;
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+// The map probe's start-up (MapLibre's 1 MB bundle and first draw) holds the main thread for 50 to 90 ms at a time;
+// frames timed alongside it landed in the 3D slow-frame figure. Resolves once the map probe on the page has left its
+// loading state (read through its data-state, the same contract the end-to-end tests use), or at once when there is none.
+function waitForMapProbeToSettle(): Promise<void> {
+  return new Promise((resolve) => {
+    const mapProbe = document.querySelector('[data-testid="map-probe"]');
+    if (!(mapProbe instanceof HTMLElement) || mapProbe.dataset.state !== "loading") {
+      resolve();
+      return;
+    }
+    const finishWaiting = () => {
+      observer.disconnect();
+      clearTimeout(timeoutId);
+      resolve();
+    };
+    const observer = new MutationObserver(() => {
+      if (mapProbe.dataset.state !== "loading") finishWaiting();
+    });
+    observer.observe(mapProbe, { attributes: true, attributeFilter: ["data-state"] });
+    const timeoutId = setTimeout(finishWaiting, MAP_SETTLE_TIMEOUT_MS);
+  });
 }
 
 // Rolling sand waves and one ridge: enough relief for the lighting to work like the replay's seabed.
@@ -137,7 +165,7 @@ function buildReadoutRows(probeState: SceneProbeState): ReadoutRow[] {
   ];
 }
 
-/** One measurement run: draws the seabed, times MEASURED_FRAME_COUNT frames, then stops rendering. */
+/** One measurement run: draws the seabed, times MEASURED_FRAME_COUNT frames (MAX_TIMED_MS at most), then stops rendering. */
 function SceneMeasurement({ onMeasureAgain }: { onMeasureAgain: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [probeState, setProbeState] = useState<SceneProbeState>({ kind: "starting" });
@@ -182,33 +210,19 @@ function SceneMeasurement({ onMeasureAgain }: { onMeasureAgain: () => void }) {
         camera.updateProjectionMatrix();
       };
       fitToCanvas();
-
-      const frameDurations: number[] = [];
-      let previousFrameTime: number | null = null;
-      let animationFrameId = 0;
-      const renderFrame = (frameTime: number) => {
+      const placeCameraOnOrbit = (frameTime: number) => {
         const orbitAngle = frameTime * ORBIT_RADIANS_PER_MS;
         camera.position.set(Math.cos(orbitAngle) * CAMERA_ORBIT_RADIUS, CAMERA_HEIGHT, Math.sin(orbitAngle) * CAMERA_ORBIT_RADIUS);
         camera.lookAt(0, 0, 0);
-        renderer.render(scene, camera);
-        if (previousFrameTime !== null) frameDurations.push(frameTime - previousFrameTime);
-        previousFrameTime = frameTime;
-        if (frameDurations.length < MEASURED_FRAME_COUNT) {
-          animationFrameId = requestAnimationFrame(renderFrame);
-          return;
-        }
-        const summary = summarizeFrameDurations(frameDurations);
-        setProbeState(summary ? { kind: "measured", rendererName, rendererKind, summary } : { kind: "failed", reason: "No frame could be timed" });
       };
-      animationFrameId = requestAnimationFrame(renderFrame);
 
+      let animationFrameId = 0;
       // Resizing clears the canvas, so a finished run draws one more frame at the new size.
       const resizeObserver = new ResizeObserver(() => {
         fitToCanvas();
         renderer.render(scene, camera);
       });
-      resizeObserver.observe(sceneCanvas);
-
+      // Set before the first await, so an unmount during the shader compile still frees the context.
       disposeScene = () => {
         cancelAnimationFrame(animationFrameId);
         resizeObserver.disconnect();
@@ -217,6 +231,40 @@ function SceneMeasurement({ onMeasureAgain }: { onMeasureAgain: () => void }) {
         // Frees the GPU context now instead of at garbage collection, so repeated runs never hit the browser's context limit.
         renderer.forceContextLoss();
       };
+
+      // Compiles the shaders before timing starts, so the first timed frame is not the compile. Where the browser has
+      // KHR_parallel_shader_compile the compile also leaves the main thread free; elsewhere three.js compiles in place.
+      try {
+        await renderer.compileAsync(scene, camera);
+      } catch (error) {
+        console.error(`[SceneMeasurement] ${describeError(error)}`);
+      }
+      if (isCancelled) return;
+      // One untimed frame shows the seabed while the map probe settles.
+      placeCameraOnOrbit(performance.now());
+      renderer.render(scene, camera);
+      await waitForMapProbeToSettle();
+      if (isCancelled) return;
+      resizeObserver.observe(sceneCanvas);
+
+      const frameDurations: number[] = [];
+      let firstFrameTime: number | null = null;
+      let previousFrameTime: number | null = null;
+      const renderFrame = (frameTime: number) => {
+        placeCameraOnOrbit(frameTime);
+        renderer.render(scene, camera);
+        if (previousFrameTime !== null) frameDurations.push(frameTime - previousFrameTime);
+        previousFrameTime = frameTime;
+        if (firstFrameTime === null) firstFrameTime = frameTime;
+        const hasTimedEnough = frameDurations.length >= MEASURED_FRAME_COUNT || frameTime - firstFrameTime >= MAX_TIMED_MS;
+        if (!hasTimedEnough) {
+          animationFrameId = requestAnimationFrame(renderFrame);
+          return;
+        }
+        const summary = summarizeFrameDurations(frameDurations);
+        setProbeState(summary ? { kind: "measured", rendererName, rendererKind, summary } : { kind: "failed", reason: "No frame could be timed" });
+      };
+      animationFrameId = requestAnimationFrame(renderFrame);
     }
 
     void startScene(canvas);
@@ -238,7 +286,10 @@ function SceneMeasurement({ onMeasureAgain }: { onMeasureAgain: () => void }) {
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h2 id="scene-probe-title" className="text-card-title">3D seabed</h2>
-          <p className="text-small text-muted">three.js draws a lit seabed with a cable and times {MEASURED_FRAME_COUNT} frames.</p>
+          <p className="text-small text-muted">
+            three.js draws a lit seabed with a cable and times {MEASURED_FRAME_COUNT} frames, or {MAX_TIMED_MS / 1000} seconds of frames on a
+            slow renderer.
+          </p>
         </div>
         <button
           type="button"
