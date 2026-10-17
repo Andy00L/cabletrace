@@ -44,6 +44,7 @@ type ReplayConsoleProps = {
   switcherCases: CaseSwitcherItem[];
   /** Who mapped the area's cables and pipelines, from its seabed file; null when it could not be read. */
   lineSources: LineSources | null;
+  caseFileSha256: string | null;
 };
 
 function matchesMedia(query: string): boolean {
@@ -59,7 +60,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * of cards over the stage's right edge, the dock with the clock, the timeline and the charts, and the layers that
  * open over them. Owns the replay clock and keeps view, mode, open layer and time in the URL.
  */
-export function ReplayConsole({ input, consoleCase, series, switcherCases, lineSources }: ReplayConsoleProps) {
+export function ReplayConsole({ input, consoleCase, series, switcherCases, lineSources, caseFileSha256 }: ReplayConsoleProps) {
   const searchParams = useSearchParams();
   const urlContext = useMemo<ConsoleContext>(
     () => ({
@@ -218,8 +219,8 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
   const rightInsetPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
 
   const controller = useMemo<ConsoleController>(
-    () => ({ input, consoleCase, series, clock, ...ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo }),
-    [input, consoleCase, series, clock, ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo],
+    () => ({ input, consoleCase, series, clock, ...ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo, caseFileSha256 }),
+    [input, consoleCase, series, clock, ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo, caseFileSha256],
   );
 
   return (

@@ -155,8 +155,11 @@ function ShipRail({ onHide }: { onHide: (() => void) | null }) {
 }
 
 /** Evidence mode: how each position is placed, the cuts, what followed and every source, each one press away. */
+// The first characters of the case file's hash are enough to compare by eye with what the verify script prints.
+const SHA256_SHOWN_CHARACTERS = 12;
+
 function EvidenceRail({ onHide }: { onHide: (() => void) | null }) {
-  const { consoleCase, openLayer } = useConsole();
+  const { consoleCase, openLayer, caseFileSha256 } = useConsole();
   const { recordedTrack } = consoleCase;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
@@ -218,6 +221,25 @@ function EvidenceRail({ onHide }: { onHide: (() => void) | null }) {
           <span className="text-small text-muted tabular-nums">{consoleCase.sources.length}</span>
           <Icon name="chevronRight" className="text-muted" />
         </button>
+        <a
+          href={`/cases/${consoleCase.slug}/case-file`}
+          download={`cabletrace-${consoleCase.slug}.json`}
+          className={`${ROW_BUTTON_CLASS} grid-cols-[minmax(0,1fr)_auto_20px]`}
+          data-testid="download-case-file"
+        >
+          <span className="flex min-w-0 flex-col">
+            <span className="text-label">Case file</span>
+            <span className="truncate text-caption font-normal text-muted">JSON with every position, quote and source</span>
+          </span>
+          {caseFileSha256 ? (
+            <span className="text-micro text-muted tabular-nums" title={`SHA-256 ${caseFileSha256}`}>
+              {caseFileSha256.slice(0, SHA256_SHOWN_CHARACTERS)}
+            </span>
+          ) : (
+            <span />
+          )}
+          <Icon name="archive" className="text-muted" />
+        </a>
       </section>
     </div>
   );
