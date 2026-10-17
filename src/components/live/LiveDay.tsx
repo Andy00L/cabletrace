@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
 import { LiveGlobeStage, type WorldLinesState } from "@/components/live/LiveGlobeStage";
+import { DraftCasesCard, type DraftCasesState } from "@/components/live/LiveDraftCases";
 import { IncidentCard, IncidentsCard } from "@/components/live/LiveIncidents";
 import { LiveLineCard, type LineScanState } from "@/components/live/LiveLineCard";
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
@@ -150,13 +151,14 @@ type LiveDayProps = {
   watchedLines: readonly WatchedLine[];
   incidents: readonly GlobeIncident[];
   detectionsState: DetectionsState;
+  draftCasesState: DraftCasesState;
 };
 
 /**
  * One recorded day on the globe (the console shell of the replay: stage, floating rail, dock). Owns the day's clock;
  * as it moves, the frames on either side of the moment are loaded, paired ship by ship and blended on the GPU.
  */
-export function LiveDay({ entries, frameSource, watchedLines, incidents, detectionsState }: LiveDayProps) {
+export function LiveDay({ entries, frameSource, watchedLines, incidents, detectionsState, draftCasesState }: LiveDayProps) {
   const router = useRouter();
   const [divingSlug, setDivingSlug] = useState<string | null>(null);
   // The globe's box, which takes a view-transition name for the dive's crossfade.
@@ -478,6 +480,16 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
     [clock, router],
   );
 
+  /** A ship row of a draft case: selects it and flies to it when the recorded day holds it at the moment shown. */
+  const focusDraftShip = useCallback(
+    (mmsi: number) => {
+      selectShip(mmsi);
+      pendingFocusRef.current = mmsi;
+      focusPendingShip();
+    },
+    [focusPendingShip, selectShip],
+  );
+
   const handlePick = useCallback(
     (pick: GlobePick) => {
       switch (pick.kind) {
@@ -558,6 +570,7 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
         />
       )}
       <DetectionsCard state={detectionsState} selectedMmsi={selectedMmsi} onSelect={focusDetection} />
+      <DraftCasesCard state={draftCasesState} selectedMmsi={selectedMmsi} onSelectShip={focusDraftShip} />
       {incidents.length > 0 && <IncidentsCard incidents={incidents} selectedSlug={selectedIncidentSlug} onSelect={focusIncident} />}
     </>
   );

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DRAFT_CASE_DAYS, type DraftCasesState } from "@/components/live/LiveDraftCases";
 import { LiveDay } from "@/components/live/LiveDay";
 import type { DetectionsState } from "@/components/live/LiveRail";
+import { fetchRecentDraftCases } from "@/lib/fault-signals/fault-api";
 import { createFrameSource } from "@/lib/globe/frame-source";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { fetchRecentDetections } from "@/lib/globe/live-api";
@@ -16,6 +18,7 @@ export function LiveConsole({ watchedLines, incidents }: { watchedLines: readonl
   const [frameSource] = useState(createFrameSource);
   const [indexState, setIndexState] = useState<IndexState>({ kind: "loading" });
   const [detectionsState, setDetectionsState] = useState<DetectionsState>({ kind: "loading" });
+  const [draftCasesState, setDraftCasesState] = useState<DraftCasesState>({ kind: "loading" });
 
   // Fetches the frame index and the detections once, from the CDN route and Supabase, services React does not own.
   useEffect(() => {
@@ -34,13 +37,18 @@ export function LiveConsole({ watchedLines, incidents }: { watchedLines: readonl
       if (!outcome.ok) console.error(`[LiveConsole] ${outcome.reason}`);
       setDetectionsState(outcome.ok ? { kind: "loaded", detections: outcome.value } : { kind: "failed" });
     });
+    void fetchRecentDraftCases(DRAFT_CASE_DAYS).then((outcome) => {
+      if (!isCurrent) return;
+      if (!outcome.ok) console.error(`[LiveConsole] ${outcome.reason}`);
+      setDraftCasesState(outcome.ok ? { kind: "loaded", drafts: outcome.value } : { kind: "failed" });
+    });
     return () => {
       isCurrent = false;
     };
   }, [frameSource]);
 
   if (indexState.kind === "ready") {
-    return <LiveDay entries={indexState.entries} frameSource={frameSource} watchedLines={watchedLines} incidents={incidents} detectionsState={detectionsState} />;
+    return <LiveDay entries={indexState.entries} frameSource={frameSource} watchedLines={watchedLines} incidents={incidents} detectionsState={detectionsState} draftCasesState={draftCasesState} />;
   }
   const message =
     indexState.kind === "loading"
