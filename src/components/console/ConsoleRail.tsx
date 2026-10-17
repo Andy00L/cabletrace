@@ -3,11 +3,11 @@
 import { useSyncExternalStore } from "react";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
+import { describeNearestLine, describeSpeed, describeWaterUnder, NumberGrid, useMomentSample } from "@/components/console/MomentNumbers";
 import { Icon } from "@/components/icons/Icon";
 import { CaseEventList } from "@/components/replay/CaseEventList";
 import { formatUtcClock } from "@/lib/replay/format-utc";
 import { progressToTimeMs } from "@/lib/replay/replay-scene";
-import { findSeriesSample } from "@/lib/cases/case-series";
 
 const CARD_CLASS = "flex flex-col gap-3 rounded-row bg-card px-5 py-4.5 shadow-card";
 const ROW_BUTTON_CLASS = "grid w-full items-center gap-x-3 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page";
@@ -40,6 +40,29 @@ function HideButton({ onHide }: { onHide: (() => void) | null }) {
   );
 }
 
+/** The ship's name, which opens the vessel card on the ship in the 3D view: the keyboard path to the ship in the scene. */
+function ShipHeading({ onHide }: { onHide: (() => void) | null }) {
+  const { consoleCase, openLayer } = useConsole();
+  return (
+    <div className="flex items-center gap-3">
+      <h2 className="min-w-0 text-card-title">
+        <button
+          type="button"
+          onClick={(event) => openLayer({ kind: "vessel" }, event.currentTarget)}
+          title="Show the vessel card on the ship"
+          className="-mx-2 -my-1 flex items-center gap-3 rounded-field px-2 py-1 text-left transition-colors duration-140 ease-standard hover:bg-page"
+          data-testid="open-vessel-card"
+        >
+          <ShipSample />
+          {consoleCase.vessel.name}
+          <Icon name="chevronRight" className="text-muted" />
+        </button>
+      </h2>
+      <HideButton onHide={onHide} />
+    </div>
+  );
+}
+
 /** Replay mode: who the ship is, in three lines, and the minute-by-minute list. */
 function ReplayRail({ onHide }: { onHide: (() => void) | null }) {
   const { consoleCase, setMode } = useConsole();
@@ -47,11 +70,7 @@ function ReplayRail({ onHide }: { onHide: (() => void) | null }) {
   return (
     <>
       <section className={CARD_CLASS} aria-label="The ship">
-        <div className="flex items-center gap-3">
-          <ShipSample />
-          <h2 className="text-card-title">{vessel.name}</h2>
-          <HideButton onHide={onHide} />
-        </div>
+        <ShipHeading onHide={onHide} />
         <p className="text-small">
           {vessel.type}, {vessel.flag} flag
         </p>
@@ -76,15 +95,7 @@ function ReplayMinute() {
 
 /** The numbers derived at the replay moment, re-rendered only when the chart sample under the cursor changes. */
 function DerivedNumbers() {
-  const { input, series, clock } = useConsole();
-  const readSampleIndex = () => (series ? findSeriesSample(series, progressToTimeMs(input, clock.getSnapshot().progress)).index : -1);
-  const sampleIndex = useSyncExternalStore(clock.subscribe, readSampleIndex, readSampleIndex);
-  const sample = series?.samples[sampleIndex] ?? null;
-  const numbers = [
-    { label: "Speed", value: sample ? sample.speedKnots.toFixed(1) : "None", unit: sample ? "kn" : "" },
-    { label: "Nearest line", value: sample?.nearestLine ? sample.nearestLine.distanceKm.toFixed(1) : "None", unit: sample?.nearestLine ? "km" : "" },
-    { label: "Water under", value: sample?.depthMetres !== null && sample?.depthMetres !== undefined ? Math.round(sample.depthMetres).toString() : "None", unit: sample?.depthMetres ? "m" : "" },
-  ];
+  const sample = useMomentSample();
   return (
     <section className={CARD_CLASS} aria-label="Derived at this moment">
       <div className="flex items-baseline justify-between gap-3">
@@ -95,17 +106,7 @@ function DerivedNumbers() {
       </div>
       {sample ? (
         <>
-          <dl className="grid grid-cols-3 gap-3">
-            {numbers.map((number) => (
-              <div key={number.label} className="flex flex-col gap-0.5">
-                <dt className="text-caption font-normal text-muted">{number.label}</dt>
-                <dd className="text-heading tabular-nums">
-                  {number.value}
-                  <span className="ml-0.5 text-label text-muted">{number.unit}</span>
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <NumberGrid numbers={[describeSpeed(sample), describeNearestLine(sample), describeWaterUnder(sample)]} />
           <p className="text-caption font-normal text-muted">
             {sample.basis === "recorded"
               ? "Speed as the ship broadcast it; distance and depth at its AIS position."
@@ -133,11 +134,7 @@ function ShipRail({ onHide }: { onHide: (() => void) | null }) {
   return (
     <>
       <section className={CARD_CLASS} data-testid="ship-card">
-        <div className="flex items-center gap-3">
-          <ShipSample />
-          <h2 className="text-card-title">{vessel.name}</h2>
-          <HideButton onHide={onHide} />
-        </div>
+        <ShipHeading onHide={onHide} />
         <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 text-small">
           {facts.map((fact) => (
             <div key={fact.label} className="contents">
