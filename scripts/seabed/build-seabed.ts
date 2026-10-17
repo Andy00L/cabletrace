@@ -200,6 +200,40 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
     tracedLines: [],
     cablesCredit: OSM_CABLES_CREDIT,
   },
+  // West Spitsbergen from Longyearbyen out through Isfjorden to the Fram Strait: both Svalbard cables from their
+  // landing to where they turn south at 2,400 m, about 220 by 111 km. At 78 N an EMODnet cell is about 24 m east
+  // to west and 116 m north to south, so vertices are about 386 m apart east to west and 463 m north to south.
+  // Sea-only Copernicus tiles (west of 12 E in N77, west of 10 E in N78) are not published. The EMODnet pipelines
+  // layer has none in the box.
+  svalbard: {
+    region: { west: 6.8, east: 16.2, south: 77.5, north: 78.5 },
+    cellsPerVertex: { longitude: 16, latitude: 4 },
+    depth: { kind: "emodnet", file: "svalbard-depth.txt" },
+    cablesFile: "osm-cables-svalbard.json",
+    pipelines: { file: "pipelines-svalbard.json", displayNames: {} },
+    demTiles: [
+      "N77_00_E012_00",
+      "N77_00_E013_00",
+      "N77_00_E014_00",
+      "N77_00_E015_00",
+      "N77_00_E016_00",
+      "N78_00_E010_00",
+      "N78_00_E011_00",
+      "N78_00_E012_00",
+      "N78_00_E013_00",
+      "N78_00_E014_00",
+      "N78_00_E015_00",
+      "N78_00_E016_00",
+    ],
+    // OpenStreetMap Nominatim lookups, 17 Oct 2026 (Kapp Linné is the cape node beside Isfjord Radio).
+    places: [
+      { name: "Longyearbyen", longitude: 15.64637, latitude: 78.22316 },
+      { name: "Barentsburg", longitude: 14.21724, latitude: 78.06536 },
+      { name: "Kapp Linné", longitude: 13.60608, latitude: 78.06433 },
+    ],
+    tracedLines: [],
+    cablesCredit: OSM_CABLES_CREDIT,
+  },
   // The Taiwan Strait between Tainan and Penghu, about 107 by 94 km: the Taiwan-Penghu No. 3 break off Beimen
   // (Hong Tai 58, 25 Feb 2025), Anping harbour where the ship was taken, and Magong. GEBCO cells, one per vertex:
   // about 426 m east to west and 463 m north to south.
