@@ -5,6 +5,7 @@ import { Icon } from "@/components/icons/Icon";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { RecorderStatusCard, RecorderStatusCardPlaceholder } from "@/components/recorder/RecorderStatusCard";
 import { CABLE_CASES } from "@/data/cases";
+import { REGIONS } from "@/data/regions";
 import { toReplaySceneInput } from "@/lib/cases/case-file";
 import { loadCaseSketch } from "@/lib/cases/load-case-sketch";
 
@@ -23,10 +24,11 @@ export default async function HomePage() {
       <SiteHeader current="home" />
       <main className="grid min-h-0 flex-1 gap-6 pt-4 lg:grid-cols-[400px_minmax(0,1fr)]">
         <section className="flex flex-col gap-4">
-          <h1 className="text-title">Ship traffic over Baltic subsea cables</h1>
+          <h1 className="text-title">Ship traffic over subsea cables</h1>
           <p className="text-body text-muted">
-            CableTrace records every ship near a Gulf of Finland cable once a minute, so a break can be traced to the ships that
-            were there. Past cuts replay in 3D, every position tied to its source.
+            CableTrace records every ship near a cable in {REGIONS.length} watched regions once a minute and checks the tracks for
+            dragged anchors, so a break can be traced to the ships that were there. Past cuts replay in 3D, every position tied to
+            its source.
           </p>
           <div className="mt-2">
             <Suspense fallback={<RecorderStatusCardPlaceholder />}>
