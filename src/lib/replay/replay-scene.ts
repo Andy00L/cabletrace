@@ -16,6 +16,8 @@ export type ReplaySceneInput = {
   windowEndMs: number;
   /** Sorted by time. */
   track: TimedPosition[];
+  /** The positions placed from statements, in case order (the Evidence rail lists them in the same order). */
+  placements: { longitude: number; latitude: number }[];
   dragWindow: { startMs: number; endMs: number } | null;
   /** The first cut is the one the camera frames. */
   cuts: [ReplayCut, ...ReplayCut[]];

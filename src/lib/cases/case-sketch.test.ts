@@ -23,6 +23,7 @@ const INPUT: ReplaySceneInput = {
     { atMs: 1_000, longitude: 20.3, latitude: 56.7, recordedSpeedKnots: null },
     { atMs: 3_000, longitude: 20.7, latitude: 56.3, recordedSpeedKnots: 7.3 },
   ],
+  placements: [{ longitude: 20.3, latitude: 56.7 }],
   dragWindow: { startMs: 0, endMs: 2_000 },
   cuts: [{ cableName: "Cable", label: "Cable", atMs: 2_000, longitude: 20.5, latitude: 56.5 }],
   vessel: { name: "Vessel", kind: "tanker", lengthMetres: 200 },

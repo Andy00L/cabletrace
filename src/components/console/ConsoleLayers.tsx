@@ -8,6 +8,7 @@ import { describeCourse, describeNearestLine, describeSpeed, NumberGrid, useMome
 import { Icon } from "@/components/icons/Icon";
 import { CloseButton, LayerCard, type LayerAnchor, type LayerCardPlacement } from "@/components/ui/LayerCard";
 import { LayerSheet } from "@/components/ui/LayerSheet";
+import { WatchButton } from "@/components/watchlist/WatchButton";
 import type { CitationView, ConsoleSource } from "@/lib/cases/case-console";
 import { toCutSlug } from "@/lib/console/console-state";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
@@ -25,6 +26,7 @@ const SHORTCUTS = [
 const SCENE_ANCHOR_BOX_PX = 32;
 // Far outside any stage: an anchor parked here hides its card until the object is back in view.
 const OFF_VIEW_POSITION_PX = -10_000;
+const SHOW_TARGET_LABELS: Record<SceneTarget["kind"], string> = { vessel: "Show the ship", cut: "Show the cut", placement: "Show the position" };
 const ACTION_BUTTON_CLASS = "flex h-10 items-center gap-2 rounded-full bg-soft px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]";
 
 /**
@@ -149,10 +151,12 @@ type ConsoleLayersProps = {
   stageRightInsetPx: number;
   /** True under 1024 px, where the stage is too narrow for a card beside an object. */
   isStageNarrow: boolean;
+  /** `sheet` on a phone: every card docks to the bottom of the screen instead of sitting next to its anchor. */
+  cardPresentation: "popover" | "sheet";
 };
 
 /** Every card, sheet and dialog the console can open, driven by the `layer` state (one at a time). */
-export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx, isStageNarrow }: ConsoleLayersProps) {
+export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx, isStageNarrow, cardPresentation }: ConsoleLayersProps) {
   const { consoleCase, layer, closeLayer, seekTo, view, setView, setMode } = useConsole();
   const [sourceFilter, setSourceFilter] = useState("");
   const anchor = useMemo(() => createAnchor(opener, stageElement), [opener, stageElement]);
@@ -160,11 +164,12 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
   const cardSide = opener?.closest("[data-console-dock]") ? "top" : "left";
   const controlPlacement: LayerCardPlacement = { boundary: null, side: cardSide, align: cardSide === "top" ? "center" : "start", collisionPadding: 16 };
 
-  // The 3D object the open card sits on: the vessel card always sits on the ship; a cut card sits on its marker when
-  // the scene or a link opened it, and beside its control otherwise.
+  // The 3D object the open card sits on: the vessel card always sits on the ship; a cut or placement card sits on its
+  // marker when the scene or a link opened it, and beside its control otherwise.
   const sceneTarget = useMemo<SceneTarget | null>(() => {
     if (layer.kind === "vessel") return { kind: "vessel" };
     if (layer.kind === "cut" && opener === null) return { kind: "cut", cutIndex: layer.cutIndex };
+    if (layer.kind === "placement" && opener === null) return { kind: "placement", positionIndex: layer.positionIndex };
     return null;
   }, [layer, opener]);
   // The target whose card is hidden because it left the view; compared by identity, so a new card starts visible.
@@ -181,6 +186,7 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
     ? { boundary: null, side: "bottom", align: "center", collisionPadding: 16 }
     : { boundary: stageElement, side: "right", align: "center", collisionPadding: { top: 16, right: 16 + stageRightInsetPx, bottom: 16, left: 16 } };
   const isCutOnScene = sceneTarget?.kind === "cut";
+  const isPlacementOnScene = sceneTarget?.kind === "placement";
 
   const filteredSources = useMemo(() => {
     const needle = sourceFilter.trim().toLowerCase();
@@ -202,6 +208,7 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
         {...(isCutOnScene ? scenePlacement : controlPlacement)}
         followsAnchor={isCutOnScene}
         hidesWhenDetached={isCutOnScene}
+        presentation={cardPresentation}
         testId="cut-card"
       >
         {cut && (
@@ -237,12 +244,23 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
               >
                 Go to the close-up
               </button>
+              <WatchButton kind="cable" watchRef={cut.cableName} label={cut.cableName} testId="watch-cable" />
             </div>
           </>
         )}
       </LayerCard>
 
-      <LayerCard isOpen={layer.kind === "placement" && position !== undefined} onClose={closeLayer} anchor={anchor} label="How this position is placed" boundary={null} side={cardSide} testId="placement-popover">
+      <LayerCard
+        isOpen={layer.kind === "placement" && position !== undefined}
+        onClose={closeLayer}
+        anchor={isPlacementOnScene ? sceneAnchor : anchor}
+        label="How this position is placed"
+        {...(isPlacementOnScene ? scenePlacement : { ...controlPlacement, align: "start" })}
+        followsAnchor={isPlacementOnScene}
+        hidesWhenDetached={isPlacementOnScene}
+        presentation={cardPresentation}
+        testId="placement-popover"
+      >
         {position && (
           <>
             <CardHeader eyebrow={`${position.timeLabel} UTC${position.dayLabel ? `, ${position.dayLabel}` : ""}, placed from statements`} title={position.place} onClose={closeLayer} />
@@ -262,7 +280,17 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
         )}
       </LayerCard>
 
-      <LayerCard isOpen={layer.kind === "source" && source !== undefined} onClose={closeLayer} anchor={anchor} label={source ? `Source ${source.id}` : "Source"} boundary={null} side={cardSide} width={380} testId="source-popover">
+      <LayerCard
+        isOpen={layer.kind === "source" && source !== undefined}
+        onClose={closeLayer}
+        anchor={anchor}
+        label={source ? `Source ${source.id}` : "Source"}
+        boundary={null}
+        side={cardSide}
+        width={380}
+        presentation={cardPresentation}
+        testId="source-popover"
+      >
         {source && (
           <>
             <CardHeader eyebrow={`Source ${source.id}, ${source.publisher}, ${source.publishedLabel}`} title={source.title} onClose={closeLayer} />
@@ -289,6 +317,7 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
         followsAnchor
         hidesWhenDetached
         width={340}
+        presentation={cardPresentation}
         testId="vessel-card"
       >
         <CardHeader eyebrow={`${vessel.type}, ${vessel.flag} flag`} title={vessel.name} onClose={closeLayer} />
@@ -310,10 +339,12 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
           >
             Ship details
           </button>
+          {vessel.mmsi && <WatchButton kind="ship" watchRef={vessel.mmsi} label={vessel.name} testId="watch-ship" />}
         </div>
       </LayerCard>
 
-      {sceneTarget !== null &&
+      {cardPresentation === "popover" &&
+        sceneTarget !== null &&
         hiddenTarget === sceneTarget &&
         stageElement !== null &&
         viewer !== null &&
@@ -327,7 +358,7 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
             data-testid="show-card-target"
           >
             <Icon name="follow" />
-            {sceneTarget.kind === "vessel" ? "Show the ship" : "Show the cut"}
+            {SHOW_TARGET_LABELS[sceneTarget.kind]}
           </button>,
           stageElement,
         )}

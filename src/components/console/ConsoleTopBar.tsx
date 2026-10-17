@@ -8,6 +8,7 @@ import { CaseSketchMap } from "@/components/cases/CaseCard";
 import { useConsole } from "@/components/console/console-context";
 import { Icon } from "@/components/icons/Icon";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
+import { WatchButton } from "@/components/watchlist/WatchButton";
 import type { CaseSketch } from "@/lib/cases/case-sketch";
 import type { ConsoleMode } from "@/lib/console/console-state";
 
@@ -91,9 +92,10 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
       </Popover.Root>
       <span className="hidden truncate text-small text-muted tabular-nums xl:inline">{consoleCase.subtitle}</span>
       <div className="ml-auto flex items-center gap-2">
-        <div className="hidden lg:block">
+        <div className="hidden md:block">
           <SegmentedControl label="Mode" options={MODE_OPTIONS} value={mode} onChange={setMode} testId="mode-switch" />
         </div>
+        <WatchButton kind="case" watchRef={consoleCase.slug} label={consoleCase.title} testId="watch-case" />
         <button
           type="button"
           onClick={() => void copyLink()}

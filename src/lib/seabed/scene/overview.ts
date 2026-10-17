@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplaySceneInput } from "@/lib/replay/replay-scene";
-import { makeLabel, makeStackedLabel } from "@/lib/seabed/scene/labels";
+import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
 import { LAND_RAMP, SCENE_COLORS, SEABED_RAMP } from "@/lib/seabed/scene/scene-colors";
@@ -76,8 +76,11 @@ export type VesselFrame = { position: THREE.Vector3; heading: ScenePoint };
 
 export type OverviewViewName = "overview" | "top";
 
-/** An object in the overview a card can open on: the vessel, or one of the case's cuts by its index in the case. */
-export type SceneTarget = { kind: "vessel" } | { kind: "cut"; cutIndex: number };
+/**
+ * An object in the overview a card can open on: the vessel, one of the case's cuts, or one of the positions placed
+ * from statements, each by its index in the case.
+ */
+export type SceneTarget = { kind: "vessel" } | { kind: "cut"; cutIndex: number } | { kind: "placement"; positionIndex: number };
 
 /** A target a click can select, where it is drawn, and the label naming it (a click on the label selects it too). */
 export type ScenePickable = { target: SceneTarget; position: THREE.Vector3; label: HTMLElement };
@@ -105,7 +108,10 @@ export type OverviewScene = {
    * its first position).
    */
   locateTarget: (target: SceneTarget) => { position: THREE.Vector3; label: HTMLElement } | null;
-  /** What a click can select at the last drawn moment: the vessel once it is on the map, each cut once it has happened. */
+  /**
+   * What a click can select at the last drawn moment: the vessel once it is on the map, each cut once it has
+   * happened, and every placed position.
+   */
   readPickables: () => ScenePickable[];
   /** Hides the land and pipeline names on a narrow view, keeping the vessel and cut labels. */
   setCompactLabels: (isCompact: boolean) => void;
@@ -568,6 +574,15 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return { cut, marker, nameLabel, cutLabel };
   });
 
+  // Each position placed from statements is a small ring on the track, so a click on it says how it was placed.
+  const placementMarkers = input.placements.map((placement) => {
+    const point = toScene(placement.longitude, placement.latitude);
+    const marker = makePointMarker();
+    marker.position.set(point.x, TRACK_SURFACE_LIFT, point.z);
+    scene.add(marker);
+    return marker;
+  });
+
   const plumePositions = new Float32Array(PLUME_PARTICLE_COUNT * 3);
   const plumeAges = new Float32Array(PLUME_PARTICLE_COUNT).fill(2);
   const plumeDrift = Array.from({ length: PLUME_PARTICLE_COUNT }, () => new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.25 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5));
@@ -721,17 +736,33 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   }
 
   function locateTarget(target: SceneTarget): { position: THREE.Vector3; label: HTMLElement } | null {
-    if (target.kind === "vessel") return ship.visible ? { position: ship.position, label: shipLabel.object.element } : null;
-    const cutMarker = cutMarkers[target.cutIndex];
-    if (!cutMarker) return null;
-    // Before the cut the line's name marks the spot; once cut, the cut label replaces it.
-    return { position: cutMarker.marker.position, label: (cutMarker.marker.visible ? cutMarker.cutLabel : cutMarker.nameLabel).element };
+    switch (target.kind) {
+      case "vessel":
+        return ship.visible ? { position: ship.position, label: shipLabel.object.element } : null;
+      case "cut": {
+        const cutMarker = cutMarkers[target.cutIndex];
+        if (!cutMarker) return null;
+        // Before the cut the line's name marks the spot; once cut, the cut label replaces it.
+        return { position: cutMarker.marker.position, label: (cutMarker.marker.visible ? cutMarker.cutLabel : cutMarker.nameLabel).element };
+      }
+      case "placement": {
+        const marker = placementMarkers[target.positionIndex];
+        return marker ? { position: marker.position, label: marker.element } : null;
+      }
+      default: {
+        const unhandledTarget: never = target;
+        return unhandledTarget;
+      }
+    }
   }
 
   function readPickables(): ScenePickable[] {
     const pickables: ScenePickable[] = ship.visible ? [{ target: { kind: "vessel" }, position: ship.position, label: shipLabel.object.element }] : [];
     cutMarkers.forEach((cutMarker, cutIndex) => {
       if (cutMarker.marker.visible) pickables.push({ target: { kind: "cut", cutIndex }, position: cutMarker.marker.position, label: cutMarker.cutLabel.element });
+    });
+    placementMarkers.forEach((marker, positionIndex) => {
+      pickables.push({ target: { kind: "placement", positionIndex }, position: marker.position, label: marker.element });
     });
     return pickables;
   }

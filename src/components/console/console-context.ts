@@ -6,6 +6,7 @@ import type { ConsoleCase } from "@/lib/cases/case-console";
 import type { ConsoleLayer, ConsoleMode, SeabedDetail } from "@/lib/console/console-state";
 import type { ReplayClock } from "@/lib/replay/replay-clock";
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
+import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewName } from "@/lib/seabed/scene/viewer";
 
 /** What every part of the replay console reads and the few ways it can change the console. */
@@ -26,6 +27,8 @@ export type ConsoleController = {
   closeLayer: () => void;
   /** Moves the replay to a moment and pauses nothing: playing continues from there. */
   seekTo: (atMs: number) => void;
+  /** Slides the 3D camera to an object picked in a list (a cut, a placed position); does nothing where it cannot. */
+  focusTarget: (target: SceneTarget) => void;
   /** SHA-256 of the case's canonical form, as the downloadable case file records it (src/lib/cases/case-export.ts). */
   caseFileSha256: string | null;
 };
