@@ -81,6 +81,36 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
     ],
     pipelineNames: { "NORD STREAM 1": "Nord Stream 1", "NORD STREAM 2": "Nord Stream 2" },
   },
+  // Karlskrona to east of Fårö: Öland, all of Gotland and the LVRTC Sweden-Latvia cable out to 20.25 E, about
+  // 300 by 245 km. Same vertex spacing as baltic-proper (about 510 m east to west, 463 m north to south).
+  "gotland-latvia": {
+    region: { west: 15.35, east: 20.25, south: 55.75, north: 57.95 },
+    cellsPerVertex: { longitude: 8, latitude: 4 },
+    depthFile: "gotland-latvia-depth.txt",
+    cablesFile: "osm-cables-gotland-latvia.json",
+    pipelinesFile: "pipelines-gotland-latvia.json",
+    demTiles: [
+      "N55_00_E015_00",
+      "N55_00_E020_00",
+      "N56_00_E015_00",
+      "N56_00_E016_00",
+      "N56_00_E018_00",
+      "N56_00_E020_00",
+      "N57_00_E015_00",
+      "N57_00_E016_00",
+      "N57_00_E017_00",
+      "N57_00_E018_00",
+      "N57_00_E019_00",
+    ],
+    // OpenStreetMap Nominatim lookups, 17 Oct 2026 (the capes are the Långe Jan and Hoburg lighthouse ways).
+    places: [
+      { name: "Karlskrona", longitude: 15.58664, latitude: 56.16211 },
+      { name: "Ölands södra udde", longitude: 16.39853, latitude: 56.19606 },
+      { name: "Visby", longitude: 18.29798, latitude: 57.63794 },
+      { name: "Hoburg fyr", longitude: 18.15104, latitude: 56.92173 },
+    ],
+    pipelineNames: { "NORD STREAM 1": "Nord Stream 1", "NORD STREAM 2": "Nord Stream 2" },
+  },
 };
 
 // A vertex is land when at least this share of the DEM pixels under it is land.
