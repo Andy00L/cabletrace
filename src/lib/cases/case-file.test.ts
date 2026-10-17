@@ -8,7 +8,7 @@ const FIXTURE: CableCase = {
   title: "Fixture cable",
   subtitle: "Test data",
   summary: "Test data.",
-  vessel: { name: "Vessel", kind: "tanker", flag: "Flag", type: "Tanker", imo: null, mmsi: null, citations: [CITATION] },
+  vessel: { name: "Vessel", kind: "tanker", flag: "Flag", type: "Tanker", lengthMetres: 200, imo: null, mmsi: null, citations: [CITATION] },
   window: { startUtc: "2024-12-25T08:00:00Z", endUtc: "2024-12-25T12:00:00Z" },
   localTime: { place: "Helsinki", timeZone: "Europe/Helsinki" },
   seabedArea: "gulf-of-finland",

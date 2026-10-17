@@ -74,6 +74,7 @@ export const YI_PENG_3_2024: CableCase = {
     kind: "bulk-carrier",
     flag: "China",
     type: "Bulk carrier, 224 m",
+    lengthMetres: 224,
     imo: "9224984",
     mmsi: "414270000",
     citations: [

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ReplayClock } from "@/lib/replay/replay-clock";
 import { progressToTimeMs, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
@@ -18,12 +18,14 @@ type SeabedViewProps = {
   rightInsetPx: number;
   /** Receives the viewer once it is drawing, and null when it goes, for controls such as Reset view. */
   onViewerChange: (viewer: SeabedViewer | null) => void;
-  /** A click or tap on the vessel or a cut marker in the 3D view. */
+  /** A click or tap on the vessel, a cut marker or a placed position in the 3D view. */
   onTargetPick: (target: SceneTarget) => void;
+  /** A flat picture of the case shown in place of the 3D view when it cannot be drawn; null for none. */
+  still: ReactNode;
 };
 
 /** The 3D seabed: the replay's main view. Time comes from the shared replay clock, read once per frame. */
-export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, onViewerChange, onTargetPick }: SeabedViewProps) {
+export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, onViewerChange, onTargetPick, still }: SeabedViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SeabedViewer | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading" });
@@ -107,11 +109,19 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
           </div>
         </div>
       )}
+      {viewerState.kind === "failed" && still && (
+        <div className="absolute inset-0" data-testid="seabed-still">
+          {still}
+        </div>
+      )}
       {viewerState.kind === "failed" && (
         <div className="absolute inset-0 grid place-items-center p-6">
           <div className="flex w-full max-w-sm flex-col gap-3 rounded-inner bg-card p-5 shadow-card" role="alert">
             <p className="text-label">The 3D view did not load</p>
-            <p className="text-small text-muted">{viewerState.reason}</p>
+            <p className="text-small text-muted">
+              {viewerState.reason}
+              {still ? " The map behind shows the track and the cuts." : ""}
+            </p>
             <button
               type="button"
               onClick={() => {

@@ -91,7 +91,7 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
       </Popover.Root>
       <span className="hidden truncate text-small text-muted tabular-nums xl:inline">{consoleCase.subtitle}</span>
       <div className="ml-auto flex items-center gap-2">
-        <div className="hidden lg:block">
+        <div className="hidden md:block">
           <SegmentedControl label="Mode" options={MODE_OPTIONS} value={mode} onChange={setMode} testId="mode-switch" />
         </div>
         <button

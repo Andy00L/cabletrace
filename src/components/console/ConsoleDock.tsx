@@ -155,20 +155,24 @@ function Chart({ kind, series, sample }: { kind: ChartKind; series: CaseSeries; 
   );
 }
 
-/** The three charts on the replay's time axis; they re-render when the cursor moves to another sample. */
-function ChartStrip({ series }: { series: CaseSeries }) {
+/**
+ * The three charts on the replay's time axis, side by side in the dock or stacked in the rail's Ship mode (under
+ * 1024 px, where the dock keeps only the transport and the timeline). They re-render when the cursor moves to
+ * another sample.
+ */
+export function CaseCharts({ series, isStacked }: { series: CaseSeries; isStacked: boolean }) {
   const { input, clock } = useConsole();
   const readSampleIndex = () => findSeriesSample(series, progressToTimeMs(input, clock.getSnapshot().progress)).index;
   const sampleIndex = useSyncExternalStore(clock.subscribe, readSampleIndex, readSampleIndex);
   const sample = series.samples[sampleIndex] ?? null;
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex gap-7">
+      <div className={isStacked ? "flex flex-col gap-4" : "flex gap-7"}>
         <Chart kind="speed" series={series} sample={sample} />
         <Chart kind="distance" series={series} sample={sample} />
         <Chart kind="depth" series={series} sample={sample} />
       </div>
-      <p className="text-micro font-normal text-muted">{describeBasis(series)}. Depth: EMODnet DTM 2024 under the drawn track.</p>
+      <p className="text-micro font-normal text-muted">{describeBasis(series)}. Depth: the 3D view&apos;s seabed grid under the drawn track.</p>
     </div>
   );
 }
@@ -182,7 +186,7 @@ export function ConsoleDock({ showCharts }: { showCharts: boolean }) {
         <ReplayTransport input={input} clock={clock} localTime={consoleCase.localTime} />
         <ReplayTimeline input={input} events={consoleCase.events} clock={clock} onCutSelect={(cutIndex, opener) => openLayer({ kind: "cut", cutIndex }, opener)} />
       </div>
-      {showCharts && series && <ChartStrip series={series} />}
+      {showCharts && series && <CaseCharts series={series} isStacked={false} />}
     </section>
   );
 }

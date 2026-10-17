@@ -41,6 +41,7 @@ export const EAGLE_S_2024: CableCase = {
     kind: "tanker",
     flag: "Cook Islands",
     type: "Oil tanker, 228.6 m",
+    lengthMetres: 228.6,
     imo: "9329760",
     mmsi: "518998865",
     citations: [
