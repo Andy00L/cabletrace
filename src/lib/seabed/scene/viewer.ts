@@ -10,11 +10,8 @@ import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
 import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneTarget } from "@/lib/seabed/scene/overview";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
 import type { SeabedData } from "@/lib/seabed/seabed-data";
-import { createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
+import { chooseSmoothingPasses, createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
 
-// One 3x3 mean pass over the terrain grid (232 m in the Gulf of Finland, about 490 m in the Baltic Proper):
-// removes single-cell survey spikes and keeps the real relief.
-const SMOOTHING_PASSES = 1;
 // Camera moves inside the overview, and the crossfade between overview and close-up (docs/UI_DESIGN_SYSTEM.md, Motion).
 const INTRO_MOVE_MS = 1800;
 const VIEW_MOVE_MS = 900;
@@ -26,10 +23,14 @@ const MAX_OVERVIEW_FOV_DEGREES = 60;
 // Below this view width (CSS px, a phone) land and pipeline names are hidden so the case labels stay readable.
 const COMPACT_LABEL_WIDTH_PX = 640;
 const RADIANS_PER_DEGREE = Math.PI / 180;
-// The follow camera sits off the vessel's starboard quarter (km), close enough to read the deck, and eases toward it.
-const FOLLOW_BEHIND_KM = 1.45;
-const FOLLOW_SIDE_KM = 1.55;
-const FOLLOW_ABOVE_KM = 0.62;
+// The follow camera sits off the vessel's starboard quarter, close enough to read the deck, and eases toward it.
+// Offsets are in drawn ship lengths (tuned on Eagle S, 228.6 m drawn 1.37 km long), so every hull fills the frame alike.
+const FOLLOW_BEHIND_LENGTHS = 1.06;
+const FOLLOW_SIDE_LENGTHS = 1.13;
+const FOLLOW_ABOVE_LENGTHS = 0.45;
+// It aims a little ahead of and above the hull's origin (the waterline amidships).
+const FOLLOW_AIM_AHEAD_LENGTHS = 0.22;
+const FOLLOW_AIM_ABOVE_LENGTHS = 0.036;
 const FOLLOW_EASE_PER_SECOND = 3.5;
 // The follow camera counts as arrived within this distance (km), and stops asking for frames.
 const FOLLOW_SETTLED_KM = 0.002;
@@ -39,6 +40,11 @@ const CLICK_MAX_MS = 500;
 // How far from a target's point a click still selects it (CSS px): a finger covers more than a mouse pointer.
 const MOUSE_PICK_RADIUS_PX = 20;
 const TOUCH_PICK_RADIUS_PX = 32;
+// Poly Haven's aerial_beach_01 normal map (CC0), reduced to 512 px.
+const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
+// Lookdev colour probes skip data tubes drawn narrower than this many device pixels: below two, every pixel of the
+// tube is an antialiased edge and none can hold the exact colour.
+const MIN_PROBED_WIDTH_DEVICE_PX = 2;
 
 /**
  * Drawing budget per renderer. On a CPU renderer (SwiftShader, llvmpipe: headless test browsers and machines
@@ -150,6 +156,10 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.domElement.style.display = "block";
   renderer.domElement.style.outline = "none";
+  // The software tier draws at a lower pixel ratio and the browser scales the canvas up. Scaled smoothly, a 2 px data
+  // line would blend into the seabed and lose its exact colour; scaled by nearest pixel it keeps it (and the tier has
+  // no antialiasing to lose).
+  if (rendererKind === "software") renderer.domElement.style.imageRendering = "pixelated";
   renderer.domElement.dataset.renderer = rendererKind;
   container.appendChild(renderer.domElement);
   const overviewLabels = createLabelLayer(container);
@@ -158,10 +168,31 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
 
   const grid = downsampleElevations(data.elevations, data.features.grid, tier.terrainStep);
   const features = { ...data.features, grid: grid.grid };
-  const elevations = smoothElevations(grid.elevations, grid.grid, SMOOTHING_PASSES);
+  const elevations = smoothElevations(grid.elevations, grid.grid, chooseSmoothingPasses(data.features.sources.depth));
   const projection = createProjection(features.region);
   const sampleElevationMetres = createElevationSampler(elevations, grid.grid, projection);
   const softDot = createSoftDotTexture();
+  // The sand-ripple detail (GPU tier only): a CC0 normal map from Poly Haven (docs/LOOKDEV.md, Credits) that arrives
+  // after the first frame. The canvas says how many such assets are still loading, so a screenshot tool can wait.
+  let pendingAssetCount = 0;
+  renderer.domElement.dataset.pendingAssets = "0";
+  function settleAsset() {
+    pendingAssetCount -= 1;
+    renderer.domElement.dataset.pendingAssets = String(pendingAssetCount);
+    markDirty();
+  }
+  let rippleNormalMap: THREE.Texture | null = null;
+  if (rendererKind === "hardware") {
+    pendingAssetCount += 1;
+    renderer.domElement.dataset.pendingAssets = String(pendingAssetCount);
+    rippleNormalMap = new THREE.TextureLoader().load(RIPPLE_NORMAL_MAP_URL, settleAsset, undefined, () => {
+      console.error(`[createSeabedViewer] the sand-ripple map ${RIPPLE_NORMAL_MAP_URL} did not load`);
+      settleAsset();
+    });
+    rippleNormalMap.wrapS = THREE.RepeatWrapping;
+    rippleNormalMap.wrapT = THREE.RepeatWrapping;
+    rippleNormalMap.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  }
   const overview = buildOverview({
     renderer,
     domElement: renderer.domElement,
@@ -172,6 +203,8 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     input,
     softDot,
     prefersReducedMotion: isCalm,
+    isHighDetail: rendererKind === "hardware",
+    rippleNormalMap,
   });
 
   // Set whenever the picture must be redrawn even though the replay moment did not change.
@@ -196,6 +229,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       softDot,
       caustics: createCaustics(),
       prefersReducedMotion: isCalm,
+      chainShape: overview.primaryCutChain,
     });
     built.setIllustrated(isIllustrated);
     built.controls.addEventListener("change", markDirty);
@@ -410,8 +444,20 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   let isDisposed = false;
   let lastFrameAt: number | null = null;
   let lastDrawnAtMs = Number.NaN;
+  let drawnFrameCount = 0;
   const followPosition = new THREE.Vector3();
   const followTarget = new THREE.Vector3();
+
+  // Test hooks on the canvas: what the last frame showed and how many frames were drawn, so a screenshot tool
+  // (scripts/lookdev) can wait until the picture it asked for has been drawn and has stopped changing.
+  function recordDrawnFrame(atMs: number) {
+    drawnFrameCount += 1;
+    const canvasData = renderer.domElement.dataset;
+    canvasData.frameCount = String(drawnFrameCount);
+    if (canvasData.drawnView !== activeView) canvasData.drawnView = activeView;
+    const drawnAt = String(Math.round(atMs));
+    if (canvasData.drawnAtMs !== drawnAt) canvasData.drawnAtMs = drawnAt;
+  }
 
   function renderCloseUp(closeUpScene: CloseUpScene, nowSeconds: number, deltaSeconds: number) {
     const hasCameraMoved = closeUpScene.controls.update();
@@ -420,6 +466,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     renderer.render(closeUpScene.scene, closeUpScene.camera);
     closeUpLabels.render(closeUpScene.scene, closeUpScene.camera);
     isDirty = false;
+    recordDrawnFrame(readTimeMs());
   }
 
   function renderOverview(now: number, elapsedSeconds: number, deltaSeconds: number) {
@@ -428,16 +475,16 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     let isCameraEasing = false;
     const vesselFrame = activeView === "vessel" ? overview.readVesselFrame() : null;
     if (vesselFrame) {
-      const { position, heading } = vesselFrame;
-      followPosition.set(
-        position.x - heading.x * FOLLOW_BEHIND_KM - heading.z * FOLLOW_SIDE_KM,
-        position.y + FOLLOW_ABOVE_KM,
-        position.z - heading.z * FOLLOW_BEHIND_KM + heading.x * FOLLOW_SIDE_KM,
-      );
-      followTarget.set(position.x + heading.x * 0.3, position.y + 0.05, position.z + heading.z * 0.3);
+      const { position, heading, drawnLengthKm } = vesselFrame;
+      const behindKm = FOLLOW_BEHIND_LENGTHS * drawnLengthKm;
+      const sideKm = FOLLOW_SIDE_LENGTHS * drawnLengthKm;
+      followPosition.set(position.x - heading.x * behindKm - heading.z * sideKm, position.y + FOLLOW_ABOVE_LENGTHS * drawnLengthKm, position.z - heading.z * behindKm + heading.x * sideKm);
+      const aimAheadKm = FOLLOW_AIM_AHEAD_LENGTHS * drawnLengthKm;
+      followTarget.set(position.x + heading.x * aimAheadKm, position.y + FOLLOW_AIM_ABOVE_LENGTHS * drawnLengthKm, position.z + heading.z * aimAheadKm);
       const ease = isCalm ? 1 : 1 - Math.exp(-elapsedSeconds * FOLLOW_EASE_PER_SECOND);
       overview.camera.position.lerp(followPosition, ease);
       overview.controls.target.lerp(followTarget, ease);
+      overview.camera.lookAt(overview.controls.target);
       isCameraEasing = overview.camera.position.distanceTo(followPosition) > FOLLOW_SETTLED_KM;
     } else if (cameraMove) {
       const amount = clampValue((now - cameraMove.startedAt) / cameraMove.durationMs, 0, 1);
@@ -447,7 +494,9 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       isCameraEasing = true;
       if (amount >= 1) cameraMove = null;
     }
-    const hasCameraMoved = overview.controls.update();
+    // The follow camera owns the camera in the Vessel view: the orbit controls would pull it out to their minimum
+    // distance (1.5 km), closer than a short hull's follow offset allows, and the two would fight every frame.
+    const hasCameraMoved = vesselFrame ? false : overview.controls.update();
     if (isCalm && !isDirty && !hasTimeChanged && !hasCameraMoved && !isCameraEasing) return;
     // A paused calm scene holds still: silt drifts only while the replay moves.
     overview.update(atMs, isCalm && !hasTimeChanged ? 0 : deltaSeconds, now / 1000);
@@ -457,6 +506,38 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     renderer.render(overview.scene, overview.camera);
     overviewLabels.render(overview.scene, overview.camera);
     hideOverlappingLabels(overviewLabels.domElement);
+    recordDrawnFrame(atMs);
+    if (renderer.domElement.dataset.lookdev === "on") recordColorProbes();
+  }
+
+  // Lookdev hook (scripts/lookdev sets data-lookdev="on" on the canvas): where each data line is on this frame, in
+  // canvas px, so the harness can check those pixels hold the exact data colour. Skips points under the rail.
+  function recordColorProbes() {
+    const canvasRect = renderer.domElement.getBoundingClientRect();
+    const cameraRight = new THREE.Vector3().setFromMatrixColumn(overview.camera.matrixWorld, 0);
+    const probes = overview.readColorProbes(overview.camera.position).flatMap((probe) => {
+      const screenPoint = projectToClient(probe.position, canvasRect);
+      if (!screenPoint) return [];
+      if (probe.widthKm !== null) {
+        const edgePoint = projectToClient(probe.position.clone().addScaledVector(cameraRight, probe.widthKm), canvasRect);
+        const widthDevicePx = edgePoint ? Math.hypot(edgePoint.clientX - screenPoint.clientX, edgePoint.clientY - screenPoint.clientY) * renderer.getPixelRatio() : 0;
+        if (widthDevicePx < MIN_PROBED_WIDTH_DEVICE_PX) return [];
+      }
+      const canvasX = screenPoint.clientX - canvasRect.left;
+      const canvasY = screenPoint.clientY - canvasRect.top;
+      const isInClearPart = canvasX >= 0 && canvasX <= canvasRect.width - rightInsetPx && canvasY >= 0 && canvasY <= canvasRect.height;
+      return isInClearPart ? [{ tone: probe.tone, x: Math.round(canvasX * 10) / 10, y: Math.round(canvasY * 10) / 10 }] : [];
+    });
+    renderer.domElement.dataset.colorProbes = JSON.stringify(probes);
+    const seabedProbes = overview.readSeabedProbes(overview.camera.position).flatMap((probe) => {
+      const screenPoint = projectToClient(probe.position, canvasRect);
+      if (!screenPoint) return [];
+      const canvasX = screenPoint.clientX - canvasRect.left;
+      const canvasY = screenPoint.clientY - canvasRect.top;
+      const isInClearPart = canvasX >= 0 && canvasX <= canvasRect.width - rightInsetPx && canvasY >= 0 && canvasY <= canvasRect.height;
+      return isInClearPart ? [{ hex: probe.expectedHex, x: Math.round(canvasX * 10) / 10, y: Math.round(canvasY * 10) / 10 }] : [];
+    });
+    renderer.domElement.dataset.seabedProbes = JSON.stringify(seabedProbes);
   }
 
   function renderFrame(now: number) {
@@ -530,6 +611,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
         }
         overview.scene.environment?.dispose();
         softDot.dispose();
+        rippleNormalMap?.dispose();
         renderer.dispose();
         // Frees the GPU context now instead of at garbage collection.
         renderer.forceContextLoss();
