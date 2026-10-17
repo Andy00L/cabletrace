@@ -3,6 +3,11 @@ import { checkCollectorHealth, type CollectorHealth } from "@/lib/health/collect
 import { checkCrossSource, CROSS_SOURCE_STATUS_HOURS, type RegionCrossSource } from "@/lib/health/cross-source-health";
 import { fetchRecorderSummary, judgeRecorderHealth } from "@/lib/recorder/recorder-summary";
 
+// The answer is cached at Vercel's CDN for 30 s (and served stale for 30 s more while it refreshes): each call reads
+// Supabase three times, so an uncached endpoint would let anyone spend the free plan's 5 GB of monthly egress. The
+// recorder runs every minute, so a 30 s old answer still says whether it runs.
+const HEALTH_CACHE_HEADERS = { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" };
+
 // Rounds a share to 3 decimals for the response.
 function roundShare(share: number | null): number | null {
   return share === null ? null : Math.round(share * 1000) / 1000;
@@ -36,10 +41,13 @@ export async function GET() {
   const isCollecting = collector.ok && collector.value.state === "collecting";
   if (!summary.ok) {
     console.error(`[GET /api/health] ${summary.reason}`);
-    return Response.json({ status: "degraded", app: "up", recorder: { state: "unreachable" }, collector: collectorReport, crossSource: crossSourceReport });
+    return Response.json(
+      { status: "degraded", app: "up", recorder: { state: "unreachable" }, collector: collectorReport, crossSource: crossSourceReport },
+      { headers: HEALTH_CACHE_HEADERS },
+    );
   }
   const health = judgeRecorderHealth(summary.value);
-  return Response.json({
+  const report = {
     status: health.kind === "recording" && isCollecting ? "ok" : "degraded",
     app: "up",
     collector: collectorReport,
@@ -52,5 +60,6 @@ export async function GET() {
       shipsLastHour: summary.value.shipsLastHour,
       cablesWatched: summary.value.cablesWatched,
     },
-  });
+  };
+  return Response.json(report, { headers: HEALTH_CACHE_HEADERS });
 }
