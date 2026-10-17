@@ -170,4 +170,10 @@ async function main(): Promise<number> {
   return failures.length === 0 ? 0 : 1;
 }
 
-process.exit(await main());
+// Anything thrown past main is a broken run, not a finding: exit 2.
+process.exit(
+  await main().catch((error: unknown) => {
+    console.error(`[checkSources] the run failed: ${error instanceof Error ? error.message : String(error)}`);
+    return 2;
+  }),
+);
