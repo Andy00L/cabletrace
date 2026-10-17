@@ -11,6 +11,7 @@ import {
   type DigitrafficVessel,
   type ShipStatic,
 } from "../../../src/lib/live/ais-reports.ts";
+import { compareFeeds, type Box, type CrossSourceSample } from "../../../src/lib/live/cross-source.ts";
 import { gunzipBytes, gzipBytes } from "../../../src/lib/live/frame-compression.ts";
 import {
   buildFrameIndex,
@@ -63,8 +64,13 @@ export type CollectorPorts = {
   listen: (options: { listenMs: number; onMessageText: (messageText: string) => void }) => Promise<Result<ListenStats>>;
   fetchDigitrafficLocations: (sinceMs: number) => Promise<Result<unknown>>;
   fetchDigitrafficVessels: () => Promise<Result<unknown>>;
+  // One row per sample into public.cross_source_samples (supabase/migrations/20261019500000_regional_recording.sql).
+  storeCrossSourceSamples: (samples: CrossSourceSample[]) => Promise<Result<null>>;
   nowMs: () => number;
 };
+
+/** A region both feeds cover, where the run compares them (regions recorded from Digitraffic, src/data/regions). */
+export type CrossCheckRegion = { id: string; box: Box };
 
 export type CollectSummary = {
   ok: boolean;
@@ -93,6 +99,7 @@ export type CollectSummary = {
   deletedFrames: number;
   indexedFrames: number;
   staticsUpserted: number;
+  crossSource: CrossSourceSample[];
   errors: string[];
 };
 
@@ -256,8 +263,28 @@ function countShips(ships: readonly ShipRecord[], runStartMs: number) {
   return { aisstreamShips, digitrafficShips, reportedBeforeRunShips, unknownClassShips };
 }
 
+// Compares the two feeds where both report, when both answered this run, and stores the samples.
+async function sampleCrossSource(
+  ports: CollectorPorts,
+  regions: readonly CrossCheckRegion[],
+  window: { startMs: number; endMs: number },
+  feeds: { aisstream: readonly ShipRecord[]; digitraffic: readonly ShipRecord[] },
+  errors: string[],
+): Promise<CrossSourceSample[]> {
+  if (regions.length === 0 || feeds.aisstream.length === 0 || feeds.digitraffic.length === 0) return [];
+  const samples = regions.map((region) =>
+    compareFeeds({ regionId: region.id, box: region.box, ...feeds, windowStartMs: window.startMs, sampledAtMs: window.endMs }),
+  );
+  const stored = await ports.storeCrossSourceSamples(samples);
+  if (!stored.ok) errors.push(stored.reason);
+  return samples;
+}
+
 /** Runs one collection. Never throws; every failure lands in `errors` and `ok` is false. */
-export async function collectShipFrame(ports: CollectorPorts, { listenMs }: { listenMs: number }): Promise<CollectSummary> {
+export async function collectShipFrame(
+  ports: CollectorPorts,
+  { listenMs, crossCheckRegions = [] }: { listenMs: number; crossCheckRegions?: readonly CrossCheckRegion[] },
+): Promise<CollectSummary> {
   const errors: string[] = [];
   const runStartMs = ports.nowMs();
   const accumulator = createAisstreamAccumulator();
@@ -282,6 +309,13 @@ export async function collectShipFrame(ports: CollectorPorts, { listenMs }: { li
   if (!vessels.ok) errors.push(vessels.reason);
   const digitrafficReports = locations.ok ? locations.value : [];
   const digitrafficVessels: DigitrafficVessel[] = vessels.ok ? vessels.value : [];
+  const crossSource = await sampleCrossSource(
+    ports,
+    crossCheckRegions,
+    { startMs: runStartMs, endMs: frameTimeMs },
+    { aisstream: [...accumulator.positions.values()], digitraffic: digitrafficReports },
+    errors,
+  );
   // Nothing new from either feed (both down, or the key refused): keep the stored frames as they are
   // rather than publish a frame that only repeats old positions or shows an empty globe.
   const hasNewReports = accumulator.positions.size > 0 || digitrafficReports.length > 0;
@@ -320,6 +354,7 @@ export async function collectShipFrame(ports: CollectorPorts, { listenMs }: { li
     deletedFrames: 0,
     indexedFrames: 0,
     staticsUpserted: 0,
+    crossSource,
     errors,
   };
 

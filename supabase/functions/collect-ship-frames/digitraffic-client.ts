@@ -1,5 +1,5 @@
-// Fetches Fintraffic Digitraffic AIS data (CC BY 4.0, https://www.digitraffic.fi/en/marine-traffic/),
-// with the same request style as supabase/functions/record-vessel-positions/index.ts.
+// Fetches Fintraffic Digitraffic AIS data (CC BY 4.0, https://www.digitraffic.fi/en/marine-traffic/) for the frame
+// collector and the near-cable recorder (supabase/functions/record-vessel-positions), which both import this file.
 import type { Result } from "../../../src/lib/result.ts";
 
 const LOCATIONS_URL = "https://meri.digitraffic.fi/api/ais/v1/locations";
@@ -34,7 +34,10 @@ export function fetchDigitrafficLocations(sinceMs: number): Promise<Result<unkno
   return fetchDigitrafficJson(`${LOCATIONS_URL}?from=${Math.floor(sinceMs)}`);
 }
 
-/** Metadata (name, type, size) of every vessel Digitraffic knows: about 900 entries, 45 KB gzip on the wire. */
-export function fetchDigitrafficVessels(): Promise<Result<unknown>> {
-  return fetchDigitrafficJson(VESSELS_URL);
+/**
+ * Metadata (name, type, size) of every vessel Digitraffic knows: about 900 entries, 45 KB gzip on the wire. With
+ * `sinceMs`, only the entries updated since then (the near-cable recorder refreshes hourly that way).
+ */
+export function fetchDigitrafficVessels(sinceMs: number | null = null): Promise<Result<unknown>> {
+  return fetchDigitrafficJson(sinceMs === null ? VESSELS_URL : `${VESSELS_URL}?from=${Math.floor(sinceMs)}`);
 }
