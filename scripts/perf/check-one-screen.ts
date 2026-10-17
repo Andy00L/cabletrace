@@ -15,7 +15,7 @@ const VIEWPORTS = [
   { width: 1280, height: 720 },
   { width: 1024, height: 768 },
 ] as const;
-const ROUTES = ["/", "/cases", ...CABLE_CASES.map((cableCase) => `/cases/${cableCase.slug}`)];
+const ROUTES = ["/", "/cases", "/live", ...CABLE_CASES.map((cableCase) => `/cases/${cableCase.slug}`)];
 const STAGE_SHARE_TARGET = 0.65;
 const STAGE_TARGET_VIEWPORT = { width: 1440, height: 900 };
 // One pixel of rounding is not a scrollbar.

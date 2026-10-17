@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { classifyRenderer, readRendererName, type RendererKind } from "@/lib/diagnostics/webgl-renderer";
+import { detectRendererKind, type RendererKind } from "@/lib/diagnostics/webgl-renderer";
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { Result } from "@/lib/result";
 import { clampValue, easeOutCubic } from "@/lib/seabed/math";
@@ -103,16 +103,6 @@ function fitOverviewFov(aspect: number): number {
   const referenceHalfWidth = Math.tan((OVERVIEW_FOV_DEGREES / 2) * RADIANS_PER_DEGREE) * REFERENCE_ASPECT;
   const fittedFov = (2 * Math.atan(referenceHalfWidth / aspect)) / RADIANS_PER_DEGREE;
   return clampValue(fittedFov, OVERVIEW_FOV_DEGREES, MAX_OVERVIEW_FOV_DEGREES);
-}
-
-/** Asks a throwaway context which renderer WebGL runs on; antialiasing is fixed at creation, so this comes first. */
-function detectRendererKind(): RendererKind {
-  const probeCanvas = document.createElement("canvas");
-  const context = probeCanvas.getContext("webgl2");
-  if (!context) return "hardware";
-  const kind = classifyRenderer(readRendererName(context));
-  context.getExtension("WEBGL_lose_context")?.loseContext();
-  return kind;
 }
 
 /**

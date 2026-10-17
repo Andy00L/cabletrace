@@ -207,10 +207,28 @@ Primitives are written in `src/components/ui/` on the tokens above. Behaviour co
 
 ## Site pages
 
-Home, the case list and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark, the sections with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Content sits 24 px from the edges up to 1,440 px wide.
+Home, the case list, the live globe and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark, the sections with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Content sits 24 px from the edges up to 1,440 px wide.
 
 | Page | 1024 px and up | Under 1024 px |
 |---|---|---|
-| Home (board 12a) | One screen. Left, 400 px: the title, what CableTrace does and the live recorder card. Right: the two newest cases as wide cards (sketch beside place, date, title and three facts) sharing the column's height. Between 1,024 and 1,280 px the sketch keeps 16:9 so no cut is cropped. | One column that scrolls; the sketch sits over the text. |
+| Home (board 12a) | One screen. Left, 400 px: the title, what CableTrace does, the live recorder card and a link to the recorded day on the globe. Right: the two newest cases as wide cards (sketch beside place, date, title and three facts) sharing the column's height. Between 1,024 and 1,280 px the sketch keeps 16:9 so no cut is cropped. | One column that scrolls; the sketch sits over the text. |
 | Case list (board 12b) | Four tiles to a row, five from 1,280 px (sketch over place, date, title and one line of facts), so two rows of cases fit one screen. | Two to a row from 640 px, one under it. |
+
+## Live globe
+
+`/live` shows the last 24 hours of ship frames (one every 10 minutes, written by `supabase/functions/collect-ship-frames`) on a 3D globe, in the replay console's shell: the section bar, the stage, the rail floating over its right edge from 1024 px, and the dock. It is a recorded day, never real time, and the stage says so.
+
+- **Globe** (`src/lib/globe/globe-viewer.ts`). Natural Earth land in `land` on `depth-40` water, a 1 px coast in the seabed contour tone, the limb darkened a little so the sphere reads round, and a faint `depth-40` rim against the page. Northern Europe (12 W to 45 E, 48 to 72 N), where the replays and the recorder are, sits on a sharper patch so coasts stay crisp when the camera flies down to a ship.
+- **Ships.** One `ship` dot each, blended on the GPU between the two frames around the moment. A ship missing from one frame fades in or out; a move faster than 50 knots jumps instead of streaking. The selected ship carries an `ink` ring. Ship type reads in the card, never as a color.
+- **Lines.** The cables and pipelines of the replays' seabed areas, in their data colors.
+- **Rail.**
+  - The moment: ships heard, by feed, and the coverage sentence (coastal receivers only; open ocean looks empty because no receiver hears it).
+  - The selected ship: its last report in the frame, then its name and size when a feed sent them.
+  - The anchor-drag watch (`recent_detections`, alerts first): a row selects that ship and flies the camera to it.
+- **Dock.** Play (a day in 72 s), the UTC clock and date, and the day as a scrubber with a tick for each stored frame, so a missing slot shows as a gap.
+- **Data path.** Frames come through `/api/ship-frames`, which the Vercel CDN caches (two days for a sealed frame), so Supabase serves each frame about once.
+- **Test hooks.**
+  - `live-globe` carries `data-state` before the day loads, then `data-ship-count` and `data-frame-count`.
+  - `live-globe-view` carries `data-state` loading, ready or failed.
+  - Others: `live-ship-count`, `live-ship-card` (with `data-mmsi`), `live-detections`, `live-detection-<id>`, `live-play`, `live-scrubber`, `live-clock`, `live-credits`.
 

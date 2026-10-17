@@ -9,4 +9,8 @@ export const WEBGL_COLORS = {
   depth30: "#E0E7E6",
   depth50: "#D4DDDC",
   depthDeep: "#C2CECD",
+  depth40: "#DAE2E1",
+  land: "#FAFAF8",
+  ship: "#A8A8A2",
+  live: "#2E9E5B",
 } as const;

@@ -229,7 +229,7 @@ playback moved the replay clock 55 minutes (the intended pace is 58).
 
 ## One screen
 
-`bun scripts/perf/check-one-screen.ts <baseUrl>` loads `/`, `/cases` and every published case page at 1440 x 900, 1280 x 720 and 1024 x 768 in headless Chromium and checks that the document does not scroll or overflow sideways, and that on a case page the 3D view covers at least 65% of a 1440 x 900 viewport (plan/prompts/ui-console.md, section 6). It also prints the share no panel floats over. Exit codes: 0 every target met, 1 a target missed, 2 the pages could not be measured.
+`bun scripts/perf/check-one-screen.ts <baseUrl>` loads `/`, `/cases`, `/live` and every published case page at 1440 x 900, 1280 x 720 and 1024 x 768 in headless Chromium and checks that the document does not scroll or overflow sideways, and that on a case page the 3D view covers at least 65% of a 1440 x 900 viewport (plan/prompts/ui-console.md, section 6). It also prints the share no panel floats over. Exit codes: 0 every target met, 1 a target missed, 2 the pages could not be measured.
 
 Measured on a local production build (`bun run start`), 2026-10-17:
 
@@ -251,4 +251,19 @@ Compressed JavaScript per page, measured on Vercel (production at 4073ba5 agains
 | `/` | 159.4 KB | 195.2 KB (Next prefetches the replay route's chunks for the case links on screen) | under 200 KB |
 
 The first console build weighed 452.4 KB on the case page and 245.1 KB on home; dropping the `motion` library for CSS transitions brought both under budget.
+
+## Live globe
+
+Measured 2026-10-17 on the Vercel preview of the live globe and a local production build, headless Chromium on SwiftShader (no GPU), with the collector's frames of that morning:
+
+| What | Result |
+|---|---|
+| Globe drawing, from navigation | 0.8 to 1.8 s locally, 1.3 s on the preview |
+| First ships on screen, from navigation | within 0.1 s of the globe: 10,435 ships in the 09:30 UTC frame |
+| A frame on the wire | 65 to 160 KB compressed for 4,220 to 10,435 ships (about 15 bytes a ship) |
+| Frames through the CDN | first request `x-vercel-cache: MISS`, the next `HIT`; Supabase serves each frame about once |
+| JS on `/live` | 382 KB compressed with three.js, which loads only when the globe mounts |
+| JS on `/` and `/cases` | 197.6 KB. Before two fixes: 314 KB, because the land parser imported three.js into the /live route chunk and home prefetched it; then 212 KB from prefetching /live at all. The parser moved to a three-free module, and the Live links no longer prefetch |
+
+Not measured: frame rate on a real GPU and on a phone, and a full day of frames (the collector started at 09:10 UTC on 17 Oct 2026).
 

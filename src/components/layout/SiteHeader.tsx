@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { BrandMark } from "@/components/brand/BrandMark";
 
-type SitePage = "home" | "cases" | "diagnostics";
+type SitePage = "home" | "cases" | "live" | "diagnostics";
 
-const NAV_ITEMS: { page: SitePage; href: string; label: string }[] = [
-  { page: "home", href: "/", label: "Home" },
-  { page: "cases", href: "/cases", label: "Cases" },
+// The live globe's code is not prefetched: it would add about 17 KB to every page that shows the bar, against the
+// 200 KB budget for home (docs/PERFORMANCE.md); it loads when the link is followed.
+const NAV_ITEMS: { page: SitePage; href: string; label: string; shouldPrefetch: boolean }[] = [
+  { page: "home", href: "/", label: "Home", shouldPrefetch: true },
+  { page: "cases", href: "/cases", label: "Cases", shouldPrefetch: true },
+  { page: "live", href: "/live", label: "Live", shouldPrefetch: false },
 ];
 
 /**
@@ -26,6 +29,7 @@ export function SiteHeader({ current }: { current: SitePage }) {
             <Link
               key={item.page}
               href={item.href}
+              prefetch={item.shouldPrefetch ? undefined : false}
               aria-current={isCurrent ? "page" : undefined}
               className={`flex h-10 items-center rounded-full px-3.5 text-label transition-colors duration-140 ease-standard ${isCurrent ? "bg-card text-ink shadow-selected" : "text-muted hover:text-ink"}`}
             >

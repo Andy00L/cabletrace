@@ -33,6 +33,20 @@ export default async function HomePage() {
               <RecorderStatusCard />
             </Suspense>
           </div>
+          <Link
+            href="/live"
+            prefetch={false}
+            className="flex items-center gap-3.5 rounded-row bg-card px-5 py-4 shadow-row transition-shadow duration-140 ease-standard hover:shadow-raised lg:mt-auto"
+            data-testid="live-link"
+          >
+            <span className="flex min-w-0 flex-col">
+              <span className="text-label">A recorded day at sea</span>
+              <span className="text-caption font-normal text-muted">Every ship the feeds heard in the last 24 hours, on a globe</span>
+            </span>
+            <span className="ml-auto text-muted">
+              <Icon name="chevronRight" />
+            </span>
+          </Link>
         </section>
         <section className="flex min-h-0 min-w-0 flex-col gap-3.5" aria-labelledby="case-replays-title">
           <div className="flex items-center justify-between gap-3">
