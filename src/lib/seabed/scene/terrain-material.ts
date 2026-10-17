@@ -31,13 +31,15 @@ uniform vec3 landContourColor;
 uniform vec3 shorelineColor;
 uniform vec3 levelIrradiance;
 
-// 1 on a contour line every stepMetres, 0 between; about 1.2 px wide, gone where lines crowd.
+// 1 on a contour line every stepMetres, 0 between; about 1.2 px wide, gone where lines crowd. A terrace that lies
+// exactly on a contour level (GEBCO areas store whole metres, so a flat at -40 m is a flat at a line) has no line to
+// draw: there the level barely changes across a pixel and rounding would sprinkle the whole terrace with dots.
 float readContour(float elevationMetres, float stepMetres) {
   float level = elevationMetres / stepMetres;
   float levelPerPixel = fwidth(level);
   float distanceToLine = abs(fract(level + 0.5) - 0.5);
   float line = 1.0 - smoothstep(0.0, levelPerPixel * 1.2, distanceToLine);
-  return line * (1.0 - smoothstep(0.12, 0.3, levelPerPixel));
+  return line * (1.0 - smoothstep(0.12, 0.3, levelPerPixel)) * smoothstep(0.002, 0.01, levelPerPixel);
 }
 `;
 
@@ -46,7 +48,7 @@ bool isLand = vElevation >= 0.0;
 float minorLine = readContour(vElevation, ${MINOR_STEP_METRES.toFixed(1)});
 float majorLine = readContour(vElevation, ${MAJOR_STEP_METRES.toFixed(1)});
 diffuseColor.rgb = mix(diffuseColor.rgb, isLand ? landContourColor : seabedContourColor, max(minorLine * 0.2, majorLine * 0.42));
-float shoreline = 1.0 - smoothstep(0.0, fwidth(vElevation) * 1.4, abs(vElevation));
+float shoreline = (1.0 - smoothstep(0.0, fwidth(vElevation) * 1.4, abs(vElevation))) * smoothstep(0.02, 0.1, fwidth(vElevation));
 diffuseColor.rgb = mix(diffuseColor.rgb, shorelineColor, shoreline * 0.6);
 `;
 

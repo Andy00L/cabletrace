@@ -55,6 +55,10 @@ const PLUME_PARTICLE_COUNT = 140;
 const HEADING_SPAN_MS = 2 * 60 * 1000;
 // The light along the healthy cable takes this long to run its length.
 const SIGNAL_LAP_SECONDS = 7;
+// The signal light's size on screen (sprite scale without size attenuation): at the overview's 32 degree field of
+// view, about 5% and 1.4% of the view's height.
+const SIGNAL_GLOW_SCREEN_SCALE = 0.03;
+const SIGNAL_CORE_SCREEN_SCALE = 0.008;
 // Lookdev colour probes: shares along each data tube, how many points of each track tone are probed, and points
 // around each cut marker's ring (radius in km, the ring's own).
 const COLOR_PROBE_SHARES = [0.1, 0.3, 0.5, 0.7, 0.9];
@@ -456,11 +460,14 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     contextLabels.push(label);
   }
 
-  const signalCore = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: SCENE_COLORS.signalCore }));
+  // The signal's light keeps one size on screen whatever the framing: sized in km it filled a short track's close
+  // framing as a white dome. Drawn over the relief so a ridge never cuts it in half.
+  const signalCore = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot, color: SCENE_COLORS.signalCore, sizeAttenuation: false, depthTest: false, depthWrite: false }));
+  signalCore.scale.setScalar(SIGNAL_CORE_SCREEN_SCALE);
   const signalGlow = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: softDot, color: SCENE_COLORS.signalGlow, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }),
+    new THREE.SpriteMaterial({ map: softDot, color: SCENE_COLORS.signalGlow, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: false }),
   );
-  signalGlow.scale.setScalar(1.6);
+  signalGlow.scale.setScalar(SIGNAL_GLOW_SCREEN_SCALE);
   const signal = new THREE.Group();
   signal.add(signalCore, signalGlow);
   signal.visible = signalCurve !== null;
@@ -776,12 +783,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (isPrimaryCut && signalStopCurve) {
         signal.position.copy(signalStopCurve.getPointAt(1));
         const pulse = prefersReducedMotion ? 1 : 0.75 + 0.35 * Math.sin(nowSeconds * 6);
-        signalGlow.scale.setScalar(1.6 * pulse);
+        signalGlow.scale.setScalar(SIGNAL_GLOW_SCREEN_SCALE * pulse);
         signalGlow.material.color.set(SCENE_COLORS.cutGlow);
         signalCore.material.color.set(SCENE_COLORS.cutCore);
       } else {
         signal.position.copy(signalCurve.getPointAt(prefersReducedMotion ? 0.3 : (nowSeconds / SIGNAL_LAP_SECONDS) % 1));
-        signalGlow.scale.setScalar(1.6);
+        signalGlow.scale.setScalar(SIGNAL_GLOW_SCREEN_SCALE);
         signalGlow.material.color.set(SCENE_COLORS.signalGlow);
         signalCore.material.color.set(SCENE_COLORS.signalCore);
       }
