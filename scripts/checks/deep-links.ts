@@ -17,9 +17,11 @@ import { describeError, LAYER_SETTLE_MS, LAYER_TEST_IDS, launchBrowser, openCons
 // src/components/console/ConsoleTopBar.tsx.
 const VIEW_LABELS: Record<SeabedViewName, readonly string[]> = { overview: ["Overview"], top: ["From above", "Above"], vessel: ["Vessel"], closeup: ["At the cut", "Cut"] };
 const MODE_LABELS: Record<ConsoleMode, string> = { replay: "Replay", ship: "Ship", evidence: "Evidence" };
+// Longest wait for the linked card to show (ms): the camera's flight to the object, slowed by the software renderer.
+const CARD_SHOW_TIMEOUT_MS = 8000;
 
 type LinkCase = { name: string; query: string };
-type SeenState = { clock: string; viewLabel: string | null; modeLabel: string | null; openLayers: string[]; layerText: string; query: string };
+type SeenState = { clock: string; viewLabel: string | null; modeLabel: string | null; openLayers: string[]; hiddenLayers: string[]; layerText: string; query: string };
 
 /** The codec context for a case, built the way ReplayConsole builds it. */
 function toUrlContext(cableCase: CableCase, consoleCase: ConsoleCase): ConsoleContext {
@@ -81,7 +83,8 @@ function describeExpectedLayer(layer: ConsoleLayer, consoleCase: ConsoleCase): {
 
 /** Runs in the page: the clock, the pressed view and mode buttons, and every visible layer with its text. */
 function readStateInPage(layerTestIds: string[]) {
-  const isShown = (element: Element) => element.checkVisibility();
+  // A card on a 3D object stays open but hidden (visibility: hidden) while its object is out of the view.
+  const isShown = (element: Element) => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
   const pressedIn = (testId: string) =>
     [...document.querySelectorAll(`[data-testid="${testId}"]`)]
       .filter(isShown)
@@ -92,6 +95,7 @@ function readStateInPage(layerTestIds: string[]) {
     viewLabel: pressedIn("view-switch"),
     modeLabel: pressedIn("mode-switch"),
     openLayers: openLayers.map((layer) => layer.testId),
+    hiddenLayers: layerTestIds.filter((testId) => [...document.querySelectorAll(`[data-testid="${testId}"]`)].some((element) => !isShown(element))),
     layerText: openLayers.map((layer) => layer.text).join("\n").replace(/\s+/g, " "),
     query: window.location.search,
   };
@@ -110,7 +114,9 @@ function compareState(seen: SeenState, expected: ConsoleState, consoleCase: Cons
   if (seen.modeLabel !== MODE_LABELS[expected.mode]) differences.push(`mode "${seen.modeLabel}", expected ${MODE_LABELS[expected.mode]}`);
   const expectedLayer = describeExpectedLayer(expected.layer, consoleCase);
   const expectedLayerIds = expectedLayer ? [expectedLayer.testId] : [];
-  if (seen.openLayers.join(",") !== expectedLayerIds.join(",")) differences.push(`open layers [${seen.openLayers.join(", ")}], expected [${expectedLayerIds.join(", ")}]`);
+  if (expectedLayer && !seen.openLayers.includes(expectedLayer.testId) && seen.hiddenLayers.includes(expectedLayer.testId)) {
+    differences.push(`${expectedLayer.testId} is open but hidden: the object it sits on is out of the view`);
+  } else if (seen.openLayers.join(",") !== expectedLayerIds.join(",")) differences.push(`open layers [${seen.openLayers.join(", ")}], expected [${expectedLayerIds.join(", ")}]`);
   else if (expectedLayer && !seen.layerText.includes(expectedLayer.text)) differences.push(`${expectedLayer.testId} does not show "${expectedLayer.text}"`);
   // The address keeps the state: read back through the codec, it must name the same state.
   const keptState = formatConsoleState(parseConsoleState(new URLSearchParams(seen.query), context), context);
@@ -122,7 +128,18 @@ function compareState(seen: SeenState, expected: ConsoleState, consoleCase: Cons
 async function checkLink(page: Page, baseUrl: string, cableCase: CableCase, link: LinkCase, consoleCase: ConsoleCase, context: ConsoleContext): Promise<string[]> {
   const opened = await openConsole(page, `${baseUrl}/cases/${cableCase.slug}?${link.query}`);
   if (!opened.ok) return [opened.reason];
-  return compareState(await readState(page), parseConsoleState(new URLSearchParams(link.query), context), consoleCase, context);
+  const expected = parseConsoleState(new URLSearchParams(link.query), context);
+  // A card on a 3D object shows once the camera has framed it; give the camera its flight before reading.
+  const expectedLayer = describeExpectedLayer(expected.layer, consoleCase);
+  if (expectedLayer) {
+    await page
+      .getByTestId(expectedLayer.testId)
+      .filter({ visible: true })
+      .first()
+      .waitFor({ timeout: CARD_SHOW_TIMEOUT_MS })
+      .catch(() => undefined);
+  }
+  return compareState(await readState(page), expected, consoleCase, context);
 }
 
 /**

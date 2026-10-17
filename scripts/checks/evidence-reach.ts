@@ -25,7 +25,8 @@ const LAND_CREDIT_MARKERS = [
 // Single-key shortcuts the console listens for (src/components/console/ReplayConsole.tsx).
 const SHORTCUT_KEYS = ["?", "1", "2", "3", "4", "f", "Space", "ArrowLeft", "ArrowRight"] as const;
 // Controls that cannot reveal evidence, left out to keep the search short: they act on the camera, the clipboard
-// or the window only.
+// or the window only. The Watch buttons (data-testid "watch-*", src/components/watchlist/WatchButton.tsx) are left
+// out too: they write to the reader's watchlist or send a signed-out reader to sign in.
 const SKIPPED_CONTROL_NAMES = new Set(["Copy link", "Reset the view", "Full screen", "Leave full screen"]);
 const DEFAULT_WORKERS = 3;
 const ACTION_TIMEOUT_MS = 3000;
@@ -134,7 +135,7 @@ function observeInPage(input: { skippedNames: string[]; previousKeys: string[] |
     if (!(element instanceof HTMLElement) || !isShown(element)) return;
     if (element.closest("[aria-hidden='true'], [inert]") || element.matches(":disabled")) return;
     const name = (element.getAttribute("aria-label") ?? element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
-    if (skipped.has(name)) return;
+    if (skipped.has(name) || element.getAttribute("data-testid")?.startsWith("watch-")) return;
     const baseKey = `${element.tagName.toLowerCase()}|${element.getAttribute("role") ?? ""}|${name}|${element.getAttribute("aria-expanded") ?? ""}|${element.getAttribute("aria-pressed") ?? ""}`;
     const occurrence = counts.get(baseKey) ?? 0;
     counts.set(baseKey, occurrence + 1);
