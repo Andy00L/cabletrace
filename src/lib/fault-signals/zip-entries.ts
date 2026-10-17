@@ -33,10 +33,30 @@ function findEndOfDirectory(view: DataView): number | null {
   return null;
 }
 
-async function inflateRaw(compressed: Uint8Array): Promise<Result<Uint8Array>> {
+/**
+ * Inflates one entry, stopping as soon as the output passes `declaredBytes`: the 50 MB cap trusts the sizes the
+ * directory declares, so an entry that lies about its size must not inflate past it (security re-review, 17 Oct 2026).
+ */
+async function inflateRaw(compressed: Uint8Array, declaredBytes: number): Promise<Result<Uint8Array>> {
   try {
-    const stream = new Blob([compressed.slice()]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-    return { ok: true, value: new Uint8Array(await new Response(stream).arrayBuffer()) };
+    const reader = new Blob([compressed.slice()]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+    const chunks: Uint8Array[] = [];
+    let inflatedBytes = 0;
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      inflatedBytes += chunk.value.length;
+      if (inflatedBytes > declaredBytes) {
+        await reader.cancel();
+        return { ok: false, reason: `a ZIP entry inflates past the ${declaredBytes} bytes it declares` };
+      }
+      chunks.push(chunk.value);
+    }
+    const inflated = new Uint8Array(inflatedBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      inflated.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return { ok: true, value: inflated };
   } catch (error) {
     return { ok: false, reason: `a ZIP entry does not inflate: ${error instanceof Error ? error.message : String(error)}` };
   }
@@ -79,7 +99,7 @@ export async function readZipEntries(bytes: Uint8Array): Promise<Result<ZipEntry
       continue;
     }
     if (method !== METHOD_DEFLATED) return { ok: false, reason: `ZIP entry ${name} uses compression method ${method}` };
-    const inflated = await inflateRaw(compressed);
+    const inflated = await inflateRaw(compressed, uncompressedSize);
     if (!inflated.ok) return inflated;
     if (inflated.value.length !== uncompressedSize) return { ok: false, reason: `ZIP entry ${name} inflates to the wrong size` };
     entries.push({ name, bytes: inflated.value });

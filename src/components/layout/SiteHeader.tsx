@@ -5,7 +5,8 @@ type SitePage = "home" | "cases" | "live" | "watchlist" | "diagnostics";
 
 // The live globe's code is not prefetched: it would add about 17 KB to every page that shows the bar, against the
 // 200 KB budget for home (docs/PERFORMANCE.md); it loads when the link is followed. Nor is the watchlist: it is
-// dynamic (it needs the reader's session) and carries Clerk's script.
+// dynamic (it needs the reader's session) and carries Clerk's script. Nor is the WebGL check: its probes are 8 KB
+// that put home at 203 KB, and few readers open it.
 const NAV_ITEMS: { page: SitePage; href: string; label: string; shouldPrefetch: boolean }[] = [
   { page: "home", href: "/", label: "Home", shouldPrefetch: true },
   { page: "cases", href: "/cases", label: "Cases", shouldPrefetch: true },
@@ -43,6 +44,7 @@ export function SiteHeader({ current }: { current: SitePage }) {
       </nav>
       <Link
         href="/diagnostics"
+        prefetch={false}
         aria-current={current === "diagnostics" ? "page" : undefined}
         className="ml-auto hidden min-h-11 items-center text-small text-muted transition-colors duration-140 ease-standard hover:text-ink aria-[current=page]:text-ink sm:flex"
         data-testid="diagnostics-link"

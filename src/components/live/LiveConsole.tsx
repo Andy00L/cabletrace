@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FeedCheck, type FeedCheckState } from "@/components/live/FeedCheck";
 import { DRAFT_CASE_DAYS, type DraftCasesState } from "@/components/live/LiveDraftCases";
 import { LiveDay } from "@/components/live/LiveDay";
 import type { DetectionsState } from "@/components/live/LiveRail";
 import { fetchRecentDraftCases } from "@/lib/fault-signals/fault-api";
 import { createFrameSource } from "@/lib/globe/frame-source";
+import { fetchFeedCheck } from "@/lib/health/feed-check-report";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { fetchRecentDetections } from "@/lib/globe/live-api";
 import type { WatchedLine } from "@/lib/globe/watched-line";
@@ -13,14 +15,23 @@ import type { FrameIndexEntry } from "@/lib/live/frame-layout";
 
 type IndexState = { kind: "loading" } | { kind: "failed" } | { kind: "empty" } | { kind: "ready"; entries: FrameIndexEntry[] };
 
-/** Finds the recorded day (the frame index) and the detector's results, then shows the day on the globe. */
-export function LiveConsole({ watchedLines, incidents }: { watchedLines: readonly WatchedLine[]; incidents: readonly GlobeIncident[] }) {
+type LiveConsoleProps = {
+  watchedLines: readonly WatchedLine[];
+  incidents: readonly GlobeIncident[];
+  /** Watched region names by id, for the feed check. */
+  regionNames: Readonly<Record<string, string>>;
+};
+
+/** Finds the recorded day (the frame index), the detector's results and the feed check, then shows the day on the globe. */
+export function LiveConsole({ watchedLines, incidents, regionNames }: LiveConsoleProps) {
   const [frameSource] = useState(createFrameSource);
   const [indexState, setIndexState] = useState<IndexState>({ kind: "loading" });
   const [detectionsState, setDetectionsState] = useState<DetectionsState>({ kind: "loading" });
   const [draftCasesState, setDraftCasesState] = useState<DraftCasesState>({ kind: "loading" });
+  const [feedCheckState, setFeedCheckState] = useState<FeedCheckState>({ kind: "loading" });
 
-  // Fetches the frame index and the detections once, from the CDN route and Supabase, services React does not own.
+  // Fetches the frame index, the detections, the drafts and the feed check once, from the CDN route and Supabase,
+  // services React does not own.
   useEffect(() => {
     let isCurrent = true;
     void frameSource.loadIndex().then((outcome) => {
@@ -42,13 +53,18 @@ export function LiveConsole({ watchedLines, incidents }: { watchedLines: readonl
       if (!outcome.ok) console.error(`[LiveConsole] ${outcome.reason}`);
       setDraftCasesState(outcome.ok ? { kind: "loaded", drafts: outcome.value } : { kind: "failed" });
     });
+    void fetchFeedCheck().then((outcome) => {
+      if (!isCurrent) return;
+      if (!outcome.ok) console.error(`[LiveConsole] ${outcome.reason}`);
+      setFeedCheckState(outcome.ok ? { kind: "loaded", regions: outcome.value } : { kind: "failed" });
+    });
     return () => {
       isCurrent = false;
     };
   }, [frameSource]);
 
   if (indexState.kind === "ready") {
-    return <LiveDay entries={indexState.entries} frameSource={frameSource} watchedLines={watchedLines} incidents={incidents} detectionsState={detectionsState} draftCasesState={draftCasesState} />;
+    return <LiveDay entries={indexState.entries} frameSource={frameSource} watchedLines={watchedLines} incidents={incidents} detectionsState={detectionsState} draftCasesState={draftCasesState} feedCheck={<FeedCheck state={feedCheckState} regionNames={regionNames} />} />;
   }
   const message =
     indexState.kind === "loading"
