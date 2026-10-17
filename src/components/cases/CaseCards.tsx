@@ -1,6 +1,6 @@
 import type { CableCase } from "@/lib/cases/case-file";
-import { formatPublishedDate, formatSourceNote } from "@/lib/cases/case-view";
-import { formatUtcClock, formatUtcDate } from "@/lib/replay/format-utc";
+import { describeTrackEvidence, formatPublishedDate, formatSourceNote } from "@/lib/cases/case-view";
+import { formatUtcClock, formatUtcDate, formatUtcDay, isSameUtcDay } from "@/lib/replay/format-utc";
 
 // The static cards of a case page. Server components: they render once from the case file and ship no JavaScript.
 
@@ -33,7 +33,7 @@ export function ShipCard({ cableCase }: { cableCase: CableCase }) {
         ))}
       </dl>
       <p className="text-caption font-normal text-muted">
-        {cableCase.trackEvidence === "reconstruction" ? "Positions here are reconstructed from statements, never recorded. " : "Positions here are recorded AIS reports. "}
+        {describeTrackEvidence(cableCase)}{" "}
         <a href="#placement" className="font-medium text-ink underline decoration-faint underline-offset-4">
           How each one is placed
         </a>
@@ -43,21 +43,46 @@ export function ShipCard({ cableCase }: { cableCase: CableCase }) {
   );
 }
 
-/** Each track position: the place as described, and how the coordinate was derived from it. */
+/**
+ * Each placed position: the place as described, and how the coordinate was derived from it. A recorded AIS
+ * stretch closes the list as one entry, with the rows it keeps from the archive.
+ */
 export function PlacementCard({ cableCase }: { cableCase: CableCase }) {
+  const { recordedTrack } = cableCase;
+  const firstFix = recordedTrack?.fixes[0];
+  const lastFix = recordedTrack?.fixes[recordedTrack.fixes.length - 1];
+  // Over a window longer than one UTC day, every time carries its date.
+  const isMultiDay = !isSameUtcDay(Date.parse(cableCase.window.startUtc), Date.parse(cableCase.window.endUtc));
+  const renderTime = (atUtc: string) => (
+    <span className="flex flex-col">
+      <span className="text-small font-medium tabular-nums">{formatUtcClock(Date.parse(atUtc))}</span>
+      {isMultiDay && <span className="text-micro text-muted tabular-nums">{formatUtcDay(Date.parse(atUtc))}</span>}
+    </span>
+  );
   return (
     <section id="placement" className={`${CARD_CLASS} scroll-mt-6`} data-testid="placement-card">
       <h2 className="text-card-title">How the track is placed</h2>
       <ol className="flex flex-col gap-4">
         {cableCase.track.map((position) => (
           <li key={position.atUtc} className="grid grid-cols-[52px_minmax(0,1fr)] gap-x-3 gap-y-1">
-            <span className="text-small font-medium tabular-nums">{formatUtcClock(Date.parse(position.atUtc))}</span>
+            {renderTime(position.atUtc)}
             <span className="text-small font-medium">{position.place}</span>
             <span className="col-start-2 text-caption font-normal text-muted">
               {position.placement} {formatSourceNote(position.citations)}.
             </span>
           </li>
         ))}
+        {recordedTrack && firstFix && lastFix && (
+          <li className="grid grid-cols-[52px_minmax(0,1fr)] gap-x-3 gap-y-1" data-testid="recorded-track-entry">
+            {renderTime(firstFix.atUtc)}
+            <span className="text-small font-medium">
+              Recorded AIS to {formatUtcClock(Date.parse(lastFix.atUtc))}, {recordedTrack.fixes.length} positions
+            </span>
+            <span className="col-start-2 text-caption font-normal text-muted">
+              {recordedTrack.selection} {formatSourceNote(recordedTrack.citations)}.
+            </span>
+          </li>
+        )}
       </ol>
     </section>
   );

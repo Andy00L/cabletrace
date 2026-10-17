@@ -36,9 +36,9 @@ export const EAGLE_S_2024: CableCase = {
   subtitle: "Gulf of Finland, 25 December 2024",
   summary:
     "The tanker Eagle S crossed the gulf with an anchor on the seabed. Estlink 2 tripped at 12:26 local time, and by 18:43 five cables were broken along a drag trace investigators put at 90 to 100 km. No authority published the ship's positions, so the track below is placed from their written descriptions.",
-  trackEvidence: "reconstruction",
   vessel: {
     name: "Eagle S",
+    kind: "tanker",
     flag: "Cook Islands",
     type: "Oil tanker, 228.6 m",
     imo: "9329760",
@@ -91,6 +91,8 @@ export const EAGLE_S_2024: CableCase = {
       ],
     },
   ],
+  // The Danish archive holds no Eagle S rows for 24 or 25 Dec 2024 (plan/research/historical-ais-coverage.md).
+  recordedTrack: null,
   dragWindow: {
     startUtc: "2024-12-25T10:26:00Z",
     endUtc: "2024-12-25T16:45:00Z",

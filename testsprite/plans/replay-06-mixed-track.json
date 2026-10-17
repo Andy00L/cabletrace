@@ -1,0 +1,37 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Replay a track that is part reconstructed, part recorded AIS",
+  "description": "Validates the Yi Peng 3 case: the ship card says where reconstructed positions end and recorded AIS begins, the event list covers both days, and the recorded stretch is listed with its archive source.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/yi-peng-3-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state ready"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page heading reads \"Yi Peng 3 anchor drag\" and the ship card (data-testid ship-card) contains \"Until 06:01 UTC positions are reconstructed from statements\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the event list (data-testid event-list) heading reads \"17 and 18 November, minute by minute\""
+    },
+    {
+      "type": "action",
+      "description": "In the event list, click the row \"Slows from 7.6 knots to under 1 and holds position for 75 minutes\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock (data-testid replay-clock) reads \"08:24 UTC\" and the line under it reads \"18 Nov 2024, 09:24 in Stockholm\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the placement card entry with data-testid recorded-track-entry contains \"Recorded AIS to 10:59, 114 positions\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the sources list (data-testid source-list) contains a link titled \"AIS data archive, aisdk-2024-11-18.zip\" from the Danish Maritime Authority"
+    }
+  ]
+}

@@ -11,7 +11,8 @@ import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
 import type { SeabedData } from "@/lib/seabed/seabed-data";
 import { createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
 
-// One 3x3 mean pass over the 232 m grid: removes single-cell survey spikes and keeps the real relief.
+// One 3x3 mean pass over the terrain grid (232 m in the Gulf of Finland, about 490 m in the Baltic Proper):
+// removes single-cell survey spikes and keeps the real relief.
 const SMOOTHING_PASSES = 1;
 // Camera moves inside the overview, and the crossfade between overview and close-up (docs/UI_DESIGN_SYSTEM.md, Motion).
 const INTRO_MOVE_MS = 1800;
@@ -21,6 +22,8 @@ const CROSSFADE_OUT_MS = 190;
 // the vertical field of view instead of cropping the track, up to this limit.
 const REFERENCE_ASPECT = 1.6;
 const MAX_OVERVIEW_FOV_DEGREES = 60;
+// Below this view width (CSS px, a phone) land and pipeline names are hidden so the case labels stay readable.
+const COMPACT_LABEL_WIDTH_PX = 640;
 const RADIANS_PER_DEGREE = Math.PI / 180;
 // The follow camera sits off the vessel's starboard quarter (km), close enough to read the deck, and eases toward it.
 const FOLLOW_BEHIND_KM = 1.45;
@@ -262,6 +265,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
     overview.camera.fov = fitOverviewFov(width / height);
+    overview.setCompactLabels(width < COMPACT_LABEL_WIDTH_PX);
     const cameras = closeUp ? [overview.camera, closeUp.camera] : [overview.camera];
     for (const camera of cameras) {
       camera.aspect = width / height;

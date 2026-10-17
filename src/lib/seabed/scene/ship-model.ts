@@ -1,12 +1,14 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { clampValue, smoothStep } from "@/lib/seabed/math";
+import type { ShipKind } from "@/lib/replay/replay-scene";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 
-// A procedural product tanker, built in metres with the waterline at y = 0, bow toward +x and starboard
-// toward +z. Proportions of a common 228 m product tanker (the Eagle S class of ship); the details (pipe rack,
-// manifold cranes, accommodation tiers, funnel, lifeboat) are the ones visible on any such ship, not a
-// survey of one hull. Monochrome on purpose: the scene's only colors are data colors.
+// A procedural cargo ship, built in metres with the waterline at y = 0, bow toward +x and starboard toward
+// +z. One hull with the proportions of a 228 m ship (the Eagle S product tanker; the Yi Peng 3 bulk carrier is
+// 224 by 32 m), and two decks: a tanker's pipe rack, manifold cranes and tank domes, or a bulk carrier's
+// hatch covers. The details are the ones visible on any such ship, not a survey of one hull. Monochrome on
+// purpose: the scene's only colors are data colors.
 
 const HALF_LENGTH = 114;
 const HALF_BEAM = 16.1;
@@ -28,16 +30,19 @@ const BULB_HALF_LENGTH = 7.5;
 // The stem rakes forward 3.4 m from keel to deck.
 const STEM_RAKE = 3.4;
 const ACCOMMODATION_FRONT_X = -HALF_LENGTH + 34;
-
-export const TANKER_LENGTH_METRES = HALF_LENGTH * 2;
-export const TANKER_DRAFT_METRES = DRAFT;
+// Bulk carrier: seven holds between the accommodation and the forecastle (a Panamax layout), each hatch
+// about 15 m square under a cover that overhangs its coaming.
+const HATCH_COUNT = 7;
+const HATCH_LENGTH = 15.2;
+const HATCH_WIDTH = 15;
+const COAMING_HEIGHT = 1.9;
 
 function deckHeightAt(positionX: number): number {
   return DEPTH + FORECASTLE_RISE * smoothStep(0.8 * HALF_LENGTH, 0.86 * HALF_LENGTH, positionX);
 }
 
 /** Half-breadth of the hull at a station and a height above the keel (both metres). */
-export function hullHalfBreadth(positionX: number, heightAboveKeel: number): number {
+function hullHalfBreadth(positionX: number, heightAboveKeel: number): number {
   const heightFraction = clampValue(heightAboveKeel / DEPTH, 0, 1.2);
   let fullness = 1;
   if (positionX > BOW_START) {
@@ -255,9 +260,8 @@ function buildSuperstructure(): { structure: PartList; glass: PartList; funnel: 
   return { structure, glass, funnel, band, lifeboat };
 }
 
-/** Pipe rack and catwalk down the centreline, cargo manifold with hose cranes, tank domes, bow gear. */
-function buildDeckEquipment(): PartList {
-  const parts: PartList = [];
+/** Pipe rack and catwalk down the centreline, cargo manifold with hose cranes, tank domes. */
+function buildTankerDeck(parts: PartList) {
   const deckY = DEPTH - DRAFT;
   const rackStart = ACCOMMODATION_FRONT_X + 2;
   const rackEnd = 0.8 * HALF_LENGTH;
@@ -290,7 +294,27 @@ function buildDeckEquipment(): PartList {
       addCylinder(parts, 0.18, 3.2, [positionX + 3, deckY + 1.6, side * 6.2], "y", 6);
     }
   }
-  // Forecastle: windlasses, mooring bitts and the foremast.
+}
+
+/** Hatch coamings in the equipment tone, and the covers on top of them in the light superstructure tone. */
+function buildBulkCarrierDeck(parts: PartList, covers: PartList) {
+  const deckY = DEPTH - DRAFT;
+  const cargoStart = ACCOMMODATION_FRONT_X + 4;
+  const cargoEnd = 0.8 * HALF_LENGTH - 3;
+  const holdLength = (cargoEnd - cargoStart) / HATCH_COUNT;
+  for (let hold = 0; hold < HATCH_COUNT; hold += 1) {
+    const centerX = cargoStart + holdLength * (hold + 0.5);
+    addBox(parts, [HATCH_LENGTH, COAMING_HEIGHT, HATCH_WIDTH], [centerX, deckY + COAMING_HEIGHT / 2, 0]);
+    // Folding cover panels: a flat lid that overhangs the coaming, crowned along the centreline.
+    addBox(covers, [HATCH_LENGTH + 0.8, 0.7, HATCH_WIDTH + 0.8], [centerX, deckY + COAMING_HEIGHT + 0.35, 0]);
+    addBox(covers, [HATCH_LENGTH + 0.8, 0.3, HATCH_WIDTH * 0.45], [centerX, deckY + COAMING_HEIGHT + 0.85, 0]);
+    // Cover rails run out past both sides of the coaming, where the panels roll when the hatch opens.
+    for (const side of [-1, 1]) addBox(parts, [0.4, 0.5, 5.5], [centerX + side * (HATCH_LENGTH / 2 - 1), deckY + 0.25, 0.5 * side * (HATCH_WIDTH + 5.5)]);
+  }
+}
+
+/** Forecastle gear every ship carries: windlasses, mooring bitts and the foremast. */
+function buildForecastleGear(parts: PartList) {
   const forecastleY = DEPTH + FORECASTLE_RISE - DRAFT;
   for (const side of [-1, 1]) {
     addCylinder(parts, 1.1, 2.2, [HALF_LENGTH - 15, forecastleY + 1.1, side * 4.2], "z", 12);
@@ -299,10 +323,9 @@ function buildDeckEquipment(): PartList {
   }
   addCylinder(parts, 0.4, 10, [HALF_LENGTH - 7, forecastleY + 5, 0], "y", 8);
   addBox(parts, [0.3, 0.3, 3], [HALF_LENGTH - 7, forecastleY + 8.6, 0]);
-  return parts;
 }
 
-export type TankerModel = {
+export type ShipModel = {
   group: THREE.Group;
   /** Stern point at the waterline, in model metres, where the wake starts. */
   sternLocal: THREE.Vector3;
@@ -310,8 +333,8 @@ export type TankerModel = {
   hawseLocal: THREE.Vector3;
 };
 
-/** Builds the tanker once; callers scale the group (the overview draws it larger than life to read). The viewer frees its GPU memory with the rest of the scene. */
-export function buildTankerModel(): TankerModel {
+/** Builds the ship once; callers scale the group (the overview draws it larger than life to read). The viewer frees its GPU memory with the rest of the scene. */
+export function buildShipModel(kind: ShipKind): ShipModel {
   // A little sheen so the hull's curves catch the light instead of reading as a flat silhouette.
   const hullMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.18 });
   const transomMaterial = new THREE.MeshStandardMaterial({ color: SCENE_COLORS.tankerTopside, roughness: 0.42, metalness: 0.18 });
@@ -324,11 +347,15 @@ export function buildTankerModel(): TankerModel {
   const lifeboatMaterial = new THREE.MeshStandardMaterial({ color: SCENE_COLORS.tankerLifeboat, roughness: 0.55 });
 
   const superstructure = buildSuperstructure();
+  const deckEquipment: PartList = [...buildRailings()];
+  if (kind === "tanker") buildTankerDeck(deckEquipment);
+  else buildBulkCarrierDeck(deckEquipment, superstructure.structure);
+  buildForecastleGear(deckEquipment);
   const meshes = [
     new THREE.Mesh(buildHullShell(), hullMaterial),
     new THREE.Mesh(buildTransom(), transomMaterial),
     new THREE.Mesh(buildDeck(), deckMaterial),
-    new THREE.Mesh(mergeParts([...buildDeckEquipment(), ...buildRailings()]), equipmentMaterial),
+    new THREE.Mesh(mergeParts(deckEquipment), equipmentMaterial),
     new THREE.Mesh(mergeParts(superstructure.structure), structureMaterial),
     new THREE.Mesh(mergeParts(superstructure.glass), glassMaterial),
     new THREE.Mesh(mergeParts(superstructure.funnel), funnelMaterial),
