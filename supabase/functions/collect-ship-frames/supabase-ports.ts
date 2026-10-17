@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Result } from "../../../src/lib/result.ts";
 import type { ShipStatic } from "../../../src/lib/live/ais-reports.ts";
+import type { CrossSourceSample } from "../../../src/lib/live/cross-source.ts";
 import { FRAME_BUCKET, FRAMES_FOLDER, parseFrameObjectName, type StoredFrame } from "../../../src/lib/live/frame-layout.ts";
 import type { FrameStore, ShipStaticStore } from "./collect.ts";
 
@@ -57,6 +58,27 @@ export function createFrameStore(database: SupabaseClient): FrameStore {
       }
       return { ok: true, value: null };
     },
+  };
+}
+
+/** Inserts cross-source samples into public.cross_source_samples (20261019500000_regional_recording.sql). */
+export function createCrossSourceStore(database: SupabaseClient): (samples: CrossSourceSample[]) => Promise<Result<null>> {
+  return async (samples) => {
+    const rows = samples.map((sample) => ({
+      region_id: sample.regionId,
+      sampled_at: new Date(sample.sampledAtMs).toISOString(),
+      window_seconds: sample.windowSeconds,
+      aisstream_ships: sample.aisstreamShips,
+      digitraffic_ships: sample.digitrafficShips,
+      shared_ships: sample.sharedShips,
+      aisstream_only_ships: sample.aisstreamOnlyShips,
+      matched_pairs: sample.matchedPairs,
+      median_offset_metres: sample.medianOffsetMetres,
+      p95_offset_metres: sample.p95OffsetMetres,
+      within_tolerance_share: sample.withinToleranceShare,
+    }));
+    const { error } = await database.from("cross_source_samples").insert(rows);
+    return error ? { ok: false, reason: `cross_source_samples insert failed: ${error.message}` } : { ok: true, value: null };
   };
 }
 
