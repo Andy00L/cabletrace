@@ -78,6 +78,8 @@ describe("findCaseProblems", () => {
     const withArchive = (archivedUrl: string) => findCaseProblems({ ...FIXTURE, sources: [{ ...FIXTURE.sources[0], archivedUrl }] });
     expect(withArchive("https://web.archive.org/web/20241226000000/https://example.org")).toEqual([]);
     expect(withArchive("https://web.archive.org/web/20241226093000/http://www.example.org/")).toEqual([]);
+    const escapedSource = { ...FIXTURE.sources[0], url: "https://example.org/data.aspx?id=TNDM%2c114" };
+    expect(findCaseProblems({ ...FIXTURE, sources: [{ ...escapedSource, archivedUrl: "https://web.archive.org/web/20241226093000/https://example.org/data.aspx?id=TNDM%2C114" }] })).toEqual([]);
     expect(withArchive("https://archive.ph/Ab3dE")).toEqual([]);
     expect(withArchive("https://archive.today/2024.12.26-093000/https://example.org")).toEqual([]);
   });

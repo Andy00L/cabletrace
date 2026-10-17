@@ -200,9 +200,15 @@ export function findCaseProblems(cableCase: CableCase): string[] {
   // scripts/cases/check-sources.ts.
   const waybackCapture = /^(\d{4})(\d{2})(\d{2})\d{6}\/(https?:\/\/\S+)$/;
   const archiveTodaySnapshot = /^https:\/\/archive\.(?:today|ph|is|li|vn|fo|md)\/(?:[A-Za-z0-9]{4,10}|(\d{4})\.(\d{2})\.(\d{2})-\d{6}\/(https?:\/\/\S+))$/;
-  // Scheme, a leading "www.", a trailing slash and the fragment (archives never store it) differ between a page and
-  // its capture without changing which page it is.
-  const toComparableUrl = (url: string) => url.replace(/#.*$/, "").replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
+  // Scheme, a leading "www.", a trailing slash, the fragment (archives never store it) and the case of percent-escapes
+  // (%2c is %2C, RFC 3986 section 2.1) differ between a page and its capture without changing which page it is.
+  const toComparableUrl = (url: string) =>
+    url
+      .replace(/#.*$/, "")
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/\/$/, "")
+      .replace(/%[0-9a-f]{2}/gi, (escape) => escape.toUpperCase());
   // `publishedOn` is a local date; a page published just after midnight in Europe or Asia is the previous UTC day.
   const publicationSlackMs = 24 * 60 * 60 * 1000;
   const seenSourceIds = new Set<number>();
