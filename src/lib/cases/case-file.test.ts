@@ -21,7 +21,7 @@ const FIXTURE: CableCase = {
   cuts: [{ cableName: "Line", label: "Line", owner: "Owner", atUtc: "2024-12-25T10:00:00Z", longitude: 25.8, latitude: 59.95, precision: "area", placement: "Fixture", citations: [CITATION] }],
   events: [{ atUtc: "2024-12-25T10:00:00Z", isTimeApproximate: false, kind: "cable-fault", title: "Fault", citations: [CITATION] }],
   aftermath: [{ atUtc: "2025-01-06T00:00:00Z", isTimeApproximate: true, kind: "court", title: "Ruling", citations: [CITATION] }],
-  sources: [{ id: 1, publisher: "Publisher", title: "Title", url: "https://example.org", publishedOn: "2024-12-26" }],
+  sources: [{ id: 1, publisher: "Publisher", title: "Title", url: "https://example.org", publishedOn: "2024-12-26", archivedUrl: null }],
 };
 
 describe("toReplaySceneInput", () => {
@@ -72,5 +72,12 @@ describe("findCaseProblems", () => {
     const problems = findCaseProblems({ ...FIXTURE, recordedTrack: { selection: "Fixture", citations: [CITATION], fixes } });
     expect(problems).toContain("fix 1: earlier than the fix before it");
     expect(problems).toContain("fix 2: 2024-12-25T13:00:00Z is outside the replay window");
+  });
+
+  test("accepts a Wayback capture as the archived copy and rejects any other address", () => {
+    const archived = { ...FIXTURE.sources[0], archivedUrl: "https://web.archive.org/web/20241226000000/https://example.org" };
+    expect(findCaseProblems({ ...FIXTURE, sources: [archived] })).toEqual([]);
+    const elsewhere = { ...FIXTURE.sources[0], archivedUrl: "https://archive.example/abc" };
+    expect(findCaseProblems({ ...FIXTURE, sources: [elsewhere] })).toContain("source 1: archived copy is not a Wayback Machine capture");
   });
 });

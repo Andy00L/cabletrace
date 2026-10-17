@@ -10,7 +10,12 @@ export type CaseSource = {
   url: string;
   /** YYYY-MM-DD. */
   publishedOn: string;
+  /** A Wayback Machine capture of `url` (https://web.archive.org/web/...), or null when none exists. */
+  archivedUrl: string | null;
 };
+
+// Every archived copy is a Wayback Machine capture, so a reader can open the page as it was when cited.
+const WAYBACK_PREFIX = "https://web.archive.org/web/";
 
 export type Citation = {
   sourceId: number;
@@ -184,5 +189,8 @@ export function findCaseProblems(cableCase: CableCase): string[] {
     });
   }
   if (cableCase.dragWindow) checkCitations("drag window", cableCase.dragWindow.citations);
+  cableCase.sources.forEach((source) => {
+    if (source.archivedUrl !== null && !source.archivedUrl.startsWith(WAYBACK_PREFIX)) problems.push(`source ${source.id}: archived copy is not a Wayback Machine capture`);
+  });
   return problems;
 }
