@@ -2,6 +2,9 @@
 # "TestSprite". main requires that check, so a pull request set to auto-merge merges only once its
 # preview passes. The check exists from the moment the pull request opens and stays pending while
 # the preview builds, so it can never read as passed before the tests have run.
+#
+# The TestSprite Free plan allows one environment per workspace, so the gate points the project's
+# default environment at the preview for the run and back at production afterwards.
 name: TestSprite
 
 on:
@@ -12,10 +15,11 @@ permissions:
   contents: read
   deployments: read
 
-# A new push to the same pull request cancels the run for the older commit.
+# One gate run at a time across all pull requests, because each run repoints the same environment.
+# GitHub keeps at most one run waiting and cancels an older waiting run when a newer one arrives.
 concurrency:
-  group: testsprite-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: testsprite-gate
+  cancel-in-progress: false
 
 jobs:
   testsprite:
@@ -27,8 +31,8 @@ jobs:
       TESTSPRITE_PROJECT_ID: 1821635f-b9f9-4187-97ed-855e901ac01f
       # Pinned so a CLI release never changes the gate without a pull request.
       TESTSPRITE_CLI_VERSION: 0.14.0
-      # One TestSprite environment per pull request, removed when the run ends.
-      PREVIEW_ENVIRONMENT: pr-${{ github.event.pull_request.number }}
+      # Where the project's default environment points between gate runs.
+      PRODUCTION_URL: https://cabletrace.vercel.app
     steps:
       - name: Check the API key is available
         env:
@@ -92,24 +96,18 @@ jobs:
           bun add --global "@testsprite/testsprite-cli@$TESTSPRITE_CLI_VERSION"
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
-      - name: Point this pull request's environment at the preview
+      - name: Point the project at the preview
         env:
           TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
           PREVIEW_URL: ${{ steps.preview.outputs.url }}
-        # A re-run of the same pull request finds the environment already there and updates it.
-        run: |
-          if testsprite project env get "$TESTSPRITE_PROJECT_ID" "$PREVIEW_ENVIRONMENT" > /dev/null 2>&1; then
-            testsprite project env update "$TESTSPRITE_PROJECT_ID" "$PREVIEW_ENVIRONMENT" --url "$PREVIEW_URL"
-          else
-            testsprite project env create "$TESTSPRITE_PROJECT_ID" --name "$PREVIEW_ENVIRONMENT" --url "$PREVIEW_URL"
-          fi
+        run: testsprite project update "$TESTSPRITE_PROJECT_ID" --url "$PREVIEW_URL"
 
       - name: Run the suite against the preview
         env:
           TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
         # Under GITHUB_ACTIONS the CLI writes failure annotations and a job summary table itself.
         run: |
-          testsprite test run --all --project "$TESTSPRITE_PROJECT_ID" --env "$PREVIEW_ENVIRONMENT" \
+          testsprite test run --all --project "$TESTSPRITE_PROJECT_ID" \
             --wait --timeout 900 --report junit --report-file testsprite-junit.xml
 
       - name: Keep the JUnit report
@@ -120,10 +118,12 @@ jobs:
           path: testsprite-junit.xml
           if-no-files-found: ignore
 
-      # Cleanup only: it never turns the check red, and it has nothing to remove when the run stopped
-      # before the environment was created.
-      - name: Remove this pull request's environment
+      # Cleanup only: a failed restore is a warning, not a red check, since the tests already ran.
+      # The next gate run repoints the environment anyway.
+      - name: Point the project back at production
         if: always()
         env:
           TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
-        run: testsprite project env delete "$TESTSPRITE_PROJECT_ID" "$PREVIEW_ENVIRONMENT" --confirm || true
+        run: |
+          testsprite project update "$TESTSPRITE_PROJECT_ID" --url "$PRODUCTION_URL" \
+            || echo "::warning title=TestSprite::Could not point the project back at $PRODUCTION_URL."
