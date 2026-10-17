@@ -11,7 +11,8 @@ export type ProgressLine = {
 
 type ProgressLineOptions = {
   points: readonly THREE.Vector3[];
-  color: string;
+  /** One color for the whole line, or one per point (the vessel's track turns alarm where the anchor drags). */
+  color: string | readonly string[];
   widthPx: number;
   opacity?: number;
 };
@@ -26,7 +27,19 @@ export function createProgressLine(options: ProgressLineOptions): ProgressLine {
   const geometry = new LineGeometry();
   geometry.setPositions(points.flatMap((point) => [point.x, point.y, point.z]));
   const segmentCount = Math.max(0, points.length - 1);
-  const material = new LineMaterial({ color, linewidth: widthPx, transparent: opacity < 1, opacity, worldUnits: false });
+  const isPerPoint = typeof color !== "string";
+  if (isPerPoint) {
+    const pointColor = new THREE.Color();
+    geometry.setColors(points.flatMap((_point, index) => pointColor.set(color[index] ?? color[color.length - 1] ?? "#000000").toArray()));
+  }
+  const material = new LineMaterial({
+    color: isPerPoint ? "#FFFFFF" : color,
+    vertexColors: isPerPoint,
+    linewidth: widthPx,
+    transparent: opacity < 1,
+    opacity,
+    worldUnits: false,
+  });
   const line = new Line2(geometry, material);
   geometry.instanceCount = 0;
   return {

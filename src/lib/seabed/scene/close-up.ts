@@ -1,11 +1,12 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { clampValue, createSeededRandom, interpolate, sampleFractalNoise, smoothStep } from "@/lib/seabed/math";
 import type { Caustics } from "@/lib/seabed/scene/caustics";
 import { makeLabel, makeStackedLabel } from "@/lib/seabed/scene/labels";
-import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { buildAnchorModel, buildStudLinkGeometry } from "@/lib/seabed/scene/models";
+import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { createCableArmourTexture, createRayTexture } from "@/lib/seabed/scene/textures";
 import type { ScenePoint } from "@/lib/seabed/terrain";
@@ -25,8 +26,11 @@ const LIGHT_SHAFT_COUNT = 7;
 const ANCHOR_X = 11;
 const ANCHOR_LIFT = 1.35;
 const ANCHOR_ROLL_RADIANS = 0.8;
-// Cable drawn 5 times its real 0.15 m diameter so it reads at this scale.
+// Cable radius in units (0.76 m): drawn thicker than life so it reads at this scale; no source gives the real
+// diameter, so the disclosure says "thicker than life" rather than a factor.
 const CABLE_RADIUS = 0.38;
+// The anchor model is built in metres; this many units per metre draws it at the disclosed scale.
+const ANCHOR_UNITS_PER_METRE = SCENE_SCALES.closeUpAnchorScale / METRES_PER_UNIT;
 // Half of the gap between the two torn ends, in units.
 const CABLE_GAP = 0.9;
 // Fixed seed so the illustrated detail is identical on every load (the Estlink 2 cut date).
@@ -208,6 +212,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
 
   const anchorMaterial = new THREE.MeshStandardMaterial({ color: SCENE_COLORS.closeUpAnchor, roughness: 0.48, metalness: 0.6 });
   const anchor = buildAnchorModel(anchorMaterial);
+  anchor.group.scale.setScalar(ANCHOR_UNITS_PER_METRE);
   anchor.group.rotation.order = "YXZ";
   anchor.group.rotation.y = Math.PI / 2;
   anchor.group.rotation.x = -0.22;
@@ -223,7 +228,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   const linkMatrix = new THREE.Matrix4();
   const linkQuaternion = new THREE.Quaternion();
   const twistQuaternion = new THREE.Quaternion();
-  const linkScale = new THREE.Vector3(1, 1, 1);
+  const linkScale = new THREE.Vector3(ANCHOR_UNITS_PER_METRE, ANCHOR_UNITS_PER_METRE, ANCHOR_UNITS_PER_METRE);
   const upAxis = new THREE.Vector3(0, 1, 0);
   for (let link = 0; link < CHAIN_LINKS; link += 1) {
     const along = link / (CHAIN_LINKS - 1);
@@ -318,7 +323,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   controls.maxPolarAngle = Math.PI * 0.49;
   controls.enabled = false;
   // Home frames the torn ends and the anchor together, from the side the chain does not cross.
-  const homeTarget = new THREE.Vector3(5.5, computeHeight(5.5, 0, true) + 0.8, 0);
+  const homeTarget = new THREE.Vector3(7, computeHeight(7, 0, true) + 0.8, 0);
   const homePosition = new THREE.Vector3(-2, homeTarget.y + 13, 12);
 
   function resetCamera() {

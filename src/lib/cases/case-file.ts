@@ -35,7 +35,10 @@ export type CasePosition = {
   longitude: number;
   latitude: number;
   precision: PositionPrecision;
+  /** The place as the sources describe it. */
   place: string;
+  /** How the coordinate was derived from that description, so a reader can redo it. */
+  placement: string;
   citations: Citation[];
 };
 
@@ -48,10 +51,12 @@ export type CaseCut = {
   longitude: number;
   latitude: number;
   precision: PositionPrecision;
+  /** How the coordinate was derived from the published description. */
+  placement: string;
   citations: Citation[];
 };
 
-export type CaseEventKind = "departure" | "anchor" | "cable-fault" | "authorities" | "investigation";
+export type CaseEventKind = "vessel" | "anchor" | "cable-fault" | "authorities" | "investigation" | "court";
 
 export type CaseEvent = {
   atUtc: string;
@@ -71,11 +76,16 @@ export type CableCase = {
   trackEvidence: TrackEvidence;
   vessel: { name: string; flag: string; type: string; imo: string | null; mmsi: string | null; citations: Citation[] };
   window: { startUtc: string; endUtc: string };
+  /** The local clock shown beside UTC, for the place the incident happened. */
+  localTime: { place: string; timeZone: string };
   seabedArea: string;
   track: CasePosition[];
   dragWindow: { startUtc: string; endUtc: string; citations: Citation[] } | null;
   cuts: [CaseCut, ...CaseCut[]];
+  /** What happened inside the replay window. */
   events: CaseEvent[];
+  /** What followed: recovery, investigation and court steps, after the window. */
+  aftermath: CaseEvent[];
   sources: CaseSource[];
 };
 
@@ -103,7 +113,8 @@ export function toReplaySceneInput(cableCase: CableCase): ReplaySceneInput {
 
 /**
  * Checks a case for the mistakes that would mislead a reader: unparseable times, citations pointing at
- * missing sources, a window that does not contain the events, an unsorted track. Returns every problem found.
+ * missing sources, a window that does not contain the events, aftermath inside the window, an unsorted track.
+ * Returns every problem found.
  */
 export function findCaseProblems(cableCase: CableCase): string[] {
   const problems: string[] = [];
@@ -139,6 +150,11 @@ export function findCaseProblems(cableCase: CableCase): string[] {
   cableCase.events.forEach((event) => {
     checkTime(`event "${event.title}"`, event.atUtc);
     checkCitations(`event "${event.title}"`, event.citations);
+  });
+  cableCase.aftermath.forEach((event) => {
+    if (!Number.isFinite(toMs(event.atUtc))) problems.push(`aftermath "${event.title}": time "${event.atUtc}" does not parse`);
+    else if (toMs(event.atUtc) < windowEnd) problems.push(`aftermath "${event.title}": ${event.atUtc} is not after the replay window`);
+    checkCitations(`aftermath "${event.title}"`, event.citations);
   });
   if (cableCase.dragWindow) checkCitations("drag window", cableCase.dragWindow.citations);
   return problems;

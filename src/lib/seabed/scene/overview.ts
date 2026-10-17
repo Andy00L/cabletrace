@@ -12,6 +12,7 @@ import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
 import { thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
+import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
 import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, type ScenePoint } from "@/lib/seabed/terrain";
 
 // Sediment the overview block stands on, below the deepest sounding (km).
@@ -43,8 +44,8 @@ const SIGNAL_LAP_SECONDS = 7;
 // Model metres to scene kilometres. The vessel is drawn 6 times its real size and the anchor 30 times, so
 // both read across a 55 km block; the disclosure under the view says so.
 const METRES_TO_KM = 1 / 1000;
-const SHIP_DRAWN_SCALE = 6;
-const ANCHOR_DRAWN_SCALE = 30;
+const SHIP_DRAWN_SCALE = SCENE_SCALES.shipDrawnScale;
+const ANCHOR_DRAWN_SCALE = SCENE_SCALES.anchorDrawnScale;
 const SHIP_LABEL_HEIGHT_METRES = 55;
 // The wake follows the last 13 minutes of the path, sampled every 20 s.
 const WAKE_STEP_MS = 20 * 1000;
@@ -395,8 +396,28 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       const end = trackScene[index];
       if (start && end) path.add(new THREE.LineCurve3(new THREE.Vector3(start.x, TRACK_SURFACE_LIFT, start.z), new THREE.Vector3(end.x, TRACK_SURFACE_LIFT, end.z)));
     }
-    pastTrack = createProgressLine({ points: path.getSpacedPoints(TRACK_SEGMENTS), color: WEBGL_COLORS.ink, widthPx: TRACK_WIDTH_PX });
+    // Evenly spaced by distance; each point takes the alarm color while the anchor drags at that moment.
+    const trackColors = Array.from({ length: TRACK_SEGMENTS + 1 }, (_slot, index) => {
+      const atMs = timeAtTrackKm((totalTrackKm * index) / TRACK_SEGMENTS);
+      const isDragging = input.dragWindow !== null && atMs >= input.dragWindow.startMs && atMs <= input.dragWindow.endMs;
+      return isDragging ? WEBGL_COLORS.alarm : WEBGL_COLORS.ink;
+    });
+    pastTrack = createProgressLine({ points: path.getSpacedPoints(TRACK_SEGMENTS), color: trackColors, widthPx: TRACK_WIDTH_PX });
     scene.add(pastTrack.line);
+  }
+
+  /** The moment the vessel had sailed `km` along the track (the inverse of trackKmAt). */
+  function timeAtTrackKm(km: number): number {
+    for (let index = 1; index < trackScene.length; index += 1) {
+      const previous = trackScene[index - 1];
+      const next = trackScene[index];
+      const startKm = cumulativeKm[index - 1] ?? 0;
+      const endKm = cumulativeKm[index] ?? 0;
+      if (!previous || !next || km > endKm) continue;
+      const amount = endKm > startKm ? (km - startKm) / (endKm - startKm) : 0;
+      return previous.atMs + (next.atMs - previous.atMs) * amount;
+    }
+    return trackScene[trackScene.length - 1]?.atMs ?? 0;
   }
 
   function trackKmAt(atMs: number): number {
@@ -433,7 +454,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const tanker = buildTankerModel();
   const ship = tanker.group;
   ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
-  const shipLabel = makeStackedLabel(input.vessel.name, input.vessel.note);
+  const shipLabel = makeStackedLabel(input.vessel.name, input.vessel.note, "above");
   shipLabel.position.set(0, SHIP_LABEL_HEIGHT_METRES, 0);
   ship.add(shipLabel);
   ship.visible = false;
@@ -463,8 +484,10 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     marker.add(ring, beam);
     marker.position.set(point.x, seabedY, point.z);
     marker.visible = false;
-    const nameLabel = makeLabel(cut.label, "cable");
-    const cutLabel = makeLabel(`${cut.label} cut`, "alarm");
+    // Cut labels hang below their point and the vessel's label sits above the vessel, so the two never
+    // cover each other when the vessel passes a cut.
+    const nameLabel = makeLabel(cut.label, "cable", "below");
+    const cutLabel = makeLabel(`${cut.label} cut`, "alarm", "below");
     nameLabel.position.set(point.x, 1.6, point.z);
     cutLabel.position.copy(nameLabel.position);
     scene.add(marker, nameLabel, cutLabel);
@@ -499,7 +522,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const focusRadiusKm = trackScene.length >= 2 ? Math.max(OVERVIEW_MIN_RADIUS_KM, trackBounds.getSize(new THREE.Vector3()).length() / 2 + OVERVIEW_PADDING_KM) : blockRadiusKm;
   const presets: OverviewScene["presets"] = {
     overview: { position: focusTarget.clone().addScaledVector(OVERVIEW_DIRECTION, (focusRadiusKm / halfFovTangent) * 0.9), target: focusTarget.clone() },
-    top: { position: new THREE.Vector3(0.01, topHeightKm, 0.01), target: new THREE.Vector3(0, OVERVIEW_TARGET_Y, 0) },
+    // Straight down with north up: the camera sits a hair to the south so its azimuth is zero.
+    top: { position: new THREE.Vector3(0, topHeightKm, 0.01), target: new THREE.Vector3(0, OVERVIEW_TARGET_Y, 0) },
   };
 
   const trackBefore = sceneAt(primaryCut.atMs - HEADING_SPAN_MS);

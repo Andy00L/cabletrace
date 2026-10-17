@@ -44,7 +44,8 @@ describe("createReplayClock", () => {
     clock.play();
     frames.runFrameAt(0);
     frames.runFrameAt(60_000);
-    expect(clock.getSnapshot().progress).toBeCloseTo(0.01, 5);
+    // One step of at most 0.25 s over a 10 s replay.
+    expect(clock.getSnapshot().progress).toBeCloseTo(0.025, 5);
   });
 
   test("seeks inside 0 to 1 and restarts from the start when played at the end", () => {

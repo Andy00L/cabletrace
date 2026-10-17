@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { CaseRow } from "@/components/cases/CaseRow";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { RecorderStatusCard, RecorderStatusCardPlaceholder } from "@/components/recorder/RecorderStatusCard";
+import { CABLE_CASES } from "@/data/cases";
 
 export default function HomePage() {
   return (
@@ -11,8 +13,18 @@ export default function HomePage() {
         <h1 className="text-title">Ship traffic over Baltic subsea cables</h1>
         <p className="text-body text-muted">
           CableTrace records every ship that passes near a cable or pipeline in the Gulf of Finland, once a minute, so a cable
-          break can be traced back to the ships that were there. Case replays of past incidents come next.
+          break can be traced back to the ships that were there. Past incidents replay in 3D, every position tied to its source.
         </p>
+      </section>
+      <section className="flex flex-col gap-3" aria-labelledby="case-replays-title">
+        <h2 id="case-replays-title" className="text-card-title">
+          Case replays
+        </h2>
+        <div className="flex flex-col gap-2.5">
+          {CABLE_CASES.map((cableCase) => (
+            <CaseRow key={cableCase.slug} cableCase={cableCase} />
+          ))}
+        </div>
       </section>
       <div className="grid items-start gap-4 md:grid-cols-[3fr_2fr]">
         <Suspense fallback={<RecorderStatusCardPlaceholder />}>

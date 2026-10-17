@@ -4,6 +4,8 @@ import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 // (src/app/globals.css) gives them the white halo every map label carries (docs/UI_DESIGN_SYSTEM.md, Data).
 
 export type LabelTone = "muted" | "cable" | "pipeline" | "land" | "alarm" | "ink";
+/** Where the text sits relative to its point: centred on it, or lifted above or dropped below it by 20px. */
+export type LabelPlacement = "center" | "above" | "below";
 
 const TONE_CLASSES: Record<LabelTone, string> = {
   muted: "text-caption text-muted",
@@ -14,17 +16,24 @@ const TONE_CLASSES: Record<LabelTone, string> = {
   ink: "text-caption font-semibold text-ink",
 };
 
-export function makeLabel(text: string, tone: LabelTone): CSS2DObject {
+// The renderer centres the element on its point, so padding on one side moves the text off the point.
+const PLACEMENT_CLASSES: Record<LabelPlacement, string> = {
+  center: "",
+  above: "pb-10",
+  below: "pt-10",
+};
+
+export function makeLabel(text: string, tone: LabelTone, placement: LabelPlacement = "center"): CSS2DObject {
   const element = document.createElement("div");
-  element.className = `map-label-halo whitespace-nowrap ${TONE_CLASSES[tone]}`;
+  element.className = `map-label-halo whitespace-nowrap ${TONE_CLASSES[tone]} ${PLACEMENT_CLASSES[placement]}`;
   element.textContent = text;
   return new CSS2DObject(element);
 }
 
 /** A bold title over a muted note, for objects whose nature must be stated ("illustrated", "reconstructed"). */
-export function makeStackedLabel(title: string, note: string): CSS2DObject {
+export function makeStackedLabel(title: string, note: string, placement: LabelPlacement = "center"): CSS2DObject {
   const element = document.createElement("div");
-  element.className = "map-label-halo flex flex-col items-center whitespace-nowrap";
+  element.className = `map-label-halo flex flex-col items-center whitespace-nowrap ${PLACEMENT_CLASSES[placement]}`;
   const titleElement = document.createElement("strong");
   titleElement.className = "text-caption font-semibold text-ink";
   titleElement.textContent = title;

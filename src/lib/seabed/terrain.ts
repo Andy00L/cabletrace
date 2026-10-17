@@ -1,4 +1,5 @@
 import { clampValue, interpolate } from "@/lib/seabed/math";
+import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
 
 export type SeabedRegion = { west: number; east: number; south: number; north: number };
 export type SeabedGrid = { width: number; height: number };
@@ -12,9 +13,9 @@ export type Projection = {
 };
 
 // Overview: water depth drawn 20 times deeper than it is and land 10 times, so 120 m of relief reads across a
-// 145 km block without turning narrow shoals into needles.
-export const WATER_EXAGGERATION = 20;
-export const LAND_EXAGGERATION = 10;
+// 145 km block without turning narrow shoals into needles (values in scene-scales.ts, shared with the UI).
+export const WATER_EXAGGERATION = SCENE_SCALES.waterExaggeration;
+export const LAND_EXAGGERATION = SCENE_SCALES.landExaggeration;
 // Kilometres per degree (WGS 84 mean values).
 const KM_PER_DEG_LAT = 110.57;
 const KM_PER_DEG_LON_AT_EQUATOR = 111.32;
@@ -58,6 +59,23 @@ export function smoothElevations(elevations: Float32Array, grid: SeabedGrid, pas
     current = next;
   }
   return current;
+}
+
+/**
+ * Keeps every `step`-th row and column, for renderers that cannot afford the full grid. The kept grid must still
+ * reach both edges of the region, so a grid whose size does not divide evenly comes back unchanged.
+ */
+export function downsampleElevations(elevations: Float32Array, grid: SeabedGrid, step: number): { elevations: Float32Array; grid: SeabedGrid } {
+  const isDivisible = step >= 2 && (grid.width - 1) % step === 0 && (grid.height - 1) % step === 0;
+  if (!isDivisible) return { elevations, grid };
+  const reducedGrid = { width: (grid.width - 1) / step + 1, height: (grid.height - 1) / step + 1 };
+  const reduced = new Float32Array(reducedGrid.width * reducedGrid.height);
+  for (let row = 0; row < reducedGrid.height; row += 1) {
+    for (let column = 0; column < reducedGrid.width; column += 1) {
+      reduced[row * reducedGrid.width + column] = elevations[row * step * grid.width + column * step] ?? 0;
+    }
+  }
+  return { elevations: reduced, grid: reducedGrid };
 }
 
 /** Overview scene height (km) of an elevation in metres; water and land use different exaggerations. */

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatUtcClock, formatUtcDate, formatUtcDay } from "./format-utc";
+import { formatUtcClock, formatUtcDate, formatUtcDay, formatUtcLongDay, formatZonedDateTime } from "./format-utc";
 
 describe("UTC formatting", () => {
   test("formats in UTC whatever the machine's zone", () => {
@@ -7,6 +7,13 @@ describe("UTC formatting", () => {
     expect(formatUtcClock(atMs)).toBe("10:26");
     expect(formatUtcDate(atMs)).toBe("25 Dec 2024");
     expect(formatUtcDay(atMs)).toBe("25 Dec");
+    expect(formatUtcLongDay(atMs)).toBe("25 December");
+  });
+
+  test("shows the local date and wall clock, past midnight included", () => {
+    expect(formatZonedDateTime(Date.parse("2024-12-25T16:50:00Z"), "Europe/Helsinki")).toBe("25 Dec 2024, 18:50");
+    expect(formatZonedDateTime(Date.parse("2024-12-25T22:28:00Z"), "Europe/Helsinki")).toBe("26 Dec 2024, 00:28");
+    expect(formatZonedDateTime(Number.NaN, "Europe/Helsinki")).toBe("");
   });
 
   test("uses a 24-hour clock past midnight and a placeholder for a bad time", () => {

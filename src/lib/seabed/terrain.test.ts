@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  downsampleElevations,
   clipToBlock,
   createElevationSampler,
   createProjection,
@@ -28,6 +29,21 @@ describe("smoothElevations", () => {
     const smoothed = smoothElevations(elevations, grid, 1);
     expect(smoothed[4]).toBeCloseTo(-150 / 6, 4);
     expect(smoothed[2]).toBe(5);
+  });
+});
+
+describe("downsampleElevations", () => {
+  test("keeps every second row and column and still reaches both edges", () => {
+    // 5 x 3 grid holding its own index.
+    const elevations = Float32Array.from({ length: 15 }, (_slot, index) => index);
+    const reduced = downsampleElevations(elevations, { width: 5, height: 3 }, 2);
+    expect(reduced.grid).toEqual({ width: 3, height: 2 });
+    expect(Array.from(reduced.elevations)).toEqual([0, 2, 4, 10, 12, 14]);
+  });
+
+  test("returns an uneven grid unchanged", () => {
+    const elevations = new Float32Array(12);
+    expect(downsampleElevations(elevations, { width: 4, height: 3 }, 2).grid).toEqual({ width: 4, height: 3 });
   });
 });
 

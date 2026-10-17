@@ -132,6 +132,7 @@ The 3D seabed is the main replay view (Andy, 2026-10-16): the overview shows the
 
 - Depth: EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM 2024), https://doi.org/10.12770/cf51df64-56f9-4a99-b1aa-36b8d7b743a1 (CC BY 4.0).
 - Land and coast: Natural Earth (public domain), or derived from the depth grid.
+- Land heights and the coastline in the 3D seabed: Copernicus DEM GLO-30, produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA.
 - Pipelines: EMODnet Human Activities.
 - Cables: OpenStreetMap contributors (ODbL). The share-alike question is open before they ship.
 

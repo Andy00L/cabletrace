@@ -1,0 +1,9 @@
+import type { CableCase } from "@/lib/cases/case-file";
+import { EAGLE_S_2024 } from "@/data/cases/eagle-s-2024";
+
+/** Every published case, newest incident first. */
+export const CABLE_CASES: readonly CableCase[] = [EAGLE_S_2024];
+
+export function findCableCase(slug: string): CableCase | null {
+  return CABLE_CASES.find((cableCase) => cableCase.slug === slug) ?? null;
+}

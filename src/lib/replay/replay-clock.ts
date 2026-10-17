@@ -18,8 +18,9 @@ export type ReplayClock = {
   dispose: () => void;
 };
 
-// A frame gap longer than this (a background tab) advances the replay by this much at most.
-const MAX_FRAME_STEP_SECONDS = 0.1;
+// A frame gap longer than this (a background tab) advances the replay by this much at most. It sits above a slow
+// renderer's frame time (about 0.12 s on a CPU renderer), so the replay keeps its pace there.
+const MAX_FRAME_STEP_SECONDS = 0.25;
 
 function clampProgress(progress: number): number {
   return Number.isFinite(progress) ? Math.min(1, Math.max(0, progress)) : 0;
