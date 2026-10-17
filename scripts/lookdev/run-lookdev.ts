@@ -24,9 +24,10 @@ const VIEWPORT = { width: 1440, height: 900 };
 // Baselines are stored at a third of the frame's size (a 3 x 3 box filter, about 50 KB a frame) to keep the
 // repository small; the comparison runs on the frame downscaled the same way. Colour probes run on the full frame.
 const BASELINE_SCALE = 3;
-// A pixel differs when its YIQ difference passes 0.1 (pixelmatch's default), and a frame regresses when more than
-// 0.5% of its pixels differ. Repeated software renders of an unchanged build differ by 0 pixels (docs/LOOKDEV.md).
-const PIXEL_THRESHOLD = 0.1;
+// A pixel differs when its YIQ difference passes 0.03, about 8 levels of luma: pixelmatch's default of 0.1 lets a
+// whole-frame shift of 10 levels (a regraded seabed) pass as a match. A frame regresses when more than 0.5% of its
+// pixels differ. Repeated renders of an unchanged build differ by 0 pixels on both tiers (docs/LOOKDEV.md).
+const PIXEL_THRESHOLD = 0.03;
 const MAX_DIFFERING_SHARE = 0.005;
 // Data colours: within 2 per channel (plan: ambition pass 3.3), searched within 2 px of each probe point.
 const COLOR_TOLERANCE = 2;
