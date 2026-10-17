@@ -4,7 +4,6 @@ import {
   FRAME_RETENTION_MS,
   frameObjectName,
   frameObjectPath,
-  frameObjectUrl,
   parseFrameIndex,
   parseFrameObjectName,
   selectExpiredFrames,
@@ -26,10 +25,6 @@ describe("frame names", () => {
     expect(parseFrameObjectName("20261017T1425Z.bin.gz").ok).toBe(false);
     expect(parseFrameObjectName("20261332T1420Z.bin.gz").ok).toBe(false);
     expect(parseFrameObjectName(".emptyFolderPlaceholder").ok).toBe(false);
-  });
-
-  test("build the public URL the browser fetches", () => {
-    expect(frameObjectUrl("https://abc.supabase.co/", "index.json")).toBe("https://abc.supabase.co/storage/v1/object/public/ship-frames/index.json");
   });
 });
 

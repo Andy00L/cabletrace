@@ -1,6 +1,22 @@
 {
   "nodeModulesDir": "none",
   "imports": {
-    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.118.0"
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.118.0",
+    "@/data/regions": "../../../src/data/regions/index.ts",
+    "@/data/regions/central-baltic": "../../../src/data/regions/central-baltic.ts",
+    "@/data/regions/danish-straits-kattegat": "../../../src/data/regions/danish-straits-kattegat.ts",
+    "@/data/regions/english-channel": "../../../src/data/regions/english-channel.ts",
+    "@/data/regions/gulf-of-finland": "../../../src/data/regions/gulf-of-finland.ts",
+    "@/data/regions/north-sea-shetland": "../../../src/data/regions/north-sea-shetland.ts",
+    "@/data/regions/norway-svalbard": "../../../src/data/regions/norway-svalbard.ts",
+    "@/data/regions/perth": "../../../src/data/regions/perth.ts",
+    "@/data/regions/recording-defaults": "../../../src/data/regions/recording-defaults.ts",
+    "@/data/regions/taiwan-strait": "../../../src/data/regions/taiwan-strait.ts",
+    "@/lib/detection/geodesy": "../../../src/lib/detection/geodesy.ts",
+    "@/lib/live/ais-reports": "../../../src/lib/live/ais-reports.ts",
+    "@/lib/regions/archive-layout": "../../../src/lib/regions/archive-layout.ts",
+    "@/lib/regions/recording": "../../../src/lib/regions/recording.ts",
+    "@/lib/regions/region": "../../../src/lib/regions/region.ts",
+    "@/lib/result": "../../../src/lib/result.ts"
   }
 }
