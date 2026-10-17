@@ -28,6 +28,20 @@ export function decodeElevations(buffer: ArrayBuffer): Float32Array {
   return elevations;
 }
 
+// One 3x3 mean pass removes the EMODnet grids' single-cell survey spikes and keeps the real relief (232 m cells in the
+// Gulf of Finland, about 490 m in the Baltic Proper). GEBCO's 15 arc-second grid stores whole metres, so gentle slopes
+// come out as flat terraces with steps between them (the southern Red Sea, the Taiwan blocks); one pass leaves the
+// steps standing and three round them off. The credit names the grid (scripts/seabed/build-seabed.ts, DEPTH_CREDITS).
+// Drawing only: the depth chart and the readouts sample the grid as published (src/lib/cases/case-series.ts), since
+// three passes move a point on a steep slope by tens of metres (Rubymar's anchorage: 46 m raw, 102 m smoothed).
+const EMODNET_SMOOTHING_PASSES = 1;
+const GEBCO_SMOOTHING_PASSES = 3;
+
+/** How many smoothElevations passes an area's depth grid gets, from its depth credit. */
+export function chooseSmoothingPasses(depthCredit: string): number {
+  return depthCredit.startsWith("GEBCO") ? GEBCO_SMOOTHING_PASSES : EMODNET_SMOOTHING_PASSES;
+}
+
 /** Softens single-cell spikes with a 3x3 mean; land and sea are averaged separately so the coastline stays put. */
 export function smoothElevations(elevations: Float32Array, grid: SeabedGrid, passes: number): Float32Array {
   let current = elevations;

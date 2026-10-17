@@ -10,11 +10,8 @@ import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
 import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneTarget } from "@/lib/seabed/scene/overview";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
 import type { SeabedData } from "@/lib/seabed/seabed-data";
-import { createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
+import { chooseSmoothingPasses, createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
 
-// One 3x3 mean pass over the terrain grid (232 m in the Gulf of Finland, about 490 m in the Baltic Proper):
-// removes single-cell survey spikes and keeps the real relief.
-const SMOOTHING_PASSES = 1;
 // Camera moves inside the overview, and the crossfade between overview and close-up (docs/UI_DESIGN_SYSTEM.md, Motion).
 const INTRO_MOVE_MS = 1800;
 const VIEW_MOVE_MS = 900;
@@ -171,7 +168,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
 
   const grid = downsampleElevations(data.elevations, data.features.grid, tier.terrainStep);
   const features = { ...data.features, grid: grid.grid };
-  const elevations = smoothElevations(grid.elevations, grid.grid, SMOOTHING_PASSES);
+  const elevations = smoothElevations(grid.elevations, grid.grid, chooseSmoothingPasses(data.features.sources.depth));
   const projection = createProjection(features.region);
   const sampleElevationMetres = createElevationSampler(elevations, grid.grid, projection);
   const softDot = createSoftDotTexture();

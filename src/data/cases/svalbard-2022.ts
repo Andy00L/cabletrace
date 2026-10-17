@@ -57,7 +57,7 @@ export const SVALBARD_2022: CableCase = {
     "At 04:10 Norwegian time one of the two Svalbard cables lost its connection, and Space Norway placed a power-feed fault 130 to 230 km from Longyearbyen, where the cable drops from about 300 m to 2,700 m. The Russian trawler Melkart-5, whose recorded AIS track replays here, was fishing back and forth across both cables that night. Police leaned toward human activity, then closed the case as no criminal offence: no one was charged, and they found nothing pointing to a deliberate act.",
   vessel: {
     name: "Melkart-5",
-    kind: "general-cargo",
+    kind: "fishing",
     flag: "Russia",
     type: "Fishing vessel (trawler), 53.2 m",
     lengthMetres: 53.2,

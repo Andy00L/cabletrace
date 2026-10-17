@@ -47,8 +47,9 @@ one.
   Newnew Polar Bear (2023). In the Taiwan Strait: Hai Hong Gong 66 (2026), Minlianyu 60138 (2025) and Hong Tai 58 (2025). Rubymar
   in the Red Sea (2024) and the Svalbard cable fault (2022). Each sits on a seabed block built from EMODnet depth
   (Europe) or the GEBCO 2026 grid (Taiwan, Red Sea) and Copernicus land heights, drawn at an exaggeration that fits its
-  depth: 20 times in the Baltic, 2 times off Svalbard. The anchor drag turns the track red; each cut breaks its cable
-  at the time the sources give.
+  depth: 20 times in the Baltic, 2 times off Svalbard. Each ship is built to its real length from a hull generator for
+  its type (nine kinds, from trawler to tanker), its anchor hangs on a catenary chain and drags behind it, and the cut
+  breaks its cable at the time the sources give.
 - **Says how every position is known.** A placed position carries a `placement` text (`src/data/cases/*.ts`): "the
   point 130 km along the mapped route from its Ventspils end, the distance LVRTC gives". Recorded AIS fixes (Svalbard:
   235 of the trawler's own reports from the Norwegian Coastal Administration; Yi Peng 3: 114 from the Danish Maritime
@@ -189,6 +190,11 @@ Evidence:
   watchlist read without a session is refused.
 - **Every page fits one screen.** `bun scripts/perf/check-one-screen.ts` exits 0 for home, the case list, `/live`
   and all ten cases at 1440 x 900, 1280 x 720 and 1024 x 768; the 3D view covers 65.4% of a 1440 x 900 screen.
+- **The 3D look is checked frame by frame.** `bun scripts/lookdev/run-lookdev.ts` renders 48 fixed frames on the
+  software and GPU tiers, compares them with baselines and samples the data colours: on the GPU tier 102 of 104 cable
+  probes and all 170 alarm probes land within 2 levels of their token (0 of 457 cable probes did before). When the
+  GEBCO seabeds were smoothed and the two trawlers got fishing hulls, the software tier failed exactly the 9 frames
+  those changes moved and passed the other 15 (`docs/LOOKDEV.md`).
 
 ## 🧪 Reproduce it
 
@@ -252,7 +258,9 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
   happens, labeled "illustrated"; the Measured switch shows only the surveyed seabed. Depth and land are drawn larger
   than life by a factor each area picks from its relief (20 and 10 in the Baltic, 10 and 3 in the Red Sea, 2 and 2
   off Svalbard), ships too, and the scale note under the view states that area's numbers
-  (`src/lib/seabed/scene-scales.ts`). Every ship uses one 228 m hull; each case states its ship's real length.
+  (`src/lib/seabed/scene-scales.ts`). The overview draws ships 6 times their size, so an anchor at its true layback,
+  about 300 m behind the hawse, can look as if it lies under the hull. The GEBCO seabeds are smoothed for drawing
+  only; the depth chart reads the grid as published.
 - **`/live` is a recorded day, not real time.** Frames are 10 minutes apart and a ship moves in a straight line between
   two reports. aisstream.io is terrestrial AIS: the globe hatches the sea no receiver heard, and the page says so.
   aisstream publishes no terms, so its data is kept 2 days and credited.
@@ -261,12 +269,14 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
   false-alert rate is untested; one 6-hour window gave 20 watch-level rows in the English Channel and North Sea. It
   cannot alert while a ship drags at its normal speed: on Yi Peng 3 the first live-schedule alert came 98 minutes after
   the drag ended, once the ship sped up. A ship with no reported dimensions falls back to a 120 to 300 m size band.
+  The anchor model (IACS UR A1) gives Eagle S a 9.3 t anchor where the police statements say about 11 t.
 - **Fault signals are thin.** NGA's warning feed has published nothing newer than 10 May 2024. IODA publishes no terms
   for redisplay, so a signal shows only its title and a link. ENTSO-E power-link outages wait for an API token.
 - **Accounts run on Clerk's development instance.** A production instance needs a custom domain; the development tier
   allows 100 users.
-- **Not built:** the WebGPU renderer tier, and Norway's own AIS feed (BarentsWatch), so Norway and Svalbard are heard
-  through aisstream only.
+- **Not built:** the WebGPU renderer tier (the only WebGPU adapter on the build machine was a software one, so there
+  was nothing to judge it on), and Norway's own AIS feed (BarentsWatch), so Norway and Svalbard are heard through
+  aisstream only. The lookdev baselines are candidates until the look is approved.
 
 ## 🏆 TestSprite
 
@@ -286,6 +296,7 @@ reconstructed track, and the case list. Screens expose stable `data-testid` and 
 | Cables, seabed blocks and globe | OpenStreetMap contributors; EE-S1 traced off a Yle map (yle.fi/a/74-20056160); TP3 placed from Taiwan's Ministry of Digital Affairs and Coast Guard statements | ODbL 1.0; the derived files (`public/globe/cables.json`, the lines in `public/seabed/*-seabed.json`) are offered under ODbL 1.0 |
 | Pipelines                    | EMODnet Human Activities                                                                | CC BY 4.0                     |
 | Globe land                   | Natural Earth 1:50m                                                                     | public domain                 |
+| Sand ripple detail (GPU tier) | Poly Haven, Aerial Beach 01 by Rob Tuytel                                              | CC0                           |
 | Recorded AIS, Yi Peng 3 and Vezhen | Danish Maritime Authority AIS archive (aisdata.ais.dk)                            | DMA terms for the archive     |
 | Recorded AIS, Svalbard       | Norwegian Coastal Administration, Kystdatahuset                                         | NLOD                          |
 | Live Gulf of Finland positions | Fintraffic, digitraffic.fi                                                            | CC BY 4.0                     |

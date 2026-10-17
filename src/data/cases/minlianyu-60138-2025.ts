@@ -44,7 +44,7 @@ export const MINLIANYU_60138_2025: CableCase = {
     "The Chinese bottom trawler Minlianyu 60138 trawled across the Taiwan-Matsu No. 2 cable north-east of Dongyin, and its net caught an old anchor lying on the seabed that pulled the cable until two of its fibres broke at 21:52 local time. A court found the master negligent and sentenced him to three months, convertible to a fine; he paid Chunghwa Telecom NT$250,000 and was deported. The court publishes the fault's coordinates; the trawler's positions are placed from its descriptions.",
   vessel: {
     name: "Minlianyu 60138",
-    kind: "general-cargo",
+    kind: "fishing",
     flag: "China",
     type: "Bottom trawler, under 45 m",
     // No published length. 45 m is the upper bound the court gives through the master's licence (vessels under
