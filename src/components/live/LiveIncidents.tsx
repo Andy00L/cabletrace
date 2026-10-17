@@ -20,13 +20,15 @@ function BreakMarker() {
 
 type IncidentCardProps = {
   incident: GlobeIncident;
-  /** Flies down to the cut and on into the case's replay; absent while that is not possible. */
-  onDive?: () => void;
+  /** Flies down to the cut and on into the case's replay. */
+  onDive: () => void;
+  /** True from the click until the case opens. */
+  isDiving: boolean;
   onClose: () => void;
 };
 
 /** The selected incident: the ship, the cut and when, and the way into its case. */
-export function IncidentCard({ incident, onDive, onClose }: IncidentCardProps) {
+export function IncidentCard({ incident, onDive, isDiving, onClose }: IncidentCardProps) {
   return (
     <section className={CARD_CLASS} aria-label="Selected incident" data-testid="live-incident-card" data-slug={incident.slug}>
       <div className="flex items-start gap-3">
@@ -52,17 +54,17 @@ export function IncidentCard({ incident, onDive, onClose }: IncidentCardProps) {
         </dd>
       </dl>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        {onDive && (
-          <button
-            type="button"
-            onClick={onDive}
-            className="flex h-10 items-center gap-1.5 rounded-full bg-soft px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]"
-            data-testid="live-incident-dive"
-          >
-            <Icon name="follow" />
-            Fly to the seabed
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onDive}
+          disabled={isDiving}
+          className="flex h-10 items-center gap-1.5 rounded-full bg-soft px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97] disabled:text-muted"
+          data-testid="live-incident-dive"
+          data-state={isDiving ? "diving" : "idle"}
+        >
+          <Icon name="follow" />
+          {isDiving ? "Flying to the seabed" : "Fly to the seabed"}
+        </button>
         <Link
           href={incident.caseHref}
           className="flex min-h-10 items-center text-label text-ink underline decoration-faint underline-offset-4 transition-colors duration-140 ease-standard hover:decoration-ink"

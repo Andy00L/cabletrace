@@ -432,10 +432,10 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     const share = (low + high) / 2;
     return 3 * (1 - share) * share ** 2 + share ** 3;
   };
-  function startCameraMove(destination: THREE.Vector3, durationMs: number, ease: (amount: number) => number): Promise<void> {
+  function startCameraMove(destination: THREE.Vector3, durationMs: number, ease: (amount: number) => number, isJump: boolean): Promise<void> {
     stopCameraMove();
     markDirty();
-    if (isCalm) {
+    if (isJump) {
       camera.position.copy(destination);
       controls.update();
       return Promise.resolve();
@@ -707,7 +707,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         if (shipIndex === -1) return false;
         const shipVector = new THREE.Vector3();
         readShip(shipIndex, shipVector);
-        void startCameraMove(shipVector.normalize().multiplyScalar(FOCUS_DISTANCE), FOCUS_MOVE_MS, easeOutCubic);
+        void startCameraMove(shipVector.normalize().multiplyScalar(FOCUS_DISTANCE), FOCUS_MOVE_MS, easeOutCubic, isCalm);
         return true;
       },
       setRightInset(insetPx) {
@@ -725,7 +725,9 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         placeMarkers();
       },
       flyTo({ longitude, latitude, distance = MIN_DISTANCE, durationMs = DIVE_MOVE_MS }) {
-        return startCameraMove(cameraPositionFor(longitude, latitude, Math.max(MIN_DISTANCE, distance)), durationMs, easeStandard);
+        // The dive flies on a software renderer too (it is one deliberate move, drawn as fast as the renderer can);
+        // only reduced motion turns it into a jump.
+        return startCameraMove(cameraPositionFor(longitude, latitude, Math.max(MIN_DISTANCE, distance)), durationMs, easeStandard, prefersReducedMotion);
       },
       resetView() {
         stopCameraMove();

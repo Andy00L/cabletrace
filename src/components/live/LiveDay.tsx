@@ -1,6 +1,7 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
@@ -37,6 +38,76 @@ const DIGITRAFFIC_FLAG = 0x80;
 const DAY_CHECK_CONCURRENCY = 4;
 // A line's passages are summed up at most this often while frames arrive (ms).
 const PASSAGE_PUBLISH_INTERVAL_MS = 250;
+// The crossfade from the globe into the case console (docs/UI_DESIGN_SYSTEM.md, Motion; sourceRef src/app/globals.css):
+// the console enters over duration-hero with ease-enter and an 8 px rise, the globe leaves 20% faster with ease-exit
+// while it keeps pushing in a little, as if the camera went on down.
+const DIVE_ENTER_MS = 480;
+const DIVE_EXIT_MS = 384;
+const EASE_ENTER = "cubic-bezier(0.16, 1, 0.3, 1)";
+const EASE_EXIT = "cubic-bezier(0.4, 0, 1, 1)";
+const DIVE_RISE_PX = 8;
+const DIVE_PUSH_SCALE = 1.04;
+// The globe's snapshot takes this name for the crossfade, so it can leave on its own while the page around it,
+// the same section bar on both pages, crossfades in place.
+const DIVE_SNAPSHOT_NAME = "live-globe";
+// The page holds its last frame while the case console renders; past this the crossfade starts on whatever is there
+// (Chromium gives up on a view transition whose update takes much longer).
+const DIVE_RENDER_WAIT_MS = 2500;
+const DIVE_POLL_MS = 40;
+
+/** Resolves once the case console at `path` is in the document and visible, or after DIVE_RENDER_WAIT_MS. */
+function waitForCaseConsole(path: string): Promise<void> {
+  const startedAt = performance.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      // Pages left behind stay mounted but hidden (cacheComponents), so only a visible console counts.
+      const isShown = [...document.querySelectorAll('[data-testid="replay-console"]')].some((element) => element.checkVisibility());
+      if ((window.location.pathname === path && isShown) || performance.now() - startedAt > DIVE_RENDER_WAIT_MS) resolve();
+      else window.setTimeout(check, DIVE_POLL_MS);
+    };
+    check();
+  });
+}
+
+/**
+ * Opens a case behind a same-document view transition: the globe's last frame pushes in and fades while the case
+ * console rises in under it, so there is no hard cut. Without the View Transitions API the case simply opens.
+ * Resolves when the crossfade is over.
+ */
+function crossfadeIntoCase(navigate: () => void, path: string, globeElement: HTMLElement | null): Promise<void> {
+  if (typeof document.startViewTransition !== "function") {
+    navigate();
+    return Promise.resolve();
+  }
+  const isReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (globeElement) globeElement.style.viewTransitionName = DIVE_SNAPSHOT_NAME;
+  const transition = document.startViewTransition(async () => {
+    if (globeElement) globeElement.style.viewTransitionName = "";
+    navigate();
+    await waitForCaseConsole(path);
+  });
+  transition.ready
+    .then(() => {
+      document.documentElement.animate(
+        [
+          { opacity: 1, transform: "scale(1)" },
+          { opacity: 0, transform: isReduced ? "scale(1)" : `scale(${DIVE_PUSH_SCALE})` },
+        ],
+        { duration: DIVE_EXIT_MS, easing: EASE_EXIT, fill: "forwards", pseudoElement: `::view-transition-old(${DIVE_SNAPSHOT_NAME})` },
+      );
+      document.documentElement.animate(
+        [
+          { opacity: 0, transform: isReduced ? "none" : `translateY(${DIVE_RISE_PX}px)` },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: DIVE_ENTER_MS, easing: EASE_ENTER, fill: "both", pseudoElement: "::view-transition-new(root)" },
+      );
+    })
+    .catch((error: unknown) => console.error(`[crossfadeIntoCase] ${error instanceof Error ? error.message : String(error)}`));
+  // A skipped transition rejects `ready` (logged above); the navigation itself still happened.
+  return transition.finished.catch(() => undefined);
+}
+
 // A row of the incident list flies the camera this far from the centre: about 1,900 km up, the sea around the cut in view.
 const INCIDENT_FOCUS_DISTANCE = 1.3;
 const CREDITS = [
@@ -85,6 +156,10 @@ type LiveDayProps = {
  * as it moves, the frames on either side of the moment are loaded, paired ship by ship and blended on the GPU.
  */
 export function LiveDay({ entries, frameSource, watchedLines, incidents, detectionsState }: LiveDayProps) {
+  const router = useRouter();
+  const [divingSlug, setDivingSlug] = useState<string | null>(null);
+  // The globe's box, which takes a view-transition name for the dive's crossfade.
+  const globeHostRef = useRef<HTMLDivElement>(null);
   const { startMs, endMs } = daySpan(entries);
   const spanMs = endMs - startMs;
   const [clock] = useState(() => {
@@ -381,6 +456,24 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
     [incidents, selectIncident],
   );
 
+  /**
+   * From orbit to the seabed: flies the camera down onto the incident's cut, then opens its case on the cut's minute;
+   * the navigation crossfades the globe's last frame into the case console (crossfadeIntoCase).
+   */
+  const diveIntoIncident = useCallback(
+    async (incident: GlobeIncident) => {
+      setDivingSlug(incident.slug);
+      clock.pause();
+      // The case page downloads while the camera flies, so the crossfade starts as soon as it lands.
+      router.prefetch(incident.caseHref);
+      await viewerRef.current?.flyTo({ longitude: incident.longitude, latitude: incident.latitude });
+      await crossfadeIntoCase(() => router.push(incident.caseHref), new URL(incident.caseHref, window.location.href).pathname, globeHostRef.current);
+      // Back from the case restores this page as it was left, with the button ready again.
+      setDivingSlug(null);
+    },
+    [clock, router],
+  );
+
   const handlePick = useCallback(
     (pick: GlobePick) => {
       switch (pick.kind) {
@@ -424,7 +517,14 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
   const railCards = (
     <>
       <MomentCard minuteLabel={minuteLabel} shipCount={moment?.frame.shipCount ?? null} digitrafficCount={moment?.digitrafficCount ?? 0} />
-      {selectedIncident && <IncidentCard incident={selectedIncident} onClose={() => selectIncident(null)} />}
+      {selectedIncident && (
+        <IncidentCard
+          incident={selectedIncident}
+          isDiving={divingSlug === selectedIncident.slug}
+          onDive={() => void diveIntoIncident(selectedIncident)}
+          onClose={() => selectIncident(null)}
+        />
+      )}
       {selectedMmsi !== null && (
         <ShipCard
           mmsi={selectedMmsi}
@@ -460,7 +560,9 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
         data-frame-count={entries.length}
         data-ship-count={moment?.frame.shipCount ?? 0}
       >
-        <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onPick={handlePick} onLinesChange={handleLinesChange} />
+        <div ref={globeHostRef} className="absolute inset-0">
+          <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onPick={handlePick} onLinesChange={handleLinesChange} />
+        </div>
         <div className="pointer-events-none absolute top-4 left-4 z-(--layer-stage-controls) flex max-w-[calc(100%-32px)] flex-col items-start gap-2">
           <p className="rounded-full bg-card px-4 py-2 text-label shadow-row">A recorded day of ships, not real time</p>
           {frameProblem && (
