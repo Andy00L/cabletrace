@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CABLE_CASES } from "@/data/cases";
 import { REGIONS } from "@/data/regions";
 import { LIVE_SOURCES } from "@/data/regions/sources";
 import { effectiveRetentionHours, findRegion, findRegionAt, findRegistryProblems, selectRegionsBySource, toAisstreamBoundingBoxes, type Region } from "@/lib/regions/region";
@@ -19,6 +20,15 @@ describe("the registry", () => {
 
   test("every region gives a measured reason", () => {
     expect(REGIONS.filter((region) => !/\d/u.test(region.reason)).map((region) => region.id)).toEqual([]);
+  });
+
+  test("links each incident CableTrace replays to a published case on one of the region's seabed areas", () => {
+    const linkedCases = REGIONS.flatMap((region) => region.incidents.flatMap((incident) => (incident.caseSlug ? [{ region, slug: incident.caseSlug }] : [])));
+    const misplaced = linkedCases.filter(({ region, slug }) => {
+      const cableCase = CABLE_CASES.find((oneCase) => oneCase.slug === slug);
+      return !cableCase || (region.seabedAreaIds.length > 0 && !region.seabedAreaIds.includes(cableCase.seabedArea));
+    });
+    expect(misplaced.map(({ region, slug }) => `${region.id}: ${slug}`)).toEqual([]);
   });
 });
 

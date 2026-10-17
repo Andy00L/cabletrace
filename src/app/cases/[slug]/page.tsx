@@ -9,7 +9,8 @@ import { toReplaySceneInput } from "@/lib/cases/case-file";
 import { loadCaseFileExport } from "@/lib/cases/load-case-file";
 import { loadCaseSeries } from "@/lib/cases/load-case-series";
 import { loadCaseSketch } from "@/lib/cases/load-case-sketch";
-import { loadSeabedSources } from "@/lib/seabed/load-seabed-sources";
+import { loadSeabedSummary } from "@/lib/seabed/load-seabed-summary";
+import { chooseSceneExaggeration } from "@/lib/seabed/scene-scales";
 
 // Every case is curated data in the repository, so each page is prerendered at build time.
 export function generateStaticParams() {
@@ -32,10 +33,10 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
   if (!cableCase) notFound();
 
   const input = toReplaySceneInput(cableCase);
-  const [series, sketches, seabedSources, caseFile] = await Promise.all([
+  const [series, sketches, seabedSummary, caseFile] = await Promise.all([
     loadCaseSeries(input),
     Promise.all(CABLE_CASES.map((oneCase) => loadCaseSketch(toReplaySceneInput(oneCase)))),
-    loadSeabedSources(input.seabedArea),
+    loadSeabedSummary(input.seabedArea),
     loadCaseFileExport(cableCase.slug),
   ]);
   const switcherCases = CABLE_CASES.map((oneCase, index) => ({
@@ -54,7 +55,16 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
           consoleCase={toConsoleCase(cableCase)}
           series={series}
           switcherCases={switcherCases}
-          sceneSources={seabedSources ? { depth: seabedSources.depth, cables: seabedSources.cables, pipelines: seabedSources.pipelines } : null}
+          sceneSummary={
+            seabedSummary
+              ? {
+                  depth: seabedSummary.sources.depth,
+                  cables: seabedSummary.sources.cables,
+                  pipelines: seabedSummary.sources.pipelines,
+                  exaggeration: chooseSceneExaggeration(seabedSummary.elevationRange),
+                }
+              : null
+          }
           caseFileSha256={caseFile?.contentSha256 ?? null}
         />
       </Suspense>

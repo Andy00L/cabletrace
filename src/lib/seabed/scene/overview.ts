@@ -12,7 +12,7 @@ import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
 import { FULL_WIDTH_DISTANCE_KM, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
-import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
+import { chooseSceneExaggeration, SCENE_SCALES, type SceneExaggeration } from "@/lib/seabed/scene-scales";
 import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, type ScenePoint } from "@/lib/seabed/terrain";
 
 // Sediment the overview block stands on, below the deepest sounding (km).
@@ -134,7 +134,7 @@ function sampleRamp(ramp: { value: number; color: THREE.Color }[], value: number
   return last ? target.copy(last.color) : target;
 }
 
-function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection): THREE.Mesh {
+function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection, exaggeration: SceneExaggeration): THREE.Mesh {
   const geometry = new THREE.PlaneGeometry(projection.widthKm, projection.depthKm, features.grid.width - 1, features.grid.height - 1);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute("position");
@@ -144,7 +144,7 @@ function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, pr
   const vertexColor = new THREE.Color();
   for (let index = 0; index < positions.count; index += 1) {
     const elevation = elevations[index] ?? 0;
-    positions.setY(index, elevationToSceneY(elevation));
+    positions.setY(index, elevationToSceneY(elevation, exaggeration));
     if (elevation < 0) sampleRamp(seabedRamp, -elevation, vertexColor);
     else sampleRamp(landRamp, elevation, vertexColor);
     vertexColor.toArray(colors, index * 3);
@@ -282,9 +282,11 @@ function unitDirection(from: ScenePoint, to: ScenePoint, fallback: ScenePoint): 
 
 export function buildOverview(options: OverviewOptions): OverviewScene {
   const { renderer, features, elevations, projection, sampleElevationMetres, input, softDot, prefersReducedMotion } = options;
-  const sampleSeabedHeight = (sceneX: number, sceneZ: number) => elevationToSceneY(sampleElevationMetres(sceneX, sceneZ));
+  // Deep areas are drawn less exaggerated than the shallow Baltic (scene-scales.ts); the page states the same factors.
+  const exaggeration = chooseSceneExaggeration(features.elevationRange);
+  const sampleSeabedHeight = (sceneX: number, sceneZ: number) => elevationToSceneY(sampleElevationMetres(sceneX, sceneZ), exaggeration);
   const deepestElevation = elevations.reduce((deepest, elevation) => Math.min(deepest, elevation), 0);
-  const deepestY = elevationToSceneY(deepestElevation);
+  const deepestY = elevationToSceneY(deepestElevation, exaggeration);
   const baseY = deepestY - BLOCK_BASE_THICKNESS_KM;
   const toScene = (longitude: number, latitude: number) => projection.toScene(longitude, latitude);
 
@@ -304,7 +306,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   sunLight.shadow.normalBias = 0.04;
   scene.add(sunLight);
 
-  const terrain = buildTerrainMesh(elevations, features, projection);
+  const terrain = buildTerrainMesh(elevations, features, projection, exaggeration);
   scene.add(terrain, buildBlockSides(terrain, features, baseY), buildWater(projection, deepestY));
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
   ground.rotation.x = -Math.PI / 2;
