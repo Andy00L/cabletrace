@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-// The recorder and the frame collector run on Deno and reach the registry, src/lib/regions and src/lib/live through
-// their deno.json import maps: every "@/" specifier any reached file imports needs an exact entry to its .ts file, or
-// the Supabase bundler leaves it unresolved (the same rule as src/lib/detection/module-boundaries.test.ts).
+// The recorder, the frame collector and the detector run on Deno and reach the registry, src/lib/regions, src/lib/live
+// and src/lib/detection through their deno.json import maps: every "@/" specifier any reached file imports needs an
+// exact entry to its .ts file (or its folder's index.ts), or the Supabase bundler leaves it unresolved.
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, "../../..");
-const FUNCTIONS = ["record-vessel-positions", "collect-ship-frames"];
+const FUNCTIONS = ["record-vessel-positions", "collect-ship-frames", "detect-anchor-drag"];
 const IMPORT_PATTERN = /^\s*import\s+(?:type\s+)?[^;]*?\s+from\s+"([^"]+)";/gm;
 
 function readSpecifiers(filePath: string): string[] {
