@@ -1,4 +1,5 @@
 import { connection } from "next/server";
+import { REGIONS } from "@/data/regions";
 import { fetchRecorderSummary, judgeRecorderHealth, type RecorderHealth, type RecorderSummary } from "@/lib/recorder/recorder-summary";
 
 // The recorder keeps positions within 3 km of a cable.
@@ -42,7 +43,7 @@ function StatusDot({ isLive }: { isLive: boolean }) {
 }
 
 function SourceCredit() {
-  return <p className="text-micro text-faint">Ship positions: Fintraffic, digitraffic.fi (CC BY 4.0)</p>;
+  return <p className="text-micro text-faint">Ship positions: Fintraffic, digitraffic.fi (CC BY 4.0), and aisstream.io</p>;
 }
 
 /** Live status of the ship recorder, read from Supabase on every request. */
@@ -88,7 +89,7 @@ export async function RecorderStatusCard() {
       </div>
       <p className="text-small text-ink">
         <span className="tabular-nums">{recorded.positionsLastHour.toLocaleString("en-US")}</span> positions near{" "}
-        <span className="tabular-nums">{recorded.cablesWatched}</span> cables and pipelines in the Gulf of Finland. {detail}
+        <span className="tabular-nums">{recorded.cablesWatched}</span> cables and pipelines in <span className="tabular-nums">{REGIONS.length}</span> watched regions. {detail}
       </p>
       <SourceCredit />
     </section>
