@@ -8,6 +8,7 @@ import { detectRendererKind } from "../../src/lib/diagnostics/webgl-renderer";
 import type { ShipKind } from "../../src/lib/replay/replay-scene";
 import { SCENE_COLORS } from "../../src/lib/seabed/scene/scene-colors";
 import { buildShip } from "../../src/lib/ships/build-ship";
+import { createKelvinWake } from "../../src/lib/ships/kelvin-wake";
 import { SHIP_KINDS } from "../../src/lib/ships/ship-specs";
 
 // Typical lengths (m): the case ships where a case has the kind, common sizes otherwise.
@@ -22,6 +23,8 @@ const TURNTABLE_LENGTHS: Record<ShipKind, number> = {
   passenger: 180,
   "cable-layer": 140,
 };
+// Each ship sails at 12 knots (6.2 m/s), so the GPU tier shows its bow wave and Kelvin wake.
+const TURNTABLE_SPEED_METRES_PER_SECOND = 6.17;
 const COLUMNS = 3;
 const CELL_WIDTH_PX = 460;
 const CELL_HEIGHT_PX = 240;
@@ -56,10 +59,17 @@ function drawTurntable() {
     sun.position.set(-42, 78, -26).setLength(lengthMetres * 2);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.0004 * lengthMetres;
     Object.assign(sun.shadow.camera, { left: -lengthMetres, right: lengthMetres, top: lengthMetres, bottom: -lengthMetres, near: 1, far: lengthMetres * 5 });
     scene.add(sun);
     const ship = buildShip({ kind, lengthMetres, tone: "suspect", isDetailed: isHardware });
     scene.add(ship.group);
+    if (isHardware) {
+      const wake = createKelvinWake(ship.form);
+      wake.setSpeed(TURNTABLE_SPEED_METRES_PER_SECOND);
+      ship.group.add(wake.mesh);
+    }
     const water = new THREE.Mesh(
       new THREE.PlaneGeometry(lengthMetres * 6, lengthMetres * 6),
       new THREE.MeshPhysicalMaterial({ color: SCENE_COLORS.water, transparent: true, opacity: 0.55, roughness: 0.16, depthWrite: false }),

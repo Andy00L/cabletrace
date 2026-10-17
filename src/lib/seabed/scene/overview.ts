@@ -12,6 +12,7 @@ import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle, thinTubeWithDistance } f
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
 import { buildShip } from "@/lib/ships/build-ship";
+import { createKelvinWake } from "@/lib/ships/kelvin-wake";
 import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
 import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, type ScenePoint } from "@/lib/seabed/terrain";
 
@@ -543,6 +544,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   ship.add(shipLabel.object);
   ship.visible = false;
   scene.add(ship);
+  // The GPU tier draws the bow wave and the Kelvin wake on a patch that sails with the hull.
+  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form) : null;
+  if (kelvinWake) ship.add(kelvinWake.mesh);
   const wake = createWake();
   scene.add(wake.mesh);
   const anchorModel = buildAnchorModel(new THREE.MeshStandardMaterial({ color: SCENE_COLORS.anchor, roughness: 0.48, metalness: 0.6 }));
@@ -645,6 +649,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (heading.x !== 0 || heading.z !== 0) lastHeading = heading;
       ship.rotation.y = Math.atan2(-lastHeading.z, lastHeading.x);
       ship.updateMatrixWorld();
+      // Speed over the same span the heading reads (scene km are real km across the block).
+      kelvinWake?.setSpeed((Math.hypot(after.x - before.x, after.z - before.z) * 1000) / ((2 * HEADING_SPAN_MS) / 1000));
       shipLabel.setNote(describeVesselPosition(input.track, atMs));
       vesselFrame = { position: ship.position, heading: lastHeading, drawnLengthKm: shipDrawnLengthKm };
       // The wake: the stern now, then the path sailed over the last minutes.
