@@ -15,14 +15,15 @@ const NAV_ITEMS: { page: SitePage; href: string; label: string; shouldPrefetch: 
 
 /**
  * The bar at the top of the pages around the console (style board, board 12): the mark, the sections with the
- * current one on a white pill, and the WebGL check at the far end.
+ * current one on a white pill, and the WebGL check at the far end. Under 640 px the mark stands alone, without its
+ * name, so the four sections fit a 360 px phone.
  */
 export function SiteHeader({ current }: { current: SitePage }) {
   return (
     <header className="flex h-14 flex-none items-center gap-3 sm:gap-6">
       <Link href="/" aria-label="CableTrace home" className="-mx-2 flex min-h-11 items-center gap-2.5 rounded-full px-2 text-ink">
         <BrandMark size={28} />
-        <span className="text-card-title">CableTrace</span>
+        <span className="hidden text-card-title sm:inline">CableTrace</span>
       </Link>
       <nav aria-label="Sections" className="flex gap-1">
         {NAV_ITEMS.map((item) => {

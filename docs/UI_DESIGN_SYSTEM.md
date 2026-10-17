@@ -109,6 +109,8 @@ One light from above. No borders on cards: surfaces separate by tone and shadow.
 
 Transform and opacity only. Every fade carries a 8 to 12px rise. `prefers-reduced-motion` collapses everything to opacity with the same end layout. The live dot's ping and the cable signal are the only ambient loops.
 
+One move runs longer than `duration-hero`: the live globe's dive to a cut (1,600 ms on `ease-standard`, see Live globe), the globe's one hero move, built under exception 6 for review on the live result.
+
 ## Components
 
 - **Buttons.** Main: `ink` pill, white text, 15/500. Second: `soft` pill, `ink` text. Text button: `ink` with a `faint` underline at 4px offset. Destructive: `alarm` pill. States: hover `ink-hover`, pressed `press-scale`, focus `focus-ring`, disabled `soft` with `faint` text, loading keeps the width and shows three dots.
@@ -136,7 +138,7 @@ The 3D seabed is the main replay view (Andy, 2026-10-16): the overview shows the
 - Land and coast: Natural Earth (public domain), or derived from the depth grid.
 - Land heights and the coastline in the 3D seabed: Copernicus DEM GLO-30, produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA.
 - Pipelines: EMODnet Human Activities.
-- Cables: OpenStreetMap contributors (ODbL). The share-alike question is open before they ship.
+- Cables: OpenStreetMap contributors (ODbL 1.0). The files derived from it (`public/globe/cables.json` and the lines in `public/seabed/*-seabed.json`) are offered under the same ODbL 1.0, as its share-alike clause requires; the stage credits OpenStreetMap wherever its lines show.
 - Cables no open dataset maps are traced off a published map, and the replay's credit line names that map (EE-S1 off Yle's map, `scripts/seabed/build-seabed.ts`, `tracedLines`). The line is read from each area's seabed file.
 
 ## Exceptions to the design kit
@@ -213,7 +215,7 @@ Primitives are written in `src/components/ui/` on the tokens above. Behaviour co
 
 ## Site pages
 
-Home, the case list, the live globe, the watchlist and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark, the sections with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Content sits 24 px from the edges up to 1,440 px wide.
+Home, the case list, the live globe, the watchlist and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark, the sections with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Under 640 px the mark drops its name and the WebGL check hides, so the four sections fit a 360 px phone. Content sits 24 px from the edges up to 1,440 px wide.
 
 | Page | 1024 px and up | Under 1024 px |
 |---|---|---|
@@ -230,15 +232,23 @@ Accounts (Clerk) exist only for the watchlist. Clerk's script loads on the accou
 
 - **Globe** (`src/lib/globe/globe-viewer.ts`). Natural Earth land in `land` on `depth-40` water, a 1 px coast in the seabed contour tone, the limb darkened a little so the sphere reads round, and a faint `depth-40` rim against the page. Northern Europe (12 W to 45 E, 48 to 72 N), where the replays and the recorder are, sits on a sharper patch so coasts stay crisp when the camera flies down to a ship.
 - **Ships.** One `ship` dot each, blended on the GPU between the two frames around the moment. A ship missing from one frame fades in or out; a move faster than 50 knots jumps instead of streaking. The selected ship carries an `ink` ring. Ship type reads in the card, never as a color.
-- **Lines.** The cables and pipelines of the replays' seabed areas, in their data colors.
+- **Coverage.** Sea farther than about 55 km from every ship heard in the frames loaded so far is hatched in screen space (a `depth-deep` line every 7 px on `depth-40`, `src/lib/globe/coverage.ts`); the legend says "No feed hears this sea" and its popover counts the frames.
+- **Lines.** The world's submarine cables and pipelines from OpenStreetMap (`public/globe/cables.json`, built by `scripts/globe/build-cables.ts`, ODbL, credited on the stage) at token widths in `cable` and `pipeline`, half width from orbit and never under 1.5 device px, loaded after the globe shows. The replays' lines carry the signal: an opaque 12 px halo of `cable` at 12% over `depth-40`, and a light running along each watched cable in 7 s while it faces the camera (at rest at 30% when motion is reduced). A selected line is redrawn on a white casing 3 px wider.
+- **Incidents.** Each case's primary cut is a break marker (16 px, 22 px selected); its card holds the ship, the date, the cut, Fly to the seabed (second button) and Open the case (text button). The list is derived on the server from the case files (`src/lib/globe/incidents.ts`), so the page never ships them.
+- **Dive.** One camera move of 1,600 ms on `ease-standard`, prefetching the case meanwhile, then a same-document view transition: the globe's last frame scales from 1 to 1.04 and fades over 384 ms `ease-exit` while the case console rises 8 px over 480 ms `ease-enter`. Reduced motion: no flight, the fade only.
 - **Rail.**
   - The moment: ships heard, by feed, and the coverage sentence (coastal receivers only; open ocean looks empty because no receiver hears it).
-  - The selected ship: its last report in the frame, then its name and size when a feed sent them.
-  - The anchor-drag watch (`recent_detections`, alerts first): a row selects that ship and flies the camera to it.
+  - The selected incident, ship or line. A ship shows its last report, flag (from the MMSI's first three digits, ITU's table in `src/lib/globe/maritime-identification-digits.ts`), size, draught, destination, heading and the report's age. A line lists the ships whose move between two frames crossed it or came within 3 km (the recorder's distance); "Check the whole day" loads the remaining frames.
+  - The anchor-drag watch over every watched region (`recent_detections`, alerts first).
+  - Draft cases from the fault signals, always labelled "Draft case", their signals as a title and a link only.
+  - Cable cuts on file.
+  - A pick on the globe marks its row (`aria-current`) and scrolls the rail to it; a row flies the camera there once its frame is drawn.
 - **Dock.** Play (a day in 72 s), the UTC clock and date, and the day as a scrubber with a tick for each stored frame, so a missing slot shows as a gap.
 - **Data path.** Frames come through `/api/ship-frames`, which the Vercel CDN caches (two days for a sealed frame), so Supabase serves each frame about once.
 - **Test hooks.**
   - `live-globe` carries `data-state` before the day loads, then `data-ship-count` and `data-frame-count`.
   - `live-globe-view` carries `data-state` loading, ready or failed.
   - Others: `live-ship-count`, `live-ship-card` (with `data-mmsi`), `live-detections`, `live-detection-<id>`, `live-play`, `live-scrubber`, `live-clock`, `live-credits`.
+  - Lines and incidents: `live-coverage-legend`, `live-line-card` (`data-line-id`, `data-passage-count`), `live-line-check-day`, `live-line-passage-<mmsi>`, `live-incidents`, `live-incident-<slug>`, `live-incident-card` (`data-slug`), `live-incident-dive` (`data-state`), `live-incident-link`.
+  - Ship and drafts: `live-ship-type`, `live-ship-details`, `live-draft-cases` (`data-state`), `live-draft-case-<id>`, `live-draft-ship-<id>-<mmsi>`, `live-draft-cases-empty`.
 

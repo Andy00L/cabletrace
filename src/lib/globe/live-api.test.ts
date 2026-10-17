@@ -3,13 +3,14 @@ import { parseDetectionSummary, parseShipDetails } from "./live-api";
 
 describe("parseShipDetails", () => {
   test("reads a live_ship_details row and keeps unsent fields as null", () => {
-    const details = parseShipDetails({ mmsi: 636023257, name: " SEA FIGHTER ", call_sign: "", imo: 9799783, ship_type: 70, length_metres: null, beam_metres: null, draught_metres: 7.4, destination: "FOR ORDERS", source: "digitraffic" });
-    expect(details).toEqual({ mmsi: 636023257, name: "SEA FIGHTER", callSign: null, imo: 9799783, shipType: 70, lengthMetres: null, beamMetres: null, draughtMetres: 7.4, destination: "FOR ORDERS", source: "digitraffic" });
+    const details = parseShipDetails({ mmsi: 636023257, name: " SEA FIGHTER ", call_sign: "", imo: 9799783, ship_type: 70, length_metres: null, beam_metres: null, draught_metres: 7.4, destination: "FOR ORDERS", source: "digitraffic", updated_at: "2026-10-17T09:12:00+00:00" });
+    expect(details).toEqual({ mmsi: 636023257, name: "SEA FIGHTER", callSign: null, imo: 9799783, shipType: 70, lengthMetres: null, beamMetres: null, draughtMetres: 7.4, destination: "FOR ORDERS", source: "digitraffic", staticUpdatedMs: Date.parse("2026-10-17T09:12:00Z") });
   });
 
   test("rejects a row without an MMSI or a source", () => {
     expect(parseShipDetails({ name: "NO MMSI", source: "aisstream" })).toBeNull();
     expect(parseShipDetails({ mmsi: 1 })).toBeNull();
+    expect(parseShipDetails({ mmsi: 1, source: "aisstream", updated_at: "soon" })?.staticUpdatedMs).toBeNull();
   });
 });
 
