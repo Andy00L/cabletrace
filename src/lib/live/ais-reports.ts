@@ -12,16 +12,18 @@ import type { ShipRecord, ShipSource } from "./snapshot-codec.ts";
 const MAX_SPEED_KNOTS = 102.2;
 const COURSE_NOT_AVAILABLE = 360;
 const HEADING_NOT_AVAILABLE = 511;
+// Navigational status 0-15 (ITU-R M.1371-5, Table 45; 15 means "not defined"). Rate of turn as the transponder's
+// ROT_AIS code, -127 to 127, with -128 meaning "not available" (message 1, rate of turn field); Digitraffic's `rot`
+// carries the same code, so the recorder stores both feeds alike.
+const MAX_NAVIGATION_STATUS = 15;
+const TURN_RATE_NOT_AVAILABLE = -128;
+const MAX_TURN_RATE = 127;
 
-// The aisstream message types the collector subscribes to (FilterMessageTypes): positions from
-// class A (messages 1-3) and class B (18, 19), static data from class A (5) and class B (24).
-export const AISSTREAM_MESSAGE_TYPES = [
-  "PositionReport",
-  "StandardClassBPositionReport",
-  "ExtendedClassBPositionReport",
-  "ShipStaticData",
-  "StaticDataReport",
-] as const;
+// The aisstream message types (FilterMessageTypes): positions from class A (messages 1-3) and class B (18, 19), which
+// the near-cable recorder subscribes to, and static data from class A (5) and class B (24), which the frame collector
+// adds for names and ship types.
+export const AISSTREAM_POSITION_MESSAGE_TYPES = ["PositionReport", "StandardClassBPositionReport", "ExtendedClassBPositionReport"] as const;
+export const AISSTREAM_MESSAGE_TYPES = [...AISSTREAM_POSITION_MESSAGE_TYPES, "ShipStaticData", "StaticDataReport"] as const;
 
 /** Name, identity and size of a ship, from AIS static messages. Null fields were not sent. */
 export type ShipStatic = {
@@ -37,8 +39,14 @@ export type ShipStatic = {
   source: ShipSource;
 };
 
+/** What the recorder stores beyond the frame's ship record: the crew's navigational status and the rate of turn code. */
+export type PositionStatus = { navigationStatus: number | null; turnRate: number | null };
+
+/** A position report with its status fields, as the recorder needs it; the frame keeps only `report`. */
+export type PositionDetail = { report: ShipRecord; status: PositionStatus };
+
 export type AisstreamMessage =
-  | { kind: "position"; report: ShipRecord; staticData: ShipStatic | null }
+  | { kind: "position"; report: ShipRecord; status: PositionStatus; staticData: ShipStatic | null }
   | { kind: "static"; staticData: ShipStatic }
   | { kind: "server-error"; reason: string }
   | { kind: "ignored"; reason: string };
@@ -82,17 +90,40 @@ function readHeadingDegrees(value: number | null): number | null {
   return value !== null && Number.isInteger(value) && value >= 0 && value < 360 && value !== HEADING_NOT_AVAILABLE ? value : null;
 }
 
+function readNavigationStatus(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) && value >= 0 && value <= MAX_NAVIGATION_STATUS ? value : null;
+}
+
+function readTurnRate(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) && value !== TURN_RATE_NOT_AVAILABLE && Math.abs(value) <= MAX_TURN_RATE ? value : null;
+}
+
 function isValidPosition(longitude: number | null, latitude: number | null): boolean {
   return longitude !== null && latitude !== null && Math.abs(longitude) <= 180 && Math.abs(latitude) <= 90;
 }
 
-// A zero or "not available" dimension (ITU-R M.1371-5, Figure 42) leaves the size unknown.
-function readSize(dimension: unknown, firstKey: string, secondKey: string): number | null {
+// The largest size the AIS dimension fields can carry (ITU-R M.1371-5, Figure 42): A and B are 9-bit fields of at most
+// 511 m each, C and D 6-bit fields of at most 63 m each. A larger sum is a malformed message, not a ship, and would
+// overflow public.live_ships' smallint columns, failing a whole upsert batch.
+const MAX_LENGTH_METRES = 2 * 511;
+const MAX_BEAM_METRES = 2 * 63;
+
+// A zero or "not available" dimension (ITU-R M.1371-5, Figure 42) leaves the size unknown, and so does one outside
+// what the fields allow.
+function readSize(dimension: unknown, firstKey: string, secondKey: string, maxMetres: number): number | null {
   if (!isRecord(dimension)) return null;
   const first = readNumber(dimension, firstKey) ?? 0;
   const second = readNumber(dimension, secondKey) ?? 0;
   const total = first + second;
-  return total > 0 ? total : null;
+  return total > 0 && first >= 0 && second >= 0 && total <= maxMetres ? total : null;
+}
+
+function readLength(dimension: unknown, firstKey: string, secondKey: string): number | null {
+  return readSize(dimension, firstKey, secondKey, MAX_LENGTH_METRES);
+}
+
+function readBeam(dimension: unknown, firstKey: string, secondKey: string): number | null {
+  return readSize(dimension, firstKey, secondKey, MAX_BEAM_METRES);
 }
 
 function readPositiveInteger(source: JsonObject, key: string): number | null {
@@ -155,8 +186,8 @@ function readClassAStatic(body: JsonObject, mmsi: number): ShipStatic | null {
     callSign: readAisText(body, "CallSign"),
     imo: readPositiveInteger(body, "ImoNumber"),
     shipType: readPositiveInteger(body, "Type"),
-    lengthMetres: readSize(body.Dimension, "A", "B"),
-    beamMetres: readSize(body.Dimension, "C", "D"),
+    lengthMetres: readLength(body.Dimension, "A", "B"),
+    beamMetres: readBeam(body.Dimension, "C", "D"),
     draughtMetres: draught !== null && draught > 0 ? draught : null,
     destination: readAisText(body, "Destination"),
   };
@@ -174,8 +205,8 @@ function readClassBStatic(body: JsonObject, mmsi: number): ShipStatic | null {
       ...staticData,
       callSign: readAisText(body.ReportB, "CallSign"),
       shipType: readPositiveInteger(body.ReportB, "ShipType"),
-      lengthMetres: readSize(body.ReportB.Dimension, "A", "B"),
-      beamMetres: readSize(body.ReportB.Dimension, "C", "D"),
+      lengthMetres: readLength(body.ReportB.Dimension, "A", "B"),
+      beamMetres: readBeam(body.ReportB.Dimension, "C", "D"),
     };
   }
   return null;
@@ -187,8 +218,8 @@ function readExtendedClassBStatic(body: JsonObject, mmsi: number): ShipStatic {
     ...emptyStatic(mmsi, "aisstream"),
     name: readAisText(body, "Name"),
     shipType: readPositiveInteger(body, "Type"),
-    lengthMetres: readSize(body.Dimension, "A", "B"),
-    beamMetres: readSize(body.Dimension, "C", "D"),
+    lengthMetres: readLength(body.Dimension, "A", "B"),
+    beamMetres: readBeam(body.Dimension, "C", "D"),
   };
 }
 
@@ -227,18 +258,20 @@ export function parseAisstreamMessage(messageText: string): AisstreamMessage {
     const report = readPosition(body, mmsi, reportedAtMs);
     if (report === null) return { kind: "ignored", reason: "no valid position" };
     const staticData = messageType === "ExtendedClassBPositionReport" ? readExtendedClassBStatic(body, mmsi) : null;
-    return { kind: "position", report, staticData };
+    // Class B reports carry neither field; null means the ship did not say.
+    const status = { navigationStatus: readNavigationStatus(readNumber(body, "NavigationalStatus")), turnRate: readTurnRate(readNumber(body, "RateOfTurn")) };
+    return { kind: "position", report, status, staticData };
   }
   return { kind: "ignored", reason: `message type ${messageType}` };
 }
 
 /**
- * Parses Digitraffic /api/ais/v1/locations (GeoJSON). Reports older than `sinceMs` are skipped: the
- * endpoint returns the last position of every vessel it has seen, some of them a day old.
+ * Parses Digitraffic /api/ais/v1/locations (GeoJSON) with each report's status fields. Reports older than
+ * `sinceMs` are skipped: the endpoint returns the last position of every vessel it has seen, some of them a day old.
  */
-export function parseDigitrafficLocations(payload: unknown, sinceMs: number): Result<ShipRecord[]> {
+export function parseDigitrafficPositions(payload: unknown, sinceMs: number): Result<PositionDetail[]> {
   if (!isRecord(payload) || !Array.isArray(payload.features)) return { ok: false, reason: "Digitraffic locations: no features array" };
-  const reports: ShipRecord[] = [];
+  const positions: PositionDetail[] = [];
   for (const feature of payload.features) {
     if (!isRecord(feature) || !isRecord(feature.geometry) || !isRecord(feature.properties)) continue;
     const coordinates = feature.geometry.coordinates;
@@ -249,19 +282,28 @@ export function parseDigitrafficLocations(payload: unknown, sinceMs: number): Re
     const mmsi = readMmsi(properties, "mmsi");
     const reportedAtMs = readNumber(properties, "timestampExternal");
     if (mmsi === null || reportedAtMs === null || reportedAtMs < sinceMs) continue;
-    reports.push({
-      mmsi,
-      longitude,
-      latitude,
-      speedKnots: readSpeedKnots(readNumber(properties, "sog")),
-      courseDegrees: readCourseDegrees(readNumber(properties, "cog")),
-      headingDegrees: readHeadingDegrees(readNumber(properties, "heading")),
-      shipClass: "unknown",
-      reportedAtMs,
-      source: "digitraffic",
+    positions.push({
+      report: {
+        mmsi,
+        longitude,
+        latitude,
+        speedKnots: readSpeedKnots(readNumber(properties, "sog")),
+        courseDegrees: readCourseDegrees(readNumber(properties, "cog")),
+        headingDegrees: readHeadingDegrees(readNumber(properties, "heading")),
+        shipClass: "unknown",
+        reportedAtMs,
+        source: "digitraffic",
+      },
+      status: { navigationStatus: readNavigationStatus(readNumber(properties, "navStat")), turnRate: readTurnRate(readNumber(properties, "rot")) },
     });
   }
-  return { ok: true, value: reports };
+  return { ok: true, value: positions };
+}
+
+/** The ship records of parseDigitrafficPositions, for the live frames. */
+export function parseDigitrafficLocations(payload: unknown, sinceMs: number): Result<ShipRecord[]> {
+  const positions = parseDigitrafficPositions(payload, sinceMs);
+  return positions.ok ? { ok: true, value: positions.value.map((position) => position.report) } : positions;
 }
 
 /** Parses Digitraffic /api/ais/v1/vessels. Draught comes in tenths of a metre (AIS message 5); 0 means unknown. */
@@ -283,8 +325,8 @@ export function parseDigitrafficVessels(payload: unknown): Result<DigitrafficVes
         callSign: readAisText(entry, "callSign"),
         imo: readPositiveInteger(entry, "imo"),
         shipType: readPositiveInteger(entry, "shipType"),
-        lengthMetres: readSize(size, "A", "B"),
-        beamMetres: readSize(size, "C", "D"),
+        lengthMetres: readLength(size, "A", "B"),
+        beamMetres: readBeam(size, "C", "D"),
         draughtMetres: draughtTenths !== null && draughtTenths > 0 ? draughtTenths / 10 : null,
         destination: readAisText(entry, "destination"),
       },

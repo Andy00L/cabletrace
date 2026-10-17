@@ -8,6 +8,7 @@ import { describeCourse, describeNearestLine, describeSpeed, NumberGrid, useMome
 import { Icon } from "@/components/icons/Icon";
 import { CloseButton, LayerCard, type LayerAnchor, type LayerCardPlacement } from "@/components/ui/LayerCard";
 import { LayerSheet } from "@/components/ui/LayerSheet";
+import { WatchButton } from "@/components/watchlist/WatchButton";
 import type { CitationView, ConsoleSource } from "@/lib/cases/case-console";
 import { toCutSlug } from "@/lib/console/console-state";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
@@ -243,6 +244,7 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
               >
                 Go to the close-up
               </button>
+              <WatchButton kind="cable" watchRef={cut.cableName} label={cut.cableName} testId="watch-cable" />
             </div>
           </>
         )}
@@ -337,6 +339,7 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
           >
             Ship details
           </button>
+          {vessel.mmsi && <WatchButton kind="ship" watchRef={vessel.mmsi} label={vessel.name} testId="watch-ship" />}
         </div>
       </LayerCard>
 
