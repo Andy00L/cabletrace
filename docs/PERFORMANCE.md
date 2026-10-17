@@ -252,3 +252,18 @@ Compressed JavaScript per page, measured on Vercel (production at 4073ba5 agains
 
 The first console build weighed 452.4 KB on the case page and 245.1 KB on home; dropping the `motion` library for CSS transitions brought both under budget.
 
+## Live globe
+
+Measured 2026-10-17 on the Vercel preview of the live globe and a local production build, headless Chromium on SwiftShader (no GPU), with the collector's frames of that morning:
+
+| What | Result |
+|---|---|
+| Globe drawing, from navigation | 0.8 to 1.8 s locally, 1.3 s on the preview |
+| First ships on screen, from navigation | within 0.1 s of the globe: 10,435 ships in the 09:30 UTC frame |
+| A frame on the wire | 65 to 160 KB compressed for 4,220 to 10,435 ships (about 15 bytes a ship) |
+| Frames through the CDN | first request `x-vercel-cache: MISS`, the next `HIT`; Supabase serves each frame about once |
+| JS on `/live` | 382 KB compressed with three.js, which loads only when the globe mounts |
+| JS on `/` and `/cases` | 197.6 KB. Before two fixes: 314 KB, because the land parser imported three.js into the /live route chunk and home prefetched it; then 212 KB from prefetching /live at all. The parser moved to a three-free module, and the Live links no longer prefetch |
+
+Not measured: frame rate on a real GPU and on a phone, and a full day of frames (the collector started at 09:10 UTC on 17 Oct 2026).
+
