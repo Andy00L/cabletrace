@@ -16,7 +16,8 @@ export function ConsoleSkeleton({ title, subtitle, summary }: { title: string; s
         <h1 className="truncate text-label">{title}</h1>
         <span className="hidden text-small text-muted xl:inline">{subtitle}</span>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4">
+      {/* Under 768 px the console's folded bottom sheet (96 px, ReplayConsole SHEET_PEEK_PX) sits under the dock. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 max-md:pb-[112px]">
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-card bg-soft shadow-card">
           <div className="absolute top-4 bottom-4 left-4 hidden max-w-[560px] lg:block">
             <p className="text-body text-muted">{summary}</p>
@@ -28,6 +29,7 @@ export function ConsoleSkeleton({ title, subtitle, summary }: { title: string; s
         </div>
         <div className="h-[196px] flex-none rounded-card bg-card shadow-card max-lg:h-[132px]" />
       </div>
+      <div className="fixed inset-x-0 bottom-0 h-[96px] rounded-t-card bg-page shadow-popover md:hidden" />
     </div>
   );
 }

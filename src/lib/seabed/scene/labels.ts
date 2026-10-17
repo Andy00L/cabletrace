@@ -30,6 +30,13 @@ export function makeLabel(text: string, tone: LabelTone, placement: LabelPlaceme
   return new CSS2DObject(element);
 }
 
+/** A small ink ring pinned to a point: a position placed from statements, which a click opens. */
+export function makePointMarker(): CSS2DObject {
+  const element = document.createElement("div");
+  element.className = "size-2.5 rounded-full border-2 border-ink bg-card";
+  return new CSS2DObject(element);
+}
+
 /** A label whose muted note can change while the scene plays (the vessel's evidence and speed). */
 export type StackedLabel = { object: CSS2DObject; setNote: (note: string) => void };
 
