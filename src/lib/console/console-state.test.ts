@@ -4,6 +4,7 @@ import { formatConsoleState, formatMinute, parseConsoleState, toCutSlug, type Co
 const CONTEXT: ConsoleContext = {
   windowStartMs: Date.parse("2024-12-25T10:00:00Z"),
   windowEndMs: Date.parse("2024-12-25T23:00:00Z"),
+  openingMs: Date.parse("2024-12-25T10:26:00Z"),
   cutSlugs: ["estlink-2", "c-lion1"],
   placementCount: 3,
   sourceIds: [1, 8, 31],
@@ -19,7 +20,7 @@ describe("toCutSlug", () => {
 describe("parseConsoleState", () => {
   test("falls back to defaults for an empty or broken link", () => {
     const state = parseConsoleState({ t: "yesterday", view: "sideways", mode: "x", layer: "cut-nowhere" }, CONTEXT);
-    expect(state).toEqual({ atMs: CONTEXT.windowStartMs, view: "overview", mode: "replay", detail: "illustrated", layer: { kind: "none" } });
+    expect(state).toEqual({ atMs: CONTEXT.openingMs, view: "overview", mode: "replay", detail: "illustrated", layer: { kind: "none" } });
   });
 
   test("reads a deep link to a cut card", () => {
@@ -41,8 +42,15 @@ describe("parseConsoleState", () => {
 });
 
 describe("formatConsoleState", () => {
+  test("a moment before the opening, such as the window start, keeps its time in the link", () => {
+    const state: ConsoleState = { atMs: CONTEXT.windowStartMs, view: "overview", mode: "replay", detail: "illustrated", layer: { kind: "none" } };
+    const query = formatConsoleState(state, CONTEXT);
+    expect(query).toBe("t=2024-12-25T10:00Z");
+    expect(parseConsoleState(new URLSearchParams(query), CONTEXT).atMs).toBe(CONTEXT.windowStartMs);
+  });
+
   test("leaves out defaults and round-trips every layer", () => {
-    const base: ConsoleState = { atMs: CONTEXT.windowStartMs, view: "overview", mode: "replay", detail: "illustrated", layer: { kind: "none" } };
+    const base: ConsoleState = { atMs: CONTEXT.openingMs, view: "overview", mode: "replay", detail: "illustrated", layer: { kind: "none" } };
     expect(formatConsoleState(base, CONTEXT)).toBe("");
     const layers: ConsoleState["layer"][] = [
       { kind: "vessel" },

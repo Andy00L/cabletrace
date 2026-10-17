@@ -66,6 +66,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, lineS
     () => ({
       windowStartMs: input.windowStartMs,
       windowEndMs: input.windowEndMs,
+      openingMs: Math.min(input.windowEndMs, Math.max(input.windowStartMs, input.track[0]?.atMs ?? input.windowStartMs)),
       cutSlugs: consoleCase.cuts.map((cut) => cut.slug),
       placementCount: consoleCase.positions.length,
       sourceIds: consoleCase.sources.map((source) => source.id),

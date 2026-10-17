@@ -178,7 +178,7 @@ One named stack, low to high: `stage` (0), `stage-controls` (10), `rail` and `do
 
 | Key | Values | Default |
 |---|---|---|
-| `t` | replay minute in UTC, `2024-12-25T16:44Z` | the window start |
+| `t` | replay minute in UTC, `2024-12-25T16:44Z` | the ship's first known position (an earlier window start stays a scrub away) |
 | `view` | `overview`, `top`, `vessel`, `closeup` | `overview` |
 | `mode` | `replay`, `ship`, `evidence` | `replay` |
 | `detail` | `measured`, `illustrated` (close-up only) | `illustrated` |
