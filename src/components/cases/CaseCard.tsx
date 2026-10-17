@@ -48,11 +48,12 @@ export function CaseSketchMap({ sketch, vesselName }: { sketch: CaseSketch; vess
 
 /**
  * One case as a card whose whole surface opens its replay; on hover the shadow deepens and nothing moves.
- * `tile` (the case list, board 12b): the sketch over a short text block. `wide` (the home page, board 12a): the
+ * `row` (the case list, grouped by region): a small sketch beside the
+ * place, date, title and one line of facts, so a dozen cases fit one screen. `wide` (the home page, board 12a): the
  * sketch beside the place, date, title and the three facts that set cases apart; from 1,024 px it shares the height
  * of its column with the other wide cards.
  */
-export function CaseCard({ cableCase, sketch, layout }: { cableCase: CableCase; sketch: CaseSketch | null; layout: "tile" | "wide" }) {
+export function CaseCard({ cableCase, sketch, layout }: { cableCase: CableCase; sketch: CaseSketch | null; layout: "row" | "wide" }) {
   const cutsLabel = cableCase.cuts.map((cut) => cut.label).join(", ");
   const trackLabel = describeTrackEvidenceBriefly(cableCase);
   const map = <div className="size-full overflow-hidden rounded-inner bg-depth-40">{sketch && <CaseSketchMap sketch={sketch} vesselName={cableCase.vessel.name} />}</div>;
@@ -92,14 +93,14 @@ export function CaseCard({ cableCase, sketch, layout }: { cableCase: CableCase; 
   return (
     <Link
       href={`/cases/${cableCase.slug}`}
-      className="flex flex-col rounded-card bg-card p-2 shadow-card transition-shadow duration-140 ease-standard hover:shadow-raised"
+      className="grid grid-cols-[112px_minmax(0,1fr)] items-center gap-3.5 rounded-row bg-card p-2 shadow-card transition-shadow duration-140 ease-standard hover:shadow-raised"
       data-testid={`case-card-${cableCase.slug}`}
     >
       <div className="aspect-video">{map}</div>
-      <div className="flex flex-col gap-1 px-3 pt-3 pb-2.5">
-        <span className="text-caption text-muted">{cableCase.subtitle}</span>
-        <h2 className="text-label">{cableCase.title}</h2>
-        <span className="text-caption font-normal text-muted">
+      <div className="flex min-w-0 flex-col gap-0.5 pr-2">
+        <span className="truncate text-caption text-muted">{cableCase.subtitle}</span>
+        <h3 className="truncate text-label">{cableCase.title}</h3>
+        <span className="truncate text-caption font-normal text-muted">
           {cutsLabel}. {trackLabel}. <span className="tabular-nums">{cableCase.sources.length}</span> sources
         </span>
       </div>
