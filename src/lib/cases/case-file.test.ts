@@ -8,8 +8,7 @@ const FIXTURE: CableCase = {
   title: "Fixture cable",
   subtitle: "Test data",
   summary: "Test data.",
-  trackEvidence: "reconstruction",
-  vessel: { name: "Vessel", flag: "Flag", type: "Tanker", imo: null, mmsi: null, citations: [CITATION] },
+  vessel: { name: "Vessel", kind: "tanker", flag: "Flag", type: "Tanker", imo: null, mmsi: null, citations: [CITATION] },
   window: { startUtc: "2024-12-25T08:00:00Z", endUtc: "2024-12-25T12:00:00Z" },
   localTime: { place: "Helsinki", timeZone: "Europe/Helsinki" },
   seabedArea: "gulf-of-finland",
@@ -17,6 +16,7 @@ const FIXTURE: CableCase = {
     { atUtc: "2024-12-25T09:00:00Z", longitude: 26, latitude: 60, precision: "area", place: "A", placement: "Fixture", citations: [CITATION] },
     { atUtc: "2024-12-25T11:00:00Z", longitude: 25.5, latitude: 59.9, precision: "named-place", place: "B", placement: "Fixture", citations: [CITATION] },
   ],
+  recordedTrack: null,
   dragWindow: { startUtc: "2024-12-25T09:30:00Z", endUtc: "2024-12-25T10:30:00Z", citations: [CITATION] },
   cuts: [{ cableName: "Line", label: "Line", owner: "Owner", atUtc: "2024-12-25T10:00:00Z", longitude: 25.8, latitude: 59.95, precision: "area", placement: "Fixture", citations: [CITATION] }],
   events: [{ atUtc: "2024-12-25T10:00:00Z", isTimeApproximate: false, kind: "cable-fault", title: "Fault", citations: [CITATION] }],
@@ -25,13 +25,19 @@ const FIXTURE: CableCase = {
 };
 
 describe("toReplaySceneInput", () => {
-  test("converts times to milliseconds, sorts the track and labels a reconstruction", () => {
+  test("converts times to milliseconds and sorts the track", () => {
     const reversed = { ...FIXTURE, track: [...FIXTURE.track].reverse() };
     const input = toReplaySceneInput(reversed);
     expect(input.track.map((position) => position.atMs)).toEqual([Date.parse("2024-12-25T09:00:00Z"), Date.parse("2024-12-25T11:00:00Z")]);
+    expect(input.track.every((position) => position.recordedSpeedKnots === null)).toBe(true);
     expect(input.cuts[0].atMs).toBe(Date.parse("2024-12-25T10:00:00Z"));
-    expect(input.vessel.note).toBe("reconstructed position");
     expect(input.dragWindow?.endMs).toBe(Date.parse("2024-12-25T10:30:00Z"));
+  });
+
+  test("merges recorded AIS fixes into the track in time order, keeping their speed", () => {
+    const fixes = [{ atUtc: "2024-12-25T10:00:00Z", longitude: 25.8, latitude: 59.95, speedKnots: 7.3 }];
+    const input = toReplaySceneInput({ ...FIXTURE, recordedTrack: { selection: "Fixture", citations: [CITATION], fixes } });
+    expect(input.track.map((position) => position.recordedSpeedKnots)).toEqual([null, 7.3, null]);
   });
 });
 
@@ -55,5 +61,16 @@ describe("findCaseProblems", () => {
     expect(problems).toContain('event "Late": cites missing source 9');
     expect(problems).toContain('event "Late": empty quote');
     expect(problems).toContain('aftermath "Early": 2024-12-25T10:00:00Z is not after the replay window');
+  });
+
+  test("reports AIS fixes out of order or outside the window", () => {
+    const fixes = [
+      { atUtc: "2024-12-25T10:00:00Z", longitude: 25.8, latitude: 59.95, speedKnots: 7.3 },
+      { atUtc: "2024-12-25T09:59:00Z", longitude: 25.7, latitude: 59.95, speedKnots: 7.1 },
+      { atUtc: "2024-12-25T13:00:00Z", longitude: 25.6, latitude: 59.95, speedKnots: 7.0 },
+    ];
+    const problems = findCaseProblems({ ...FIXTURE, recordedTrack: { selection: "Fixture", citations: [CITATION], fixes } });
+    expect(problems).toContain("fix 1: earlier than the fix before it");
+    expect(problems).toContain("fix 2: 2024-12-25T13:00:00Z is outside the replay window");
   });
 });

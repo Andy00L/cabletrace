@@ -2,7 +2,10 @@
 // dragged, and where and when each cable was cut. Built from a case file (src/lib/cases); the viewer
 // never sees sources or quotes, only these numbers.
 
-export type TimedPosition = { atMs: number; longitude: number; latitude: number };
+/** `recordedSpeedKnots` is the speed the vessel broadcast with an AIS position; null for a position placed from statements. */
+export type TimedPosition = { atMs: number; longitude: number; latitude: number; recordedSpeedKnots: number | null };
+/** Which 3D ship draws the vessel: the hull is shared, the deck differs. */
+export type ShipKind = "tanker" | "bulk-carrier";
 /** `cableName` matches a line name in the seabed file; `label` is what the scene shows. */
 export type ReplayCut = { cableName: string; label: string; atMs: number; longitude: number; latitude: number };
 
@@ -16,7 +19,7 @@ export type ReplaySceneInput = {
   dragWindow: { startMs: number; endMs: number } | null;
   /** The first cut is the one the camera frames. */
   cuts: [ReplayCut, ...ReplayCut[]];
-  vessel: { name: string; note: string };
+  vessel: { name: string; kind: ShipKind };
 };
 
 export function progressToTimeMs(scene: Pick<ReplaySceneInput, "windowStartMs" | "windowEndMs">, progress: number): number {
@@ -49,4 +52,19 @@ export function positionAtTime(track: readonly TimedPosition[], atMs: number): {
   }
   const last = track[track.length - 1] ?? first;
   return { longitude: last.longitude, latitude: last.latitude };
+}
+
+/**
+ * The note under the vessel's name at a moment: the recorded speed while it sails between two AIS positions,
+ * "reconstructed position" whenever either end of its current stretch was placed from statements.
+ */
+export function describeVesselPosition(track: readonly TimedPosition[], atMs: number): string {
+  const laterIndex = track.findIndex((position) => position.atMs > atMs);
+  const nextIndex = laterIndex === -1 ? track.length : laterIndex;
+  const previous = track[nextIndex - 1] ?? track[0];
+  const next = track[nextIndex] ?? previous;
+  const previousSpeed = previous?.recordedSpeedKnots ?? null;
+  const nextSpeed = next?.recordedSpeedKnots ?? null;
+  if (previousSpeed === null || nextSpeed === null) return "reconstructed position";
+  return `AIS position, ${previousSpeed.toFixed(1)} knots`;
 }

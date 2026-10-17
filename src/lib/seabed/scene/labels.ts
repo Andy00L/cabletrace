@@ -30,8 +30,11 @@ export function makeLabel(text: string, tone: LabelTone, placement: LabelPlaceme
   return new CSS2DObject(element);
 }
 
+/** A label whose muted note can change while the scene plays (the vessel's evidence and speed). */
+export type StackedLabel = { object: CSS2DObject; setNote: (note: string) => void };
+
 /** A bold title over a muted note, for objects whose nature must be stated ("illustrated", "reconstructed"). */
-export function makeStackedLabel(title: string, note: string, placement: LabelPlacement = "center"): CSS2DObject {
+export function makeStackedLabel(title: string, note: string, placement: LabelPlacement = "center"): StackedLabel {
   const element = document.createElement("div");
   element.className = `map-label-halo flex flex-col items-center whitespace-nowrap ${PLACEMENT_CLASSES[placement]}`;
   const titleElement = document.createElement("strong");
@@ -41,5 +44,11 @@ export function makeStackedLabel(title: string, note: string, placement: LabelPl
   noteElement.className = "text-micro text-muted";
   noteElement.textContent = note;
   element.append(titleElement, noteElement);
-  return new CSS2DObject(element);
+  return {
+    object: new CSS2DObject(element),
+    // Called every frame by the overview, so the DOM is touched only when the text changes.
+    setNote: (nextNote: string) => {
+      if (noteElement.textContent !== nextNote) noteElement.textContent = nextNote;
+    },
+  };
 }

@@ -27,7 +27,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the note contains \"only the surveyed depth\""
+      "description": "Assert the note contains \"only the depth grid under the cut\""
     },
     {
       "type": "action",

@@ -304,13 +304,13 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
     return { mesh: shaft, phase: index * 1.7, tilt: (random() - 0.5) * 0.3 };
   });
 
-  const cableLabel = makeStackedLabel(options.cableLabel, "measured route");
+  const cableLabel = makeStackedLabel(options.cableLabel, "measured route").object;
   cableLabel.position.copy(cablePoint(-34, true)).add(new THREE.Vector3(0, 3.2, 0));
   scene.add(cableLabel);
   const cutLabel = makeLabel("Cut", "alarm");
   cutLabel.position.copy(cablePoint(0, true)).add(new THREE.Vector3(0, 2.4, 0));
   scene.add(cutLabel);
-  const anchorLabel = makeStackedLabel("Anchor", "illustrated");
+  const anchorLabel = makeStackedLabel("Anchor", "illustrated").object;
   anchorLabel.position.set(ANCHOR_X + 1, anchorGroundY + 3.6, 0);
   illustratedGroup.add(anchorLabel);
 

@@ -2,14 +2,14 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
-import { positionAtTime, type ReplayCut, type ReplaySceneInput } from "@/lib/replay/replay-scene";
+import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import { makeLabel, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
 import { LAND_RAMP, SCENE_COLORS, SEABED_RAMP } from "@/lib/seabed/scene/scene-colors";
-import { buildTankerModel } from "@/lib/seabed/scene/tanker-model";
+import { buildShipModel } from "@/lib/seabed/scene/ship-model";
 import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
-import { thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
+import { FULL_WIDTH_DISTANCE_KM, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
 import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
@@ -25,6 +25,9 @@ const POWER_CABLE_RADIUS_KM = 0.13;
 const TELECOM_CABLE_RADIUS_KM = 0.075;
 const PIPELINE_RADIUS_KM = 0.14;
 const SIGNAL_HALO_RADIUS_KM = 0.42;
+// The radii above are tuned for the 145 km wide Gulf of Finland block. A wider block draws its tubes wider in
+// step, so they keep their share of the screen in the overview instead of breaking into sub-pixel dashes.
+const REFERENCE_BLOCK_WIDTH_KM = 145;
 // A cut within this distance of a line splits it there.
 const CUT_MATCH_KM = 1.5;
 // The track and the furrow are screen-width lines (progress-line.ts), revealed segment by segment.
@@ -42,7 +45,7 @@ const HEADING_SPAN_MS = 2 * 60 * 1000;
 // The light along the healthy cable takes this long to run its length.
 const SIGNAL_LAP_SECONDS = 7;
 // Model metres to scene kilometres. The vessel is drawn 6 times its real size and the anchor 30 times, so
-// both read across a 55 km block; the disclosure under the view says so.
+// both read across a block 145 to 300 km wide; the disclosure under the view says so.
 const METRES_TO_KM = 1 / 1000;
 const SHIP_DRAWN_SCALE = SCENE_SCALES.shipDrawnScale;
 const ANCHOR_DRAWN_SCALE = SCENE_SCALES.anchorDrawnScale;
@@ -79,6 +82,8 @@ export type OverviewScene = {
   cableDirection: ScenePoint;
   /** The vessel's last drawn frame, or null while it is not on the map yet. */
   readVesselFrame: () => VesselFrame | null;
+  /** Hides the land and pipeline names on a narrow view, keeping the vessel and cut labels. */
+  setCompactLabels: (isCompact: boolean) => void;
   update: (atMs: number, deltaSeconds: number, nowSeconds: number) => void;
 };
 
@@ -288,13 +293,26 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   ground.receiveShadow = true;
   scene.add(ground);
 
+  const tubeScale = Math.max(1, projection.widthKm / REFERENCE_BLOCK_WIDTH_KM);
+  const tubeRadii = {
+    power: POWER_CABLE_RADIUS_KM * tubeScale,
+    telecom: TELECOM_CABLE_RADIUS_KM * tubeScale,
+    pipeline: PIPELINE_RADIUS_KM * tubeScale,
+    signalHalo: SIGNAL_HALO_RADIUS_KM * tubeScale,
+  };
+  const fullWidthDistanceKm = FULL_WIDTH_DISTANCE_KM * tubeScale;
   // One material per tube radius: each narrows with camera distance from its own radius (tube-thinning.ts).
   const createCableMaterial = (radiusKm: number) =>
-    thinTubeWithDistance(new THREE.MeshStandardMaterial({ color: WEBGL_COLORS.cable, emissive: WEBGL_COLORS.cable, emissiveIntensity: 0.28, roughness: 0.38, metalness: 0.1 }), radiusKm);
-  const cableMaterials = { power: createCableMaterial(POWER_CABLE_RADIUS_KM), telecom: createCableMaterial(TELECOM_CABLE_RADIUS_KM) };
+    thinTubeWithDistance(
+      new THREE.MeshStandardMaterial({ color: WEBGL_COLORS.cable, emissive: WEBGL_COLORS.cable, emissiveIntensity: 0.28, roughness: 0.38, metalness: 0.1 }),
+      radiusKm,
+      fullWidthDistanceKm,
+    );
+  const cableMaterials = { power: createCableMaterial(tubeRadii.power), telecom: createCableMaterial(tubeRadii.telecom) };
   const pipelineMaterial = thinTubeWithDistance(
     new THREE.MeshStandardMaterial({ color: WEBGL_COLORS.pipeline, emissive: WEBGL_COLORS.pipeline, emissiveIntensity: 0.12, roughness: 0.5, metalness: 0.1 }),
-    PIPELINE_RADIUS_KM,
+    tubeRadii.pipeline,
+    fullWidthDistanceKm,
   );
 
   const primaryCut = input.cuts[0];
@@ -310,12 +328,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     const scenePoints = densifyScenePoints(line.points.map(([longitude, latitude]) => toScene(longitude, latitude)), LINE_STEP_KM);
     for (const run of clipToBlock(scenePoints, projection)) {
       if (line.kind === "pipeline") {
-        const pipeline = createSeabedTube(run, PIPELINE_RADIUS_KM, pipelineMaterial, sampleSeabedHeight);
+        const pipeline = createSeabedTube(run, tubeRadii.pipeline, pipelineMaterial, sampleSeabedHeight);
         scene.add(pipeline.mesh);
         pipelineCurves.set(line.name, [...(pipelineCurves.get(line.name) ?? []), pipeline.curve]);
         continue;
       }
-      const radius = line.kind === "power" ? POWER_CABLE_RADIUS_KM : TELECOM_CABLE_RADIUS_KM;
+      const radius = tubeRadii[line.kind];
       const cableMaterial = cableMaterials[line.kind];
       const intact = createSeabedTube(run, radius, cableMaterial, sampleSeabedHeight);
       scene.add(intact.mesh);
@@ -337,8 +355,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (cut === primaryCut) {
         // The signature "signal": a faint halo and a light that runs along the cable under watch.
         const halo = new THREE.Mesh(
-          new THREE.TubeGeometry(intact.curve, Math.max(12, run.length * 2), SIGNAL_HALO_RADIUS_KM, 8, false),
-          thinTubeWithDistance(new THREE.MeshBasicMaterial({ color: WEBGL_COLORS.cable, transparent: true, opacity: 0.12, depthWrite: false }), SIGNAL_HALO_RADIUS_KM),
+          new THREE.TubeGeometry(intact.curve, Math.max(12, run.length * 2), tubeRadii.signalHalo, 8, false),
+          thinTubeWithDistance(
+            new THREE.MeshBasicMaterial({ color: WEBGL_COLORS.cable, transparent: true, opacity: 0.12, depthWrite: false }),
+            tubeRadii.signalHalo,
+            fullWidthDistanceKm,
+          ),
         );
         scene.add(halo);
         intactObjects.push(halo);
@@ -352,6 +374,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     }
   }
 
+  // Names that give context but carry no case data; a narrow view drops them first (setCompactLabels).
+  const contextLabels: THREE.Object3D[] = [];
   // Each pipeline is named once, where it runs farthest from the track and the cuts, so labels do not pile up.
   const busyPoints = [...densifyScenePoints(input.track.map((position) => toScene(position.longitude, position.latitude)), LABEL_BUSY_STEP_KM), ...input.cuts.map((cut) => toScene(cut.longitude, cut.latitude))];
   for (const [name, curves] of pipelineCurves) {
@@ -360,6 +384,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     const label = makeLabel(name, "pipeline");
     label.position.set(labelPoint.x, labelPoint.y + 0.9, labelPoint.z);
     scene.add(label);
+    contextLabels.push(label);
   }
 
   for (const place of features.places) {
@@ -367,6 +392,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     const label = makeLabel(place.name, "land");
     label.position.set(point.x, sampleSeabedHeight(point.x, point.z) + 0.8, point.z);
     scene.add(label);
+    contextLabels.push(label);
   }
 
   const signalCore = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: SCENE_COLORS.signalCore }));
@@ -379,7 +405,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   signal.visible = signalCurve !== null;
   scene.add(signal);
 
-  // The reconstructed track: straight segments between published positions, drawn as time passes.
+  // The track: straight segments between placed positions and recorded AIS fixes, drawn as time passes.
   const trackScene = input.track.map((position) => ({ atMs: position.atMs, ...toScene(position.longitude, position.latitude) }));
   const cumulativeKm = trackScene.reduce<number[]>((sums, point, index) => {
     const previous = trackScene[index - 1];
@@ -451,12 +477,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     }
   }
 
-  const tanker = buildTankerModel();
-  const ship = tanker.group;
+  const shipModel = buildShipModel(input.vessel.kind);
+  const ship = shipModel.group;
   ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
-  const shipLabel = makeStackedLabel(input.vessel.name, input.vessel.note, "above");
-  shipLabel.position.set(0, SHIP_LABEL_HEIGHT_METRES, 0);
-  ship.add(shipLabel);
+  const shipLabel = makeStackedLabel(input.vessel.name, describeVesselPosition(input.track, input.windowStartMs), "above");
+  shipLabel.object.position.set(0, SHIP_LABEL_HEIGHT_METRES, 0);
+  ship.add(shipLabel.object);
   ship.visible = false;
   scene.add(ship);
   const wake = createWake();
@@ -550,9 +576,10 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (heading.x !== 0 || heading.z !== 0) lastHeading = heading;
       ship.rotation.y = Math.atan2(-lastHeading.z, lastHeading.x);
       ship.updateMatrixWorld();
+      shipLabel.setNote(describeVesselPosition(input.track, atMs));
       vesselFrame = { position: ship.position, heading: lastHeading };
       // The wake: the stern now, then the path sailed over the last minutes.
-      sternWorld.copy(tanker.sternLocal).applyMatrix4(ship.matrixWorld);
+      sternWorld.copy(shipModel.sternLocal).applyMatrix4(ship.matrixWorld);
       const sternOffsetKm = sternWorld.distanceTo(ship.position);
       wakeTrail.length = 0;
       wakeTrail.push({ x: sternWorld.x, z: sternWorld.z });
@@ -577,7 +604,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       anchor.position.set(shipPoint.x, sampleSeabedHeight(shipPoint.x, shipPoint.z) + 0.02, shipPoint.z);
       anchor.rotation.set(-0.12, Math.atan2(lastHeading.x, lastHeading.z), 0);
       anchor.updateMatrixWorld();
-      hawseWorld.copy(tanker.hawseLocal).applyMatrix4(ship.matrixWorld);
+      hawseWorld.copy(shipModel.hawseLocal).applyMatrix4(ship.matrixWorld);
       shackleWorld.copy(anchorModel.shackleLocal).applyMatrix4(anchor.matrixWorld);
       const chainPositions = chainGeometry.getAttribute("position");
       chainPositions.setXYZ(0, hawseWorld.x, hawseWorld.y, hawseWorld.z);
@@ -645,5 +672,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     plumeGeometry.getAttribute("position").needsUpdate = true;
   }
 
-  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, readVesselFrame: () => vesselFrame, update };
+  function setCompactLabels(isCompact: boolean) {
+    contextLabels.forEach((label) => {
+      label.visible = !isCompact;
+    });
+  }
+
+  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, readVesselFrame: () => vesselFrame, setCompactLabels, update };
 }

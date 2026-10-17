@@ -7,7 +7,7 @@ export const SCENE_SCALES = {
   waterExaggeration: 20,
   /** Overview: land drawn this many times higher than it is. */
   landExaggeration: 10,
-  /** Overview: the vessel drawn this many times its real size, so it reads across a 145 km block. */
+  /** Overview: the vessel drawn this many times its real size, so it reads across a 145 to 300 km block. */
   shipDrawnScale: 6,
   /** Overview: the anchor drawn this many times its real size. */
   anchorDrawnScale: 30,
@@ -21,5 +21,5 @@ export const OVERVIEW_SCALE_NOTE = `Depth is drawn ${SCENE_SCALES.waterExaggerat
 /** The sentences under the close-up, for its measured and illustrated modes. */
 export const CLOSE_UP_SCALE_NOTES = {
   illustrated: `Close-up: the anchor is drawn ${SCENE_SCALES.closeUpAnchorScale} times its size and the cable thicker than life; sand, rocks and the furrow are drawn in.`,
-  measured: "Close-up, measured: only the surveyed depth under the cut, one point every 115 m.",
+  measured: "Close-up, measured: only the depth grid under the cut, smoothed between its points; nothing is drawn in.",
 } as const;

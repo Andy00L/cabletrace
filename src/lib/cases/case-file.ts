@@ -1,4 +1,4 @@
-import type { ReplayCut, ReplaySceneInput, TimedPosition } from "@/lib/replay/replay-scene";
+import type { ReplayCut, ReplaySceneInput, ShipKind, TimedPosition } from "@/lib/replay/replay-scene";
 
 // A curated incident. Every time, position and claim points at a published source with its quote, so the
 // case can be checked line by line. Cases live as typed data in src/data/cases (reviewed in pull requests).
@@ -23,12 +23,6 @@ export type Citation = {
 /** How exactly a source places something: printed coordinates, a named place, or a description of an area. */
 export type PositionPrecision = "coordinates" | "named-place" | "area";
 
-/**
- * How the case knows where the vessel was: positions taken from statements ("reconstruction") or recorded
- * AIS reports ("ais"). The UI labels a reconstruction everywhere it appears.
- */
-export type TrackEvidence = "reconstruction" | "ais";
-
 export type CasePosition = {
   /** ISO 8601 UTC. */
   atUtc: string;
@@ -41,6 +35,15 @@ export type CasePosition = {
   placement: string;
   citations: Citation[];
 };
+
+/** One AIS report as the archive row gives it: time, position and speed over ground. */
+export type AisFix = { atUtc: string; longitude: number; latitude: number; speedKnots: number };
+
+/**
+ * Positions the vessel itself broadcast, from a public archive. `selection` says which rows were kept (vessel,
+ * time span, sampling) so a reader can rebuild the list from the same file.
+ */
+export type RecordedTrack = { selection: string; citations: Citation[]; fixes: AisFix[] };
 
 export type CaseCut = {
   /** Matches a line name in the seabed file. */
@@ -56,7 +59,7 @@ export type CaseCut = {
   citations: Citation[];
 };
 
-export type CaseEventKind = "vessel" | "anchor" | "cable-fault" | "authorities" | "investigation" | "court";
+export type CaseEventKind = "vessel" | "anchor" | "cable-fault" | "repair" | "authorities" | "investigation" | "court";
 
 export type CaseEvent = {
   atUtc: string;
@@ -73,13 +76,16 @@ export type CableCase = {
   subtitle: string;
   /** Two or three sentences shown above the replay. */
   summary: string;
-  trackEvidence: TrackEvidence;
-  vessel: { name: string; flag: string; type: string; imo: string | null; mmsi: string | null; citations: Citation[] };
+  /** `kind` picks the 3D model; `type` is the description shown on the ship card. */
+  vessel: { name: string; kind: ShipKind; flag: string; type: string; imo: string | null; mmsi: string | null; citations: Citation[] };
   window: { startUtc: string; endUtc: string };
   /** The local clock shown beside UTC, for the place the incident happened. */
   localTime: { place: string; timeZone: string };
   seabedArea: string;
+  /** Positions placed from statements, each saying how (a reconstruction). The UI labels them everywhere. */
   track: CasePosition[];
+  /** AIS positions from a public archive, or null when none survive for the window. */
+  recordedTrack: RecordedTrack | null;
   dragWindow: { startUtc: string; endUtc: string; citations: Citation[] } | null;
   cuts: [CaseCut, ...CaseCut[]];
   /** What happened inside the replay window. */
@@ -93,11 +99,21 @@ function toMs(isoUtc: string): number {
   return Date.parse(isoUtc);
 }
 
-/** The numbers the 3D replay needs, without sources or quotes. */
+/** The numbers the 3D replay needs, without sources or quotes. Placed and recorded positions share one track. */
 export function toReplaySceneInput(cableCase: CableCase): ReplaySceneInput {
-  const track: TimedPosition[] = cableCase.track
-    .map((position) => ({ atMs: toMs(position.atUtc), longitude: position.longitude, latitude: position.latitude }))
-    .sort((first, second) => first.atMs - second.atMs);
+  const placedPositions: TimedPosition[] = cableCase.track.map((position) => ({
+    atMs: toMs(position.atUtc),
+    longitude: position.longitude,
+    latitude: position.latitude,
+    recordedSpeedKnots: null,
+  }));
+  const recordedPositions: TimedPosition[] = (cableCase.recordedTrack?.fixes ?? []).map((fix) => ({
+    atMs: toMs(fix.atUtc),
+    longitude: fix.longitude,
+    latitude: fix.latitude,
+    recordedSpeedKnots: fix.speedKnots,
+  }));
+  const track = [...placedPositions, ...recordedPositions].sort((first, second) => first.atMs - second.atMs);
   const toCut = (cut: CaseCut): ReplayCut => ({ cableName: cut.cableName, label: cut.label, atMs: toMs(cut.atUtc), longitude: cut.longitude, latitude: cut.latitude });
   const [primaryCut, ...otherCuts] = cableCase.cuts;
   return {
@@ -107,13 +123,14 @@ export function toReplaySceneInput(cableCase: CableCase): ReplaySceneInput {
     track,
     dragWindow: cableCase.dragWindow ? { startMs: toMs(cableCase.dragWindow.startUtc), endMs: toMs(cableCase.dragWindow.endUtc) } : null,
     cuts: [toCut(primaryCut), ...otherCuts.map(toCut)],
-    vessel: { name: cableCase.vessel.name, note: cableCase.trackEvidence === "reconstruction" ? "reconstructed position" : "AIS position" },
+    vessel: { name: cableCase.vessel.name, kind: cableCase.vessel.kind },
   };
 }
 
 /**
  * Checks a case for the mistakes that would mislead a reader: unparseable times, citations pointing at
- * missing sources, a window that does not contain the events, aftermath inside the window, an unsorted track.
+ * missing sources, a window that does not contain the events, aftermath inside the window, an unsorted track
+ * or list of AIS fixes.
  * Returns every problem found.
  */
 export function findCaseProblems(cableCase: CableCase): string[] {
@@ -156,6 +173,16 @@ export function findCaseProblems(cableCase: CableCase): string[] {
     else if (toMs(event.atUtc) < windowEnd) problems.push(`aftermath "${event.title}": ${event.atUtc} is not after the replay window`);
     checkCitations(`aftermath "${event.title}"`, event.citations);
   });
+  if (cableCase.recordedTrack) {
+    const { fixes, citations } = cableCase.recordedTrack;
+    checkCitations("recorded track", citations);
+    if (fixes.length === 0) problems.push("recorded track: no fixes");
+    fixes.forEach((fix, index) => {
+      checkTime(`fix ${index}`, fix.atUtc);
+      const previous = fixes[index - 1];
+      if (previous && toMs(previous.atUtc) > toMs(fix.atUtc)) problems.push(`fix ${index}: earlier than the fix before it`);
+    });
+  }
   if (cableCase.dragWindow) checkCitations("drag window", cableCase.dragWindow.citations);
   return problems;
 }

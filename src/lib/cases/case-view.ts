@@ -40,6 +40,19 @@ function toTimelineEvent(event: CaseEvent): TimelineEvent {
   };
 }
 
+/** How the case knows where the vessel was, in one sentence for the ship card. */
+export function describeTrackEvidence(cableCase: Pick<CableCase, "track" | "recordedTrack">): string {
+  const fixes = cableCase.recordedTrack?.fixes ?? [];
+  const firstFix = fixes[0];
+  if (!firstFix) return "Positions here are reconstructed from statements, never recorded.";
+  if (cableCase.track.length === 0) return "Positions here are AIS reports the ship broadcast.";
+  const firstFixMs = Date.parse(firstFix.atUtc);
+  const isPlacedBeforeRecorded = cableCase.track.every((position) => Date.parse(position.atUtc) < firstFixMs);
+  return isPlacedBeforeRecorded
+    ? `Until ${formatUtcClock(firstFixMs)} UTC positions are reconstructed from statements; after that they are AIS reports the ship broadcast.`
+    : "Some positions are reconstructed from statements; the others are AIS reports the ship broadcast.";
+}
+
 /** The replay window's events, in time order. */
 export function toTimelineEvents(cableCase: Pick<CableCase, "events">): TimelineEvent[] {
   return cableCase.events.map(toTimelineEvent).sort((first, second) => first.atMs - second.atMs);
