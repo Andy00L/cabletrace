@@ -1,0 +1,924 @@
+{
+ "type": "outages.alerts",
+ "metadata": {
+  "requestTime": "2026-10-17T15:51:55+00:00",
+  "responseTime": "2026-10-17T15:51:55+00:00"
+ },
+ "requestParameters": {
+  "from": "1792108800",
+  "until": "1792281600",
+  "datasource": null,
+  "limit": 500,
+  "page": null,
+  "relatedTo": null,
+  "entityType": "country",
+  "entityCode": null,
+  "ignoreMethods": null,
+  "extendWindow": 0
+ },
+ "error": null,
+ "perf": null,
+ "data": [
+  {
+   "datasource": "ping-slash24",
+   "entity": {
+    "code": "EG",
+    "name": "Egypt",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.EG"
+    }
+   },
+   "time": 1792110600,
+   "level": "normal",
+   "condition": "normal",
+   "value": 4658,
+   "historyValue": 5770,
+   "method": "median"
+  },
+  {
+   "datasource": "ping-slash24",
+   "entity": {
+    "code": "NA",
+    "name": "Namibia",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.NA"
+    }
+   },
+   "time": 1792110600,
+   "level": "critical",
+   "condition": "< 0.8",
+   "value": 144,
+   "historyValue": 446,
+   "method": "median"
+  },
+  {
+   "datasource": "gtr",
+   "entity": {
+    "code": "HT",
+    "name": "Haiti",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.NA.HT"
+    }
+   },
+   "time": 1792112400,
+   "level": "critical",
+   "condition": "< 0.8",
+   "value": 2205,
+   "historyValue": 2604,
+   "method": "sarima"
+  },
+  {
+   "datasource": "ping-slash24",
+   "entity": {
+    "code": "VI",
+    "name": "Us Virgin Islands",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.NA.VI"
+    }
+   },
+   "time": 1792114200,
+   "level": "normal",
+   "condition": "normal",
+   "value": 120,
+   "historyValue": 144,
+   "method": "median"
+  },
+  {
+   "datasource": "ping-slash24",
+   "entity": {
+    "code": "CD",
+    "name": "Democratic Republic Of The Congo",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.CD"
+    }
+   },
+   "time": 1792114800,
+   "level": "critical",
+   "condition": "< 0.8",
+   "value": 149,
+   "historyValue": 191,
+   "method": "median"
+  },
+  {
+   "datasource": "ping-slash24",
+   "entity": {
+    "code": "CD",
+    "name": "Democratic Republic Of The Congo",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.CD"
+    }
+   },
+   "time": 1792117200,
+   "level": "normal",
+   "condition": "normal",
+   "value": 153,
+   "historyValue": 191,
+   "method": "median"
+  },
+  {
+   "datasource": "ping-slash24",
+   "entity": {
+    "code": "NA",
+    "name": "Namibia",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.NA"
+    }
+   },
+   "time": 1792119000,
+   "level": "normal",
+   "condition": "normal",
+   "value": 413,
+   "historyValue": 446,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "SS",
+    "name": "South Sudan",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.SS"
+    }
+   },
+   "time": 1792126200,
+   "level": "normal",
+   "condition": "normal",
+   "value": 114,
+   "historyValue": 114,
+   "method": "median"
+  },
+  {
+   "datasource": "gtr",
+   "entity": {
+    "code": "HT",
+    "name": "Haiti",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.NA.HT"
+    }
+   },
+   "time": 1792126800,
+   "level": "normal",
+   "condition": "normal",
+   "value": 604,
+   "historyValue": 872,
+   "method": "sarima"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "VE",
+    "name": "Venezuela",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.SA.VE"
+    }
+   },
+   "time": 1792136400,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 25230,
+   "historyValue": 25489,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "ZM",
+    "name": "Zambia",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.ZM"
+    }
+   },
+   "time": 1792141500,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 1555,
+   "historyValue": 3625,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "ZM",
+    "name": "Zambia",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.ZM"
+    }
+   },
+   "time": 1792143300,
+   "level": "normal",
+   "condition": "normal",
+   "value": 3625,
+   "historyValue": 3625,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "VE",
+    "name": "Venezuela",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.SA.VE"
+    }
+   },
+   "time": 1792149300,
+   "level": "normal",
+   "condition": "normal",
+   "value": 25486,
+   "historyValue": 25489,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "TJ",
+    "name": "Tajikistan",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.TJ"
+    }
+   },
+   "time": 1792157400,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 362,
+   "historyValue": 369,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "CM",
+    "name": "Cameroon",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.CM"
+    }
+   },
+   "time": 1792158900,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 1807,
+   "historyValue": 1829,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "TJ",
+    "name": "Tajikistan",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.TJ"
+    }
+   },
+   "time": 1792158900,
+   "level": "normal",
+   "condition": "normal",
+   "value": 366,
+   "historyValue": 369,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "CM",
+    "name": "Cameroon",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.CM"
+    }
+   },
+   "time": 1792162500,
+   "level": "normal",
+   "condition": "normal",
+   "value": 1811,
+   "historyValue": 1829,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "BO",
+    "name": "Bolivia",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.SA.BO"
+    }
+   },
+   "time": 1792181100,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 4476,
+   "historyValue": 4732,
+   "method": "median"
+  },
+  {
+   "datasource": "ping-slash24",
+   "entity": {
+    "code": "VI",
+    "name": "Us Virgin Islands",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.NA.VI"
+    }
+   },
+   "time": 1792181400,
+   "level": "critical",
+   "condition": "< 0.8",
+   "value": 79,
+   "historyValue": 144,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "BO",
+    "name": "Bolivia",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.SA.BO"
+    }
+   },
+   "time": 1792183200,
+   "level": "normal",
+   "condition": "normal",
+   "value": 4732,
+   "historyValue": 4732,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "SS",
+    "name": "South Sudan",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.SS"
+    }
+   },
+   "time": 1792183500,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 112,
+   "historyValue": 114,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "CG",
+    "name": "Congo",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.CG"
+    }
+   },
+   "time": 1792191900,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 559,
+   "historyValue": 570,
+   "method": "median"
+  },
+  {
+   "datasource": "ping-slash24",
+   "entity": {
+    "code": "VI",
+    "name": "Us Virgin Islands",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.NA.VI"
+    }
+   },
+   "time": 1792194600,
+   "level": "normal",
+   "condition": "normal",
+   "value": 116,
+   "historyValue": 144,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "MW",
+    "name": "Malawi",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.MW"
+    }
+   },
+   "time": 1792195200,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 830,
+   "historyValue": 958,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "CG",
+    "name": "Congo",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.CG"
+    }
+   },
+   "time": 1792204500,
+   "level": "normal",
+   "condition": "normal",
+   "value": 570,
+   "historyValue": 570,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792205700,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 26453,
+   "historyValue": 26772,
+   "method": "median"
+  },
+  {
+   "datasource": "gtr",
+   "entity": {
+    "code": "MP",
+    "name": "Northern Mariana Islands",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.OC.MP"
+    }
+   },
+   "time": 1792206000,
+   "level": "critical",
+   "condition": "< 0.8",
+   "value": 219,
+   "historyValue": 329,
+   "method": "sarima"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "SR",
+    "name": "Suriname",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.SA.SR"
+    }
+   },
+   "time": 1792206600,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 358,
+   "historyValue": 362,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "SR",
+    "name": "Suriname",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.SA.SR"
+    }
+   },
+   "time": 1792208400,
+   "level": "normal",
+   "condition": "normal",
+   "value": 362,
+   "historyValue": 362,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "SS",
+    "name": "South Sudan",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.SS"
+    }
+   },
+   "time": 1792212000,
+   "level": "normal",
+   "condition": "normal",
+   "value": 114,
+   "historyValue": 114,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "TL",
+    "name": "Timor-Leste",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.TL"
+    }
+   },
+   "time": 1792212000,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 113,
+   "historyValue": 115,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "TL",
+    "name": "Timor-Leste",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.TL"
+    }
+   },
+   "time": 1792213200,
+   "level": "normal",
+   "condition": "normal",
+   "value": 115,
+   "historyValue": 115,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "MW",
+    "name": "Malawi",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.MW"
+    }
+   },
+   "time": 1792213200,
+   "level": "normal",
+   "condition": "normal",
+   "value": 958,
+   "historyValue": 958,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "SR",
+    "name": "Suriname",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.SA.SR"
+    }
+   },
+   "time": 1792213500,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 358,
+   "historyValue": 362,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "SR",
+    "name": "Suriname",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.SA.SR"
+    }
+   },
+   "time": 1792214400,
+   "level": "normal",
+   "condition": "normal",
+   "value": 362,
+   "historyValue": 362,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "VI",
+    "name": "Us Virgin Islands",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.NA.VI"
+    }
+   },
+   "time": 1792217400,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 564,
+   "historyValue": 580,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "VI",
+    "name": "Us Virgin Islands",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.NA.VI"
+    }
+   },
+   "time": 1792218300,
+   "level": "normal",
+   "condition": "normal",
+   "value": 580,
+   "historyValue": 580,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792224600,
+   "level": "normal",
+   "condition": "normal",
+   "value": 26772,
+   "historyValue": 26772,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792225800,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 26453,
+   "historyValue": 26772,
+   "method": "median"
+  },
+  {
+   "datasource": "gtr",
+   "entity": {
+    "code": "MP",
+    "name": "Northern Mariana Islands",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.OC.MP"
+    }
+   },
+   "time": 1792225800,
+   "level": "normal",
+   "condition": "normal",
+   "value": 250,
+   "historyValue": 300,
+   "method": "sarima"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792227900,
+   "level": "normal",
+   "condition": "normal",
+   "value": 26772,
+   "historyValue": 26772,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792228200,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 26453,
+   "historyValue": 26772,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "IQ",
+    "name": "Iraq",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.IQ"
+    }
+   },
+   "time": 1792233300,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 3091,
+   "historyValue": 3153,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "IQ",
+    "name": "Iraq",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.IQ"
+    }
+   },
+   "time": 1792234500,
+   "level": "normal",
+   "condition": "normal",
+   "value": 3151,
+   "historyValue": 3153,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "BW",
+    "name": "Botswana",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.BW"
+    }
+   },
+   "time": 1792234800,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 673,
+   "historyValue": 680,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "BW",
+    "name": "Botswana",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AF.BW"
+    }
+   },
+   "time": 1792236300,
+   "level": "normal",
+   "condition": "normal",
+   "value": 680,
+   "historyValue": 680,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792237800,
+   "level": "normal",
+   "condition": "normal",
+   "value": 26772,
+   "historyValue": 26772,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792238100,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 26453,
+   "historyValue": 26772,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792241400,
+   "level": "normal",
+   "condition": "normal",
+   "value": 26723,
+   "historyValue": 26772,
+   "method": "median"
+  },
+  {
+   "datasource": "bgp",
+   "entity": {
+    "code": "PH",
+    "name": "Philippines",
+    "subnames": [],
+    "type": "country",
+    "attrs": {
+     "fqid": "geo.netacuity.AS.PH"
+    }
+   },
+   "time": 1792242000,
+   "level": "critical",
+   "condition": "< 0.99",
+   "value": 26453,
+   "historyValue": 26772,
+   "method": "median"
+  }
+ ],
+ "copyright": "This data is Copyright (c) 2021-2025 Georgia Tech Research Corporation. All Rights Reserved."
+}

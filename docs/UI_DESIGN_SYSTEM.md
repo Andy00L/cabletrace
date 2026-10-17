@@ -218,7 +218,7 @@ Home, the case list, the live globe, the watchlist and the WebGL check share one
 | Page | 1024 px and up | Under 1024 px |
 |---|---|---|
 | Home (board 12a) | One screen. Left, 400 px: the title, what CableTrace does, the live recorder card and a link to the recorded day on the globe. Right: the two newest cases as wide cards (sketch beside place, date, title and three facts) sharing the column's height. Between 1,024 and 1,280 px the sketch keeps 16:9 so no cut is cropped. | One column that scrolls; the sketch sits over the text. |
-| Case list (board 12b) | Four tiles to a row, five from 1,280 px (sketch over place, date, title and one line of facts), so two rows of cases fit one screen. | Two to a row from 640 px, one under it. |
+| Case list | Cases grouped by region (Gulf of Finland, Central Baltic, Norway and Svalbard, Taiwan Strait, Red Sea; `src/lib/cases/case-regions.ts`), newest first in each, as compact rows: a 112 px sketch beside place, date, title and one line of facts. Three columns from 1,280 px, two from 768 px, so a dozen cases fit one screen. | One column. |
 | Watchlist | Two cards side by side: alerts of the last 24 hours (the detector's findings on a watched ship, a watched cable, or a cable cut in a watched case; `alarm` for an alert, `ink` for a watch) and the watched items with a remove button each. Signed out, the page sends the reader to sign in. | The two cards stack. |
 | Sign in, sign up | Clerk's form in the middle of the page, colored from the tokens (`src/app/(account)/layout.tsx`). | Same. |
 

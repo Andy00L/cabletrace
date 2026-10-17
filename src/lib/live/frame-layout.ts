@@ -1,12 +1,13 @@
 // Where the ship frames live in Supabase Storage and how the browser finds them.
 //
-//   bucket ship-frames (public read)
+//   bucket ship-frames (private: written by the collector, read on the server, both with the secret key)
 //     index.json                        every stored frame (at most 47 hours), rewritten by every collector run
 //     frames/20261017T1420Z.bin.gz      one gzip-compressed frame (snapshot-codec.ts) per 10-minute UTC slot
 //
-// Browser: GET {projectUrl}/storage/v1/object/public/ship-frames/index.json, parseFrameIndex, keep
-// selectLiveFrames (the last 24 hours), fetch the last entry first (the newest frame) and the rest on
-// demand; gunzipBytes then decodeShipFrame per file.
+// Browser: GET /api/ship-frames/index.json, the CDN-cached route that reads the bucket on the server
+// (src/lib/frames/frame-storage.ts); parseFrameIndex, keep selectLiveFrames (the last 24 hours), fetch the
+// last entry first (the newest frame) from /api/ship-frames/<path> and the rest on demand; gunzipBytes then
+// decodeShipFrame per file.
 // The index is also the collector's own record of what is stored, so a run reads one small file
 // instead of listing the bucket (a listing costs about 400 bytes of egress per object).
 // Type-only import: see the import rule at the top of snapshot-codec.ts.
@@ -80,10 +81,6 @@ export function parseFrameObjectName(name: string): Result<number> {
   return { ok: true, value: slotStart };
 }
 
-/** Public URL of an object in the frame bucket, fetched by the browser without any key. */
-export function frameObjectUrl(projectUrl: string, objectPath: string): string {
-  return `${projectUrl.replace(/\/+$/u, "")}/storage/v1/object/public/${FRAME_BUCKET}/${objectPath}`;
-}
 
 /** Stored frames past the retention window, which the collector deletes. */
 export function selectExpiredFrames(frames: readonly StoredFrame[], nowMs: number): StoredFrame[] {

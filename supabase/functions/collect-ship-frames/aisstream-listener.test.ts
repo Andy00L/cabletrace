@@ -49,6 +49,26 @@ Deno.test("reconnects when the server drops the socket, at most 3 connections in
   });
 });
 
+Deno.test("subscribes to the boxes and message types it is given", async () => {
+  const fake = startFakeAisstream("drop-after-two");
+  const outcome = await listenToAisstream({
+    apiKey: "test-key",
+    listenMs: 3_000,
+    onMessageText: () => {},
+    boundingBoxes: [
+      [
+        [59, 22],
+        [60.8, 30.5],
+      ],
+    ],
+    messageTypes: ["PositionReport"],
+    streamUrl: fake.url,
+  });
+  await fake.server.shutdown();
+  ok(outcome.ok);
+  deepStrictEqual(fake.subscriptions[0], { APIKey: "test-key", BoundingBoxes: [[[59, 22], [60.8, 30.5]]], FilterMessageTypes: ["PositionReport"] });
+});
+
 Deno.test("gives up without retrying when the first connection brings nothing", async () => {
   const fake = startFakeAisstream("refuse");
   const outcome = await listenToAisstream({ apiKey: "bad-key", listenMs: 10_000, onMessageText: () => {}, streamUrl: fake.url });

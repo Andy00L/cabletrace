@@ -1,0 +1,134 @@
+{
+ "source": "https://ummapi.nordpoolgroup.com/messages/79210ee1-3395-4f75-a972-7b03888b107a/2",
+ "fetchedAtUtc": "2026-10-17T15:56:00Z",
+ "message": {
+  "messageType": 3,
+  "isOutdated": true,
+  "unavailabilityType": 1,
+  "reasonCode": 1,
+  "eventStart": "2024-12-25T10:26:00.0000000Z",
+  "eventStop": "2024-12-25T22:59:00.0000000Z",
+  "unavailabilityReason": "Failure",
+  "remarks": "Estlink 2 trip",
+  "transmissionUnits": [
+   {
+    "name": "EE → FI",
+    "inAreaEic": "10Y1001A1001A39I",
+    "inAreaName": "EE",
+    "outAreaEic": "10YFI-1--------U",
+    "outAreaName": "FI",
+    "installedCapacity": 1016,
+    "timePeriods": [
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T10:26:00.0000000Z",
+      "eventStop": "2024-12-25T10:30:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T10:30:00.0000000Z",
+      "eventStop": "2024-12-25T11:00:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T11:00:00.0000000Z",
+      "eventStop": "2024-12-25T22:00:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T22:00:00.0000000Z",
+      "eventStop": "2024-12-25T22:30:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T22:30:00.0000000Z",
+      "eventStop": "2024-12-25T22:45:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T22:45:00.0000000Z",
+      "eventStop": "2024-12-25T22:59:00.0000000Z"
+     }
+    ]
+   },
+   {
+    "name": "FI → EE",
+    "inAreaEic": "10YFI-1--------U",
+    "inAreaName": "FI",
+    "outAreaEic": "10Y1001A1001A39I",
+    "outAreaName": "EE",
+    "installedCapacity": 1016,
+    "timePeriods": [
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T10:26:00.0000000Z",
+      "eventStop": "2024-12-25T10:30:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T10:30:00.0000000Z",
+      "eventStop": "2024-12-25T11:00:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T11:00:00.0000000Z",
+      "eventStop": "2024-12-25T22:00:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T22:00:00.0000000Z",
+      "eventStop": "2024-12-25T22:30:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T22:30:00.0000000Z",
+      "eventStop": "2024-12-25T22:45:00.0000000Z"
+     },
+     {
+      "unavailableCapacity": 658,
+      "availableCapacity": 358,
+      "eventStart": "2024-12-25T22:45:00.0000000Z",
+      "eventStop": "2024-12-25T22:59:00.0000000Z"
+     }
+    ]
+   }
+  ],
+  "assets": [
+   {
+    "name": "Estlink 2",
+    "code": "10T-FI-EE-00002O"
+   }
+  ],
+  "marketParticipants": [
+   {
+    "name": "NUCS",
+    "code": "10V1001C--000187",
+    "acerCode": "000000000.00",
+    "eicCode": "10V1001C--000187"
+   },
+   {
+    "name": "Elering",
+    "code": "10X1001A1001A39W",
+    "acerCode": "A0002679T.EE",
+    "eicCode": "10X1001A1001A39W"
+   }
+  ],
+  "eventStatus": 1,
+  "messageId": "79210ee1-3395-4f75-a972-7b03888b107a",
+  "version": 2,
+  "publicationDate": "2024-12-25T11:01:34.0000000Z",
+  "publisherId": "N01250",
+  "publisherName": "Fingrid Oyj"
+ }
+}

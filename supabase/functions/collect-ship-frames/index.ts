@@ -2,11 +2,13 @@
 // supabase/migrations/20261018400100_ship_frames_schedule.sql; each call listens to aisstream.io,
 // adds Fintraffic Digitraffic, and writes one frame to the public ship-frames bucket (collect.ts).
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { REGIONS } from "@/data/regions";
+import { selectRegionsBySource } from "@/lib/regions/region";
 import type { Result } from "../../../src/lib/result.ts";
 import { listenToAisstream } from "./aisstream-listener.ts";
 import { collectShipFrame } from "./collect.ts";
 import { fetchDigitrafficLocations, fetchDigitrafficVessels } from "./digitraffic-client.ts";
-import { createFrameStore, createShipStaticStore } from "./supabase-ports.ts";
+import { createCrossSourceStore, createFrameStore, createShipStaticStore } from "./supabase-ports.ts";
 
 // One run per 10-minute slot, listening 105 s. The free plan allows 2 s of CPU and 150 s of wall clock
 // per request (supabase.com/docs/guides/functions/limits): the CPU harness measured 610 to 640 ms of
@@ -14,6 +16,9 @@ import { createFrameStore, createShipStaticStore } from "./supabase-ports.ts";
 // handlers (2026-10-17), and 105 s plus Digitraffic (15 s timeout) and the uploads stays under 150 s. Fewer, longer runs because every run downloads the newest frame
 // (about 120 to 230 KB) to merge into: once a minute that would be 5 to 10 GB of egress a month.
 const LISTEN_MS = 105_000;
+// Where both feeds report, each run compares them (src/lib/live/cross-source.ts): the regions recorded from Digitraffic,
+// which the world-wide aisstream capture covers too.
+const CROSS_CHECK_REGIONS = selectRegionsBySource(REGIONS, "digitraffic").map((region) => ({ id: region.id, box: region.box }));
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -72,13 +77,15 @@ Deno.serve(async (request) => {
       statics: createShipStaticStore(database),
       listen: ({ listenMs, onMessageText }) => listenToAisstream({ apiKey, listenMs, onMessageText }),
       fetchDigitrafficLocations,
-      fetchDigitrafficVessels,
+      fetchDigitrafficVessels: () => fetchDigitrafficVessels(),
+      storeCrossSourceSamples: createCrossSourceStore(database),
       nowMs: () => Date.now(),
     },
-    { listenMs: LISTEN_MS },
+    { listenMs: LISTEN_MS, crossCheckRegions: CROSS_CHECK_REGIONS },
   );
 
-  const outline = `${summary.shipCount} ships (${summary.aisstreamShips} aisstream, ${summary.digitrafficShips} Digitraffic), ${summary.compressedBytes} bytes to ${summary.framePath ?? "nowhere"}`;
+  const crossSource = summary.crossSource.map((sample) => `${sample.regionId} ${sample.sharedShips}/${sample.aisstreamShips} shared, ${sample.matchedPairs} pairs`).join("; ");
+  const outline = `${summary.shipCount} ships (${summary.aisstreamShips} aisstream, ${summary.digitrafficShips} Digitraffic), ${summary.compressedBytes} bytes to ${summary.framePath ?? "nowhere"}; cross-source: ${crossSource || "none"}`;
   if (summary.ok) console.log(`[collectShipFrames] ${outline}`);
   else console.error(`[collectShipFrames] ${outline}; errors: ${summary.errors.join("; ")}`);
   return Response.json(summary, { status: summary.framePath === null ? 500 : 200 });
