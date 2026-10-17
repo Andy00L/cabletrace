@@ -36,6 +36,8 @@ const PROBE_RADIUS_PX = 2;
 // crossing lines hide some probe points.
 const MIN_PROBES_PER_TONE = 3;
 const MIN_EXACT_PROBE_SHARE = 0.6;
+// Each tone must be judged on at least this many probes across a full run on each tier.
+const MIN_PROBES_PER_RUN = 20;
 // The picture counts as settled when no frame was drawn for this long (a calm scene draws only on change).
 const SETTLE_MS = 800;
 const FRAME_TIMEOUT_MS = 120_000;
@@ -43,6 +45,7 @@ const FRAME_TIMEOUT_MS = 120_000;
 const SCRUB_STEPS = 6;
 const TURNTABLE_SHOT_NAME = "ships-turntable";
 
+const DATA_TONES: readonly DataTone[] = ["cable", "pipeline", "suspect", "alarm"];
 const TONE_HEX: Record<DataTone, string> = { cable: WEBGL_COLORS.cable, pipeline: WEBGL_COLORS.pipeline, suspect: WEBGL_COLORS.ink, alarm: WEBGL_COLORS.alarm };
 
 // Chromium flags per tier. Software: SwiftShader, as the test browsers draw (M139 and later need the unsafe flag).
@@ -202,6 +205,31 @@ function isProbePoint(value: unknown): value is ProbePoint {
   return (tone === "cable" || tone === "pipeline" || tone === "suspect" || tone === "alarm") && typeof Reflect.get(value, "x") === "number" && typeof Reflect.get(value, "y") === "number";
 }
 
+/**
+ * The canvas frame with each probe marked: a green square where the exact colour was found within the search
+ * radius, a red one where it was not. For a person to see which lines hold their colour and which do not.
+ */
+function drawProbeOverlay(image: RgbaImage, probes: readonly ProbePoint[]): RgbaImage {
+  const data = Uint8Array.from(image.data);
+  const markSize = PROBE_RADIUS_PX + 2;
+  for (const probe of probes) {
+    const match = matchColorNear(image, probe.x, probe.y, parseHexColor(TONE_HEX[probe.tone]), PROBE_RADIUS_PX);
+    const markColor = match !== null && match.deviation <= COLOR_TOLERANCE ? [46, 158, 91] : [217, 58, 38];
+    for (let offset = -markSize; offset <= markSize; offset += 1) {
+      for (const [column, row] of [
+        [Math.round(probe.x) + offset, Math.round(probe.y) - markSize],
+        [Math.round(probe.x) + offset, Math.round(probe.y) + markSize],
+        [Math.round(probe.x) - markSize, Math.round(probe.y) + offset],
+        [Math.round(probe.x) + markSize, Math.round(probe.y) + offset],
+      ] as const) {
+        if (column < 0 || row < 0 || column >= image.width || row >= image.height) continue;
+        data.set(markColor, (row * image.width + column) * 4);
+      }
+    }
+  }
+  return { width: image.width, height: image.height, data };
+}
+
 function judgeTones(image: RgbaImage, probes: readonly ProbePoint[], requiredTones: readonly DataTone[]): ToneVerdict[] {
   const tones = [...new Set<DataTone>([...requiredTones, ...probes.map((probe) => probe.tone)])];
   return tones.map((tone) => {
@@ -317,6 +345,11 @@ async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, 
     const parsedProbes: unknown = JSON.parse(rawProbes);
     const probes = Array.isArray(parsedProbes) ? parsedProbes.filter(isProbePoint) : [];
     const tones = shot.view === "closeup" ? [] : judgeTones(canvasImage.value, probes, shot.requiredTones);
+    if (probes.length > 0) {
+      const overlayDirectory = path.join(options.outDirectory, tier);
+      mkdirSync(overlayDirectory, { recursive: true });
+      writeFileSync(path.join(overlayDirectory, `${shot.name}.probes.png`), encodePng(drawProbeOverlay(canvasImage.value, probes)));
+    }
 
     const judged = judgeAgainstBaseline({ tier, name: shot.name, framePng: lookPng, frame: look.value, options });
     if (!judged.ok) return judged;
@@ -331,6 +364,17 @@ async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, 
   } finally {
     await context.close();
   }
+}
+
+/** Tones a tier never judged on at least MIN_PROBES_PER_RUN probes across all its frames, as sentences. */
+function findUnjudgedTones(outcomes: readonly ShotOutcome[]): string[] {
+  const tiers = [...new Set(outcomes.map((outcome) => outcome.tier))];
+  return tiers.flatMap((tier) =>
+    DATA_TONES.flatMap((tone) => {
+      const probeCount = outcomes.filter((outcome) => outcome.tier === tier).reduce((total, outcome) => total + outcome.tones.filter((verdict) => verdict.tone === tone).reduce((sum, verdict) => sum + verdict.probeCount, 0), 0);
+      return probeCount >= MIN_PROBES_PER_RUN ? [] : [`${tier}: ${tone} was judged on ${probeCount} probe(s) across the run, under ${MIN_PROBES_PER_RUN}`];
+    }),
+  );
 }
 
 function formatPercent(share: number | null): string {
@@ -406,7 +450,11 @@ async function main(): Promise<number> {
   }
   mkdirSync(options.outDirectory, { recursive: true });
   writeFileSync(path.join(options.outDirectory, "report.json"), `${JSON.stringify(outcomes, null, 2)}\n`);
-  const failedCount = outcomes.filter((outcome) => !outcome.isPass).length;
+  // Every data tone must be judged somewhere on each tier, so a scene change that hides a tone everywhere (or a probe
+  // hook that stops reporting it) fails instead of passing with nothing checked.
+  const coverageMisses = options.only === null ? findUnjudgedTones(outcomes) : [];
+  coverageMisses.forEach((miss) => console.error(`[runLookdev] ${miss}`));
+  const failedCount = outcomes.filter((outcome) => !outcome.isPass).length + coverageMisses.length;
   console.log(`[runLookdev] ${outcomes.length} frame(s), ${failedCount} failed; frames and diffs in ${options.outDirectory}`);
   if (hasRenderFailure) return 2;
   return failedCount === 0 ? 0 : 1;

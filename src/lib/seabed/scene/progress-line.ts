@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { keepDataColorExact } from "@/lib/render/data-colors";
 
 export type ProgressLine = {
   line: Line2;
@@ -32,14 +33,16 @@ export function createProgressLine(options: ProgressLineOptions): ProgressLine {
     const pointColor = new THREE.Color();
     geometry.setColors(points.flatMap((_point, index) => pointColor.set(color[index] ?? color[color.length - 1] ?? "#000000").toArray()));
   }
-  const material = new LineMaterial({
-    color: isPerPoint ? "#FFFFFF" : color,
-    vertexColors: isPerPoint,
-    linewidth: widthPx,
-    transparent: opacity < 1,
-    opacity,
-    worldUnits: false,
-  });
+  // Its colours are data colours: no tone mapping (src/lib/render/data-colors.ts).
+  const material = keepDataColorExact(
+    new LineMaterial({
+      color: isPerPoint ? "#FFFFFF" : color,
+      vertexColors: isPerPoint,
+      linewidth: widthPx,
+      opacity,
+      worldUnits: false,
+    }),
+  );
   const line = new Line2(geometry, material);
   geometry.instanceCount = 0;
   return {

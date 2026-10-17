@@ -46,11 +46,13 @@ export function listLookdevShots(): LookdevShot[] {
       caseSlug: cableCase.slug,
       view,
       atMs,
-      requiredTones: view === "overview" ? ["cable", "alarm"] : [],
+      // Every tone on screen is judged; which tones a frame shows depends on the case (a short drag can lie under the
+      // hull, a far cable is under two pixels wide), so coverage is checked across the run instead (run-lookdev.ts).
+      requiredTones: [],
     }));
     if (isHero && input.dragWindow) {
       const lastPositionMs = input.track[input.track.length - 1]?.atMs ?? input.dragWindow.endMs;
-      const requiredTones: DataTone[] = ["cable", "suspect", "alarm"];
+      const requiredTones: DataTone[] = ["suspect", "alarm"];
       shots.push({ name: `${cableCase.slug}-after-drag`, caseSlug: cableCase.slug, view: "overview", atMs: toWholeMinute(Math.min(input.dragWindow.endMs + AFTER_DRAG_MS, lastPositionMs)), requiredTones });
     }
     return shots;

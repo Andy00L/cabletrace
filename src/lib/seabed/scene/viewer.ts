@@ -45,6 +45,9 @@ const MOUSE_PICK_RADIUS_PX = 20;
 const TOUCH_PICK_RADIUS_PX = 32;
 // Poly Haven's aerial_beach_01 normal map (CC0), reduced to 512 px.
 const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
+// Lookdev colour probes skip data tubes drawn narrower than this many device pixels: below two, every pixel of the
+// tube is an antialiased edge and none can hold the exact colour.
+const MIN_PROBED_WIDTH_DEVICE_PX = 2;
 
 /**
  * Drawing budget per renderer. On a CPU renderer (SwiftShader, llvmpipe: headless test browsers and machines
@@ -156,6 +159,10 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.domElement.style.display = "block";
   renderer.domElement.style.outline = "none";
+  // The software tier draws at a lower pixel ratio and the browser scales the canvas up. Scaled smoothly, a 2 px data
+  // line would blend into the seabed and lose its exact colour; scaled by nearest pixel it keeps it (and the tier has
+  // no antialiasing to lose).
+  if (rendererKind === "software") renderer.domElement.style.imageRendering = "pixelated";
   renderer.domElement.dataset.renderer = rendererKind;
   container.appendChild(renderer.domElement);
   const overviewLabels = createLabelLayer(container);
@@ -510,9 +517,15 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   // canvas px, so the harness can check those pixels hold the exact data colour. Skips points under the rail.
   function recordColorProbes() {
     const canvasRect = renderer.domElement.getBoundingClientRect();
+    const cameraRight = new THREE.Vector3().setFromMatrixColumn(overview.camera.matrixWorld, 0);
     const probes = overview.readColorProbes(overview.camera.position).flatMap((probe) => {
       const screenPoint = projectToClient(probe.position, canvasRect);
       if (!screenPoint) return [];
+      if (probe.widthKm !== null) {
+        const edgePoint = projectToClient(probe.position.clone().addScaledVector(cameraRight, probe.widthKm), canvasRect);
+        const widthDevicePx = edgePoint ? Math.hypot(edgePoint.clientX - screenPoint.clientX, edgePoint.clientY - screenPoint.clientY) * renderer.getPixelRatio() : 0;
+        if (widthDevicePx < MIN_PROBED_WIDTH_DEVICE_PX) return [];
+      }
       const canvasX = screenPoint.clientX - canvasRect.left;
       const canvasY = screenPoint.clientY - canvasRect.top;
       const isInClearPart = canvasX >= 0 && canvasX <= canvasRect.width - rightInsetPx && canvasY >= 0 && canvasY <= canvasRect.height;
