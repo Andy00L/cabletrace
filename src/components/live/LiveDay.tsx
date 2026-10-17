@@ -28,6 +28,7 @@ import { createReplayClock } from "@/lib/replay/replay-clock";
 // A day plays in 72 seconds: an hour every 3 seconds, slow enough to follow a ship across a sea.
 const DAY_PLAYBACK_SECONDS = 72;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MS_PER_MINUTE = 60_000;
 // The rail floats over the stage's right edge from this width, as in the replay console.
 const WIDE_LAYOUT_QUERY = "(min-width: 1024px)";
 const RAIL_WIDTH_PX = 360;
@@ -268,6 +269,9 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
 
   const readMinute = () => formatUtcClock(startMs + clock.getSnapshot().progress * spanMs);
   const minuteLabel = useSyncExternalStore(clock.subscribe, readMinute, readMinute);
+  // The moment to the minute, so the ship card's report age updates once a minute of the day, not every frame.
+  const readMomentMinuteMs = () => Math.floor((startMs + clock.getSnapshot().progress * spanMs) / MS_PER_MINUTE) * MS_PER_MINUTE;
+  const momentMinuteMs = useSyncExternalStore(clock.subscribe, readMomentMinuteMs, readMomentMinuteMs);
 
   // Follows the layout breakpoint, a browser state React does not own.
   useEffect(() => {
@@ -529,7 +533,7 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
         <ShipCard
           mmsi={selectedMmsi}
           record={selectedRecord}
-          frameTimeMs={moment?.frame.frameTimeMs ?? null}
+          momentMs={momentMinuteMs}
           detailsState={detailsState}
           onFocus={() => viewerRef.current?.focusShip(selectedMmsi)}
           onClose={() => selectShip(null)}

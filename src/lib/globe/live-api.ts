@@ -15,6 +15,8 @@ export type ShipDetails = {
   draughtMetres: number | null;
   destination: string | null;
   source: string;
+  /** When a feed last sent this ship's static data (live_ships.updated_at), or null when the row does not say. */
+  staticUpdatedMs: number | null;
 };
 
 export type DetectionSummary = {
@@ -86,6 +88,7 @@ export function parseShipDetails(row: unknown): ShipDetails | null {
     draughtMetres: readNumberOrNull(row.draught_metres),
     destination: readTextOrNull(row.destination),
     source: row.source,
+    staticUpdatedMs: typeof row.updated_at === "string" && Number.isFinite(Date.parse(row.updated_at)) ? Date.parse(row.updated_at) : null,
   };
 }
 
