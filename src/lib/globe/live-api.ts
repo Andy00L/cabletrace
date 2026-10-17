@@ -15,6 +15,8 @@ export type ShipDetails = {
   draughtMetres: number | null;
   destination: string | null;
   source: string;
+  /** When a feed last sent this ship's static data (live_ships.updated_at), or null when the row does not say. */
+  staticUpdatedMs: number | null;
 };
 
 export type DetectionSummary = {
@@ -86,6 +88,7 @@ export function parseShipDetails(row: unknown): ShipDetails | null {
     draughtMetres: readNumberOrNull(row.draught_metres),
     destination: readTextOrNull(row.destination),
     source: row.source,
+    staticUpdatedMs: typeof row.updated_at === "string" && Number.isFinite(Date.parse(row.updated_at)) ? Date.parse(row.updated_at) : null,
   };
 }
 
@@ -96,6 +99,24 @@ export async function fetchShipDetails(mmsi: number): Promise<Result<ShipDetails
   if (!Array.isArray(answer.value)) return { ok: false, reason: "live_ship_details did not return rows" };
   const [row] = answer.value;
   return { ok: true, value: row === undefined ? null : parseShipDetails(row) };
+}
+
+// live_ship_details reads at most this many MMSIs a call (mmsis[1:200], supabase/migrations/20261018400000_ship_frames.sql).
+const MAX_DETAILS_PER_CALL = 200;
+
+/** Static details of up to 200 ships in one call, by MMSI; ships the feeds sent nothing for are absent. */
+export async function fetchShipDetailsBatch(mmsis: readonly number[]): Promise<Result<Map<number, ShipDetails>>> {
+  const requested = [...new Set(mmsis)].slice(0, MAX_DETAILS_PER_CALL);
+  if (requested.length === 0) return { ok: true, value: new Map() };
+  const answer = await callFunction("live_ship_details", { mmsis: requested });
+  if (!answer.ok) return answer;
+  if (!Array.isArray(answer.value)) return { ok: false, reason: "live_ship_details did not return rows" };
+  const details = new Map<number, ShipDetails>();
+  for (const row of answer.value) {
+    const parsed = parseShipDetails(row);
+    if (parsed) details.set(parsed.mmsi, parsed);
+  }
+  return { ok: true, value: details };
 }
 
 export function parseDetectionSummary(row: unknown): DetectionSummary | null {

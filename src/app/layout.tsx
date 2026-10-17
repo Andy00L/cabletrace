@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { TikTok_Sans } from "next/font/google";
+import { REGIONS } from "@/data/regions";
 import "./globals.css";
 
 // next/font has no metrics for TikTok Sans (with its default fallback the build warned "Failed to find font override
@@ -23,7 +24,7 @@ const tiktokSans = TikTok_Sans({
 
 export const metadata: Metadata = {
   title: { default: "CableTrace", template: "%s | CableTrace" },
-  description: "Forensic replay of subsea cable incidents in the Baltic Sea, from real ship positions and published cable routes.",
+  description: `Subsea cable cuts by ships, replayed in 3D from the published record, and a live watch over ships near cables in ${REGIONS.length} regions.`,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

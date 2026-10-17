@@ -1,7 +1,9 @@
 // Anchor-drag detector: every 30 minutes (pg_cron, supabase/migrations/20261018300000_detections.sql) it reads the
-// last 6 hours of recorded Gulf of Finland positions, runs the shared detector (src/lib/detection, imported through
-// this folder's deno.json import map), and hands every alert- or watch-level detection to public.upsert_detections.
+// last 6 hours of positions recorded in every watched region, runs the shared detector (src/lib/detection, imported
+// through this folder's deno.json import map), and hands every alert- or watch-level detection to
+// public.upsert_detections.
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { REGIONS } from "@/data/regions";
 import { DETECTION_LOOKBACK_MS, assessFleet, type FleetDetection } from "@/lib/detection/assess-fleet";
 import { parseDetectionInputs } from "@/lib/detection/detection-inputs";
 import type { DepthLookup } from "@/lib/detection/detection-types";
@@ -9,10 +11,11 @@ import type { Result } from "@/lib/result";
 import { toSeabedData } from "@/lib/seabed/seabed-data";
 import { createElevationSampler, createProjection } from "@/lib/seabed/terrain";
 
-// The depth grid of the recorder's region, served by the public site (public/seabed in the repository). Override with
-// SEABED_BASE_URL. When it cannot be read, the detector runs with unknown depth and a wider layback band.
+// The depth grids built for the watched regions (each region's seabedAreaIds, finest first within a region), served
+// by the public site (public/seabed in the repository). Override with SEABED_BASE_URL. A point no grid covers, or
+// every point when none can be read, runs with unknown depth and a wider layback band.
 const DEFAULT_SEABED_BASE_URL = "https://cabletrace.vercel.app/seabed";
-const SEABED_AREA = "gulf-of-finland";
+const SEABED_AREAS = [...new Set(REGIONS.flatMap((region) => region.seabedAreaIds))];
 const FETCH_TIMEOUT_MS = 15_000;
 const MS_PER_MINUTE = 60_000;
 
@@ -50,40 +53,61 @@ function createDatabaseClient(): Result<SupabaseClient> {
   return { ok: true, value: createClient(projectUrl, secretKey, { auth: { persistSession: false } }) };
 }
 
-// Kept for the life of the worker: the grid does not change between calls.
+// Kept for the life of the worker: the grids do not change between calls.
 let cachedDepthLookup: DepthLookup | null = null;
 
-/** Fetches and decodes the depth grid once per worker; null (unknown depth) when it cannot be read. */
-async function loadDepthLookup(): Promise<DepthLookup | null> {
-  if (cachedDepthLookup) return cachedDepthLookup;
-  const baseUrl = Deno.env.get("SEABED_BASE_URL") ?? DEFAULT_SEABED_BASE_URL;
+/** Fetches and decodes one area's depth grid; the lookup answers null outside the area's block. */
+async function loadAreaDepthLookup(baseUrl: string, area: string): Promise<Result<DepthLookup>> {
   try {
     const [featuresResponse, terrainResponse] = await Promise.all([
-      fetch(`${baseUrl}/${SEABED_AREA}-seabed.json`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }),
-      fetch(`${baseUrl}/${SEABED_AREA}-terrain.bin`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }),
+      fetch(`${baseUrl}/${area}-seabed.json`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }),
+      fetch(`${baseUrl}/${area}-terrain.bin`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }),
     ]);
     if (!featuresResponse.ok || !terrainResponse.ok) {
-      console.error(`[loadDepthLookup] seabed files answered ${featuresResponse.status} and ${terrainResponse.status}`);
-      return null;
+      return { ok: false, reason: `${area} seabed files answered ${featuresResponse.status} and ${terrainResponse.status}` };
     }
     const seabed = toSeabedData(await featuresResponse.json(), await terrainResponse.arrayBuffer());
-    if (!seabed.ok) {
-      console.error(`[loadDepthLookup] ${seabed.reason}`);
-      return null;
-    }
+    if (!seabed.ok) return { ok: false, reason: `${area}: ${seabed.reason}` };
     const { region, grid } = seabed.value.features;
     const projection = createProjection(region);
     const sampleElevation = createElevationSampler(seabed.value.elevations, grid, projection);
-    cachedDepthLookup = (longitude, latitude) => {
-      if (longitude < region.west || longitude > region.east || latitude < region.south || latitude > region.north) return null;
-      const scenePoint = projection.toScene(longitude, latitude);
-      return sampleElevation(scenePoint.x, scenePoint.z);
+    return {
+      ok: true,
+      value: (longitude, latitude) => {
+        if (longitude < region.west || longitude > region.east || latitude < region.south || latitude > region.north) return null;
+        const scenePoint = projection.toScene(longitude, latitude);
+        return sampleElevation(scenePoint.x, scenePoint.z);
+      },
     };
-    return cachedDepthLookup;
   } catch (error) {
-    console.error(`[loadDepthLookup] seabed files unreachable: ${error instanceof Error ? error.message : String(error)}`);
-    return null;
+    return { ok: false, reason: `${area} seabed files unreachable: ${error instanceof Error ? error.message : String(error)}` };
   }
+}
+
+/**
+ * Fetches and decodes every watched area's depth grid once per worker. A point takes its depth from the first area
+ * (in SEABED_AREAS order) whose block covers it; an area that fails to load is left out and logged. Null (unknown
+ * depth everywhere) when none loads.
+ */
+async function loadDepthLookup(): Promise<DepthLookup | null> {
+  if (cachedDepthLookup) return cachedDepthLookup;
+  const baseUrl = Deno.env.get("SEABED_BASE_URL") ?? DEFAULT_SEABED_BASE_URL;
+  const loaded = await Promise.all(SEABED_AREAS.map((area) => loadAreaDepthLookup(baseUrl, area)));
+  const areaLookups: DepthLookup[] = [];
+  for (const result of loaded) {
+    if (result.ok) areaLookups.push(result.value);
+    else console.error(`[loadDepthLookup] ${result.reason}`);
+  }
+  console.log(`[loadDepthLookup] ${areaLookups.length} of ${SEABED_AREAS.length} depth grids loaded`);
+  if (areaLookups.length === 0) return null;
+  cachedDepthLookup = (longitude, latitude) => {
+    for (const lookupInArea of areaLookups) {
+      const elevation = lookupInArea(longitude, latitude);
+      if (elevation !== null) return elevation;
+    }
+    return null;
+  };
+  return cachedDepthLookup;
 }
 
 async function runDetector(database: SupabaseClient): Promise<Result<{ shipCount: number; detectionCount: number; storedCount: number; depthKnown: boolean }>> {

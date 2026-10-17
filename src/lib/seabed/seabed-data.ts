@@ -9,6 +9,8 @@ export type SeabedPlace = { name: string; longitude: number; latitude: number };
 export type SeabedFeatures = {
   region: SeabedRegion;
   grid: SeabedGrid;
+  /** The deepest and highest points of the terrain grid (metres), which set the overview's exaggeration. */
+  elevationRange: { lowestMetres: number; highestMetres: number };
   lines: SeabedLine[];
   /** Land names drawn on the block. */
   places: SeabedPlace[];
@@ -46,6 +48,13 @@ function parseGrid(value: unknown): SeabedGrid | null {
   return width >= 2 && height >= 2 ? { width, height } : null;
 }
 
+function parseElevationRange(value: unknown): SeabedFeatures["elevationRange"] | null {
+  if (!isRecord(value)) return null;
+  const { lowestMetres, highestMetres } = value;
+  if (!isFiniteNumber(lowestMetres) || !isFiniteNumber(highestMetres)) return null;
+  return lowestMetres <= 0 && highestMetres >= 0 ? { lowestMetres, highestMetres } : null;
+}
+
 function parsePoint(value: unknown): [number, number] | null {
   if (!Array.isArray(value) || value.length !== 2) return null;
   const [longitude, latitude] = value;
@@ -72,6 +81,8 @@ export function parseSeabedFeatures(payload: unknown): Result<SeabedFeatures> {
   const region = parseRegion(payload.region);
   const grid = parseGrid(payload.grid);
   if (!region || !grid) return { ok: false, reason: "seabed features have a bad region or grid" };
+  const elevationRange = parseElevationRange(payload.elevationRange);
+  if (!elevationRange) return { ok: false, reason: "seabed features have no elevation range" };
   if (!Array.isArray(payload.lines)) return { ok: false, reason: "seabed features have no lines" };
   const lines = payload.lines.map(parseLine);
   const validLines = lines.filter((line): line is SeabedLine => line !== null);
@@ -84,7 +95,7 @@ export function parseSeabedFeatures(payload: unknown): Result<SeabedFeatures> {
   if (typeof depth !== "string" || typeof land !== "string" || typeof cables !== "string" || typeof pipelines !== "string") {
     return { ok: false, reason: "seabed features have no source credits" };
   }
-  return { ok: true, value: { region, grid, lines: validLines, places: validPlaces, sources: { depth, land, cables, pipelines } } };
+  return { ok: true, value: { region, grid, elevationRange, lines: validLines, places: validPlaces, sources: { depth, land, cables, pipelines } } };
 }
 
 /** Pairs a features file with its terrain file, checking the grid size matches. Shared by the browser and build-time loaders. */

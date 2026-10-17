@@ -104,6 +104,12 @@ async function loadDepthLookup(): Promise<DepthLookup | null> {
   }
 }
 
+// A network error's text can quote the URL it failed on, query string included (the ENTSO-E token travels there):
+// every query string in it is cut before the text is logged or returned (security re-review, 17 Oct 2026).
+function withoutQueryStrings(message: string): string {
+  return message.replace(/\?[^\s)"'<>]*/gu, "?<query removed>");
+}
+
 /**
  * GETs a source; `label` names it in errors, because the URL may carry a token and is never logged. With
  * `keepErrorBody`, an error status still returns the body, for a source that explains refusals in it.
@@ -115,7 +121,7 @@ async function fetchBytes(url: string, label: string, keepErrorBody = false): Pr
     if (!response.ok && !keepErrorBody) return { ok: false, reason: `${label} answered ${response.status}` };
     return { ok: true, value: bytes };
   } catch (error) {
-    return { ok: false, reason: `${label} unreachable: ${error instanceof Error ? error.message : String(error)}` };
+    return { ok: false, reason: `${label} unreachable: ${withoutQueryStrings(error instanceof Error ? error.message : String(error))}` };
   }
 }
 

@@ -9,6 +9,7 @@ const SEABED: SeabedData = {
   features: {
     region: { west: 20, east: 21, south: 56, north: 57 },
     grid: GRID,
+    elevationRange: { lowestMetres: -30, highestMetres: 10 },
     lines: [{ name: "Cable", kind: "telecom", points: [[20, 56.5], [21, 56.5]] }],
     places: [],
     sources: { depth: "d", land: "l", cables: "c", pipelines: "p" },
@@ -39,6 +40,29 @@ describe("buildCaseSketch", () => {
     expect(cut?.y).toBeLessThan(SKETCH_HEIGHT);
     expect(sketch.landPath.length).toBeGreaterThan(0);
     expect(sketch.lines).toHaveLength(1);
+  });
+
+  test("widens a frame that shows almost no land until the coast is in it", () => {
+    // Test fixture only: a 3 by 2 degree block, open sea except a land strip along its west edge, and a story 10 km
+    // across in the east, far from that coast.
+    const wideGrid = { width: 61, height: 41 };
+    const openSea: SeabedData = {
+      features: { ...SEABED.features, region: { west: 20, east: 23, south: 56, north: 58 }, grid: wideGrid },
+      elevations: Float32Array.from({ length: wideGrid.width * wideGrid.height }, (_slot, index) => (index % wideGrid.width < 4 ? 10 : -30)),
+    };
+    const eastStory: ReplaySceneInput = {
+      ...INPUT,
+      track: [
+        { atMs: 1_000, longitude: 22.4, latitude: 57.0, recordedSpeedKnots: null },
+        { atMs: 3_000, longitude: 22.5, latitude: 57.0, recordedSpeedKnots: null },
+      ],
+      cuts: [{ cableName: "Cable", label: "Cable", atMs: 2_000, longitude: 22.45, latitude: 57.0 }],
+    };
+    const sketch = buildCaseSketch(openSea, eastStory);
+    expect(sketch.landPath.length).toBeGreaterThan(0);
+    const [cut] = sketch.cuts;
+    expect(cut?.x).toBeGreaterThan(0);
+    expect(cut?.x).toBeLessThan(SKETCH_WIDTH);
   });
 
   test("draws the drag stretch from the first position to the interpolated end of the window", () => {

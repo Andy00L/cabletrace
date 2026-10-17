@@ -1,5 +1,5 @@
 import { clampValue, interpolate } from "@/lib/seabed/math";
-import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
+import type { SceneExaggeration } from "@/lib/seabed/scene-scales";
 
 export type SeabedRegion = { west: number; east: number; south: number; north: number };
 export type SeabedGrid = { width: number; height: number };
@@ -12,10 +12,6 @@ export type Projection = {
   toScene: (longitude: number, latitude: number) => ScenePoint;
 };
 
-// Overview: water depth drawn 20 times deeper than it is and land 10 times, so 120 m of relief reads across a
-// 145 km block without turning narrow shoals into needles (values in scene-scales.ts, shared with the UI).
-export const WATER_EXAGGERATION = SCENE_SCALES.waterExaggeration;
-export const LAND_EXAGGERATION = SCENE_SCALES.landExaggeration;
 // Kilometres per degree (WGS 84 mean values).
 const KM_PER_DEG_LAT = 110.57;
 const KM_PER_DEG_LON_AT_EQUATOR = 111.32;
@@ -30,6 +26,20 @@ export function decodeElevations(buffer: ArrayBuffer): Float32Array {
     elevations[index] = view.getInt16(index * 2, true) / 10;
   }
   return elevations;
+}
+
+// One 3x3 mean pass removes the EMODnet grids' single-cell survey spikes and keeps the real relief (232 m cells in the
+// Gulf of Finland, about 490 m in the Baltic Proper). GEBCO's 15 arc-second grid stores whole metres, so gentle slopes
+// come out as flat terraces with steps between them (the southern Red Sea, the Taiwan blocks); one pass leaves the
+// steps standing and three round them off. The credit names the grid (scripts/seabed/build-seabed.ts, DEPTH_CREDITS).
+// Drawing only: the depth chart and the readouts sample the grid as published (src/lib/cases/case-series.ts), since
+// three passes move a point on a steep slope by tens of metres (Rubymar's anchorage: 46 m raw, 102 m smoothed).
+const EMODNET_SMOOTHING_PASSES = 1;
+const GEBCO_SMOOTHING_PASSES = 3;
+
+/** How many smoothElevations passes an area's depth grid gets, from its depth credit. */
+export function chooseSmoothingPasses(depthCredit: string): number {
+  return depthCredit.startsWith("GEBCO") ? GEBCO_SMOOTHING_PASSES : EMODNET_SMOOTHING_PASSES;
 }
 
 /** Softens single-cell spikes with a 3x3 mean; land and sea are averaged separately so the coastline stays put. */
@@ -78,9 +88,9 @@ export function downsampleElevations(elevations: Float32Array, grid: SeabedGrid,
   return { elevations: reduced, grid: reducedGrid };
 }
 
-/** Overview scene height (km) of an elevation in metres; water and land use different exaggerations. */
-export function elevationToSceneY(elevationMetres: number): number {
-  return (elevationMetres / 1000) * (elevationMetres >= 0 ? LAND_EXAGGERATION : WATER_EXAGGERATION);
+/** Overview scene height (km) of an elevation in metres, at the area's exaggeration (chooseSceneExaggeration). */
+export function elevationToSceneY(elevationMetres: number, exaggeration: SceneExaggeration): number {
+  return (elevationMetres / 1000) * (elevationMetres >= 0 ? exaggeration.land : exaggeration.water);
 }
 
 /** Equirectangular projection around the region's centre latitude; the block is centred on the origin. */

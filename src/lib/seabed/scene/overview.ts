@@ -1,18 +1,26 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
-import { LAND_RAMP, SCENE_COLORS, SEABED_RAMP } from "@/lib/seabed/scene/scene-colors";
-import { buildShipModel } from "@/lib/seabed/scene/ship-model";
-import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
-import { FULL_WIDTH_DISTANCE_KM, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
+import { createDataColorMaterial, drawAfterWater } from "@/lib/render/data-colors";
+import { DEPTH_TOKEN_RAMP, LAND_TOKEN_RAMP, SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
+import { bakeReliefOcclusion } from "@/lib/seabed/scene/relief-occlusion";
+import { createTerrainMaterial, measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
+import { buildWaterBody } from "@/lib/seabed/scene/water-surface";
+import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
-import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
+import { buildShip } from "@/lib/ships/build-ship";
+import { estimateCaseShipChain, readChainSpan, shapeCatenary, type ChainShape } from "@/lib/ships/anchor-chain";
+import { createKelvinWake } from "@/lib/ships/kelvin-wake";
+import { chooseSceneExaggeration, SCENE_SCALES, type SceneExaggeration } from "@/lib/seabed/scene-scales";
 import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, type ScenePoint } from "@/lib/seabed/terrain";
 
 // Sediment the overview block stands on, below the deepest sounding (km).
@@ -39,24 +47,49 @@ const FURROW_SEGMENTS = 800;
 const FURROW_WIDTH_PX = 3;
 // The furrow floats this far above the seabed (km) so ridges between samples do not hide it.
 const FURROW_SEABED_LIFT = 0.09;
+// The anchor chain: points along its drawn catenary, its on-screen width, and the points of the close-up's chain.
+const CHAIN_POINT_COUNT = 48;
+const CHAIN_WIDTH_PX = 1.5;
+const CLOSE_UP_CHAIN_POINT_COUNT = 240;
 const PLUME_PARTICLE_COUNT = 140;
 // Heading is read over this span around the current moment, so a reconstructed corner does not snap the hull.
 const HEADING_SPAN_MS = 2 * 60 * 1000;
 // The light along the healthy cable takes this long to run its length.
 const SIGNAL_LAP_SECONDS = 7;
+// The signal light's size on screen (sprite scale without size attenuation): at the overview's 32 degree field of
+// view, about 5% and 1.4% of the view's height.
+const SIGNAL_GLOW_SCREEN_SCALE = 0.03;
+const SIGNAL_CORE_SCREEN_SCALE = 0.008;
+// Lookdev colour probes: shares along each data tube, how many points of each track tone are probed, and points
+// around each cut marker's ring (radius in km, the ring's own).
+const COLOR_PROBE_SHARES = [0.1, 0.3, 0.5, 0.7, 0.9];
+const TRACK_PROBES_PER_TONE = 16;
+// Probes hidden behind relief are dropped: the sight line to the camera is checked at this many points, starting
+// this far (km) from the probe.
+const OCCLUSION_STEPS = 64;
+const OCCLUSION_START_KM = 0.15;
+const CUT_RING_RADIUS_KM = 0.75;
+const CUT_RING_TUBE_RADIUS_KM = 0.07;
+const CUT_RING_PROBE_ANGLES = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
 // Model metres to scene kilometres. The vessel is drawn 6 times its real size and the anchor 30 times, so
 // both read across a block 145 to 300 km wide; the disclosure under the view says so.
 const METRES_TO_KM = 1 / 1000;
 const SHIP_DRAWN_SCALE = SCENE_SCALES.shipDrawnScale;
 const ANCHOR_DRAWN_SCALE = SCENE_SCALES.anchorDrawnScale;
-const SHIP_LABEL_HEIGHT_METRES = 55;
+// The vessel's label floats this many ship lengths above its waterline, clear of the bridge and masts.
+const SHIP_LABEL_HEIGHT_LENGTHS = 0.24;
 // The wake follows the last 13 minutes of the path, sampled every 20 s.
 const WAKE_STEP_MS = 20 * 1000;
 const WAKE_SAMPLE_COUNT = 40;
-const WAKE_HALF_WIDTH_KM = 16 * METRES_TO_KM * SHIP_DRAWN_SCALE;
 // The overview camera looks from the south-east, down about 35 degrees (the approved prototype angle).
 const OVERVIEW_DIRECTION = new THREE.Vector3(14, 19, 26).normalize();
 const OVERVIEW_TARGET_Y = -1.8;
+const SUN_SHADOW_SOFTNESS_TEXELS = 4;
+// The ship's contact shadow: a soft ellipse a little longer and wider than the hull, just over the water (model metres).
+const CONTACT_SHADOW_LENGTH_SHARE = 1.2;
+const CONTACT_SHADOW_BEAM_SHARE = 2.4;
+const CONTACT_SHADOW_OPACITY = 0.2;
+const CONTACT_SHADOW_LIFT_METRES = 0.3;
 // Room kept around the track when the overview frames it (km), and the smallest framed radius.
 const OVERVIEW_PADDING_KM = 6;
 const OVERVIEW_MIN_RADIUS_KM = 12;
@@ -65,8 +98,8 @@ export const OVERVIEW_FOV_DEGREES = 32;
 // The top view fits the block for this aspect ratio, a little wider than the replay card.
 const TOP_VIEW_ASPECT = 1.6;
 
-/** Where the vessel is and which way it heads, for the camera that follows it. */
-export type VesselFrame = { position: THREE.Vector3; heading: ScenePoint };
+/** Where the vessel is, which way it heads and how long it is drawn (km), for the camera that follows it. */
+export type VesselFrame = { position: THREE.Vector3; heading: ScenePoint; drawnLengthKm: number };
 
 export type OverviewViewName = "overview" | "top";
 
@@ -79,6 +112,18 @@ export type SceneTarget = { kind: "vessel" } | { kind: "cut"; cutIndex: number }
 /** A target a click can select, where it is drawn, and the label naming it (a click on the label selects it too). */
 export type ScenePickable = { target: SceneTarget; position: THREE.Vector3; label: HTMLElement };
 
+/** The data colours a frame must show exactly (docs/UI_DESIGN_SYSTEM.md, Data): `suspect` is the vessel's ink track. */
+export type DataTone = "cable" | "pipeline" | "suspect" | "alarm";
+
+/**
+ * A point in the scene where a data line of one tone is drawn on the current frame (scripts/lookdev samples it), and
+ * the line's drawn width there in km, or null for a line drawn a fixed number of pixels wide.
+ */
+export type ColorProbe = { tone: DataTone; position: THREE.Vector3; widthKm: number | null };
+
+/** A point of level, open seabed and the depth token it must show there (sRGB hex), for the lookdev seabed check. */
+export type SeabedProbe = { position: THREE.Vector3; expectedHex: string };
+
 export type OverviewScene = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -89,6 +134,8 @@ export type OverviewScene = {
   trackDirection: ScenePoint;
   /** Unit direction of the cut cable at the primary cut. */
   cableDirection: ScenePoint;
+  /** The anchor chain's shape when the primary cut happened (metres), or null where the model has none. */
+  primaryCutChain: ChainShape | null;
   /** The vessel's last drawn frame, or null while it is not on the map yet. */
   readVesselFrame: () => VesselFrame | null;
   /**
@@ -104,6 +151,10 @@ export type OverviewScene = {
   /** Hides the land and pipeline names on a narrow view, keeping the vessel and cut labels. */
   setCompactLabels: (isCompact: boolean) => void;
   update: (atMs: number, deltaSeconds: number, nowSeconds: number) => void;
+  /** Points on the data lines drawn at the last updated moment, seen from `cameraPosition`, for the lookdev colour check. */
+  readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
+  /** Points of level open seabed in sight of `cameraPosition` and their depth tokens, for the lookdev seabed check. */
+  readSeabedProbes: (cameraPosition: THREE.Vector3) => SeabedProbe[];
 };
 
 type OverviewOptions = {
@@ -116,6 +167,10 @@ type OverviewOptions = {
   input: ReplaySceneInput;
   softDot: THREE.Texture;
   prefersReducedMotion: boolean;
+  /** The GPU tier: finer detail (hull plating relief, waves, ripples) that a CPU renderer would pay for every frame. */
+  isHighDetail: boolean;
+  /** The sand-ripple detail normal map (GPU tier), or null. */
+  rippleNormalMap: THREE.Texture | null;
 };
 
 function buildRamp(stops: readonly [number, string][]) {
@@ -134,28 +189,63 @@ function sampleRamp(ramp: { value: number; color: THREE.Color }[], value: number
   return last ? target.copy(last.color) : target;
 }
 
-function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection): THREE.Mesh {
-  const geometry = new THREE.PlaneGeometry(projection.widthKm, projection.depthKm, features.grid.width - 1, features.grid.height - 1);
+// The sand-ripple detail repeats every this many km of seabed: drawn about 120 m across so it reads in the Vessel view
+// (illustrative texture, not survey data; mipmaps fade it to nothing in the overview).
+const RIPPLE_TILE_KM = 0.12;
+
+type TerrainLook = { lighting: TerrainLighting; rippleNormalMap: THREE.Texture | null };
+
+function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection, exaggeration: SceneExaggeration, look: TerrainLook): THREE.Mesh {
+  const { lighting, rippleNormalMap } = look;
+  const { width: columns, height: rows } = features.grid;
+  const geometry = new THREE.PlaneGeometry(projection.widthKm, projection.depthKm, columns - 1, rows - 1);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute("position");
   const colors = new Float32Array(positions.count * 3);
-  const seabedRamp = buildRamp(SEABED_RAMP);
-  const landRamp = buildRamp(LAND_RAMP);
+  const sceneHeights = new Float32Array(positions.count);
+  const depthRamp = buildRamp(DEPTH_TOKEN_RAMP);
+  const landRamp = buildRamp(LAND_TOKEN_RAMP);
   const vertexColor = new THREE.Color();
   for (let index = 0; index < positions.count; index += 1) {
     const elevation = elevations[index] ?? 0;
-    positions.setY(index, elevationToSceneY(elevation));
-    if (elevation < 0) sampleRamp(seabedRamp, -elevation, vertexColor);
+    const sceneY = elevationToSceneY(elevation, exaggeration);
+    positions.setY(index, sceneY);
+    sceneHeights[index] = sceneY;
+    if (elevation < 0) sampleRamp(depthRamp, -elevation, vertexColor);
     else sampleRamp(landRamp, elevation, vertexColor);
     vertexColor.toArray(colors, index * 3);
   }
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.setAttribute("elevation", new THREE.BufferAttribute(elevations, 1));
+  geometry.setAttribute("reliefOcclusion", new THREE.BufferAttribute(bakeReliefOcclusion(sceneHeights, columns, rows, projection.widthKm / (columns - 1), projection.depthKm / (rows - 1)), 1));
   geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, createTerrainMaterial());
+  if (rippleNormalMap) rippleNormalMap.repeat.set(projection.widthKm / RIPPLE_TILE_KM, projection.depthKm / RIPPLE_TILE_KM);
+  const mesh = new THREE.Mesh(geometry, createTerrainMaterial(lighting, rippleNormalMap));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+// Level, open seabed for the lookdev seabed check: the normal within 2.6 degrees of vertical, the baked occlusion
+// over 0.98, at least 1 m deep, picked on a sparse lattice of the grid.
+const SEABED_PROBE_LATTICE = 23;
+const SEABED_PROBE_MIN_NORMAL_Y = 0.999;
+const SEABED_PROBE_MIN_OPENNESS = 0.98;
+
+function pickSeabedProbes(terrain: THREE.Mesh): SeabedProbe[] {
+  const positions = terrain.geometry.getAttribute("position");
+  const normals = terrain.geometry.getAttribute("normal");
+  const colors = terrain.geometry.getAttribute("color");
+  const elevations = terrain.geometry.getAttribute("elevation");
+  const openness = terrain.geometry.getAttribute("reliefOcclusion");
+  const probeColor = new THREE.Color();
+  const probes: SeabedProbe[] = [];
+  for (let index = 0; index < positions.count; index += SEABED_PROBE_LATTICE) {
+    if (elevations.getX(index) > -1 || normals.getY(index) < SEABED_PROBE_MIN_NORMAL_Y || openness.getX(index) < SEABED_PROBE_MIN_OPENNESS) continue;
+    probeColor.fromBufferAttribute(colors, index);
+    probes.push({ position: new THREE.Vector3(positions.getX(index), positions.getY(index), positions.getZ(index)), expectedHex: `#${probeColor.getHexString().toUpperCase()}` });
+  }
+  return probes;
 }
 
 // The four cut faces of the block: from the terrain edge down to the base, darker toward the base.
@@ -195,31 +285,6 @@ function buildBlockSides(terrain: THREE.Mesh, features: SeabedFeatures, baseY: n
   return mesh;
 }
 
-function buildWater(projection: Projection, deepestY: number): THREE.Group {
-  const inset = 0.04;
-  const height = -deepestY;
-  const geometry = new THREE.BoxGeometry(projection.widthKm - inset, height, projection.depthKm - inset);
-  geometry.translate(0, -height / 2, 0);
-  const water = new THREE.Mesh(
-    geometry,
-    new THREE.MeshPhysicalMaterial({ color: SCENE_COLORS.water, transparent: true, opacity: 0.16, roughness: 0.16, metalness: 0, depthWrite: false }),
-  );
-  water.renderOrder = 2;
-  const halfWidth = projection.widthKm / 2;
-  const halfDepth = projection.depthKm / 2;
-  const rimPoints = [
-    [-halfWidth, -halfDepth],
-    [halfWidth, -halfDepth],
-    [halfWidth, halfDepth],
-    [-halfWidth, halfDepth],
-    [-halfWidth, -halfDepth],
-  ].map(([pointX = 0, pointZ = 0]) => new THREE.Vector3(pointX, 0.01, pointZ));
-  const rim = new THREE.Line(new THREE.BufferGeometry().setFromPoints(rimPoints), new THREE.LineBasicMaterial({ color: SCENE_COLORS.waterRim, transparent: true, opacity: 0.85 }));
-  const group = new THREE.Group();
-  group.add(water, rim);
-  return group;
-}
-
 // A tube resting on the seabed; its height is evened out along the line so it does not jitter over every ridge.
 function createSeabedTube(points: readonly ScenePoint[], radius: number, material: THREE.Material, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number) {
   const rawHeights = points.map((point) => sampleSeabedHeight(point.x, point.z));
@@ -236,7 +301,8 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
     return new THREE.Vector3(point.x, restingHeight + radius + 0.04, point.z);
   });
   const curve = new THREE.CatmullRomCurve3(vectors, false, "centripetal");
-  const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(12, vectors.length * 2), radius, 8, false), material);
+  // Data tubes are drawn unlit and after the water (src/lib/render/data-colors.ts), so they show their exact colour.
+  const mesh = drawAfterWater(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(12, vectors.length * 2), radius, 8, false), material));
   mesh.castShadow = true;
   return { mesh, curve };
 }
@@ -282,9 +348,11 @@ function unitDirection(from: ScenePoint, to: ScenePoint, fallback: ScenePoint): 
 
 export function buildOverview(options: OverviewOptions): OverviewScene {
   const { renderer, features, elevations, projection, sampleElevationMetres, input, softDot, prefersReducedMotion } = options;
-  const sampleSeabedHeight = (sceneX: number, sceneZ: number) => elevationToSceneY(sampleElevationMetres(sceneX, sceneZ));
+  // Deep areas are drawn less exaggerated than the shallow Baltic (scene-scales.ts); the page states the same factors.
+  const exaggeration = chooseSceneExaggeration(features.elevationRange);
+  const sampleSeabedHeight = (sceneX: number, sceneZ: number) => elevationToSceneY(sampleElevationMetres(sceneX, sceneZ), exaggeration);
   const deepestElevation = elevations.reduce((deepest, elevation) => Math.min(deepest, elevation), 0);
-  const deepestY = elevationToSceneY(deepestElevation);
+  const deepestY = elevationToSceneY(deepestElevation, exaggeration);
   const baseY = deepestY - BLOCK_BASE_THICKNESS_KM;
   const toScene = (longitude: number, latitude: number) => projection.toScene(longitude, latitude);
 
@@ -293,7 +361,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   scene.environment = environmentGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
   environmentGenerator.dispose();
   scene.environmentIntensity = 0.38;
-  scene.add(new THREE.HemisphereLight(SCENE_COLORS.skyLight, SCENE_COLORS.groundLight, 0.95));
+  const skyLight = new THREE.HemisphereLight(SCENE_COLORS.skyLight, SCENE_COLORS.groundLight, 0.95);
+  scene.add(skyLight);
   const sunLight = new THREE.DirectionalLight(SCENE_COLORS.skyLight, 2.1);
   const blockRadiusKm = Math.hypot(projection.widthKm, projection.depthKm) / 2;
   sunLight.position.set(-42, 78, -26).setLength(blockRadiusKm * 1.6);
@@ -302,10 +371,14 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   Object.assign(sunLight.shadow.camera, { left: -blockRadiusKm, right: blockRadiusKm, top: blockRadiusKm, bottom: -blockRadiusKm, near: 1, far: blockRadiusKm * 3.2 });
   sunLight.shadow.bias = -0.0004;
   sunLight.shadow.normalBias = 0.04;
+  // Soft sun shadows: three.js r186's PCF filter blurs over this many shadow-map texels.
+  sunLight.shadow.radius = SUN_SHADOW_SOFTNESS_TEXELS;
   scene.add(sunLight);
 
-  const terrain = buildTerrainMesh(elevations, features, projection);
-  scene.add(terrain, buildBlockSides(terrain, features, baseY), buildWater(projection, deepestY));
+  const terrain = buildTerrainMesh(elevations, features, projection, exaggeration, { lighting: { levelIrradiance: measureLevelIrradiance(sunLight, skyLight) }, rippleNormalMap: options.rippleNormalMap });
+  const seabedProbeCandidates = pickSeabedProbes(terrain);
+  const water = buildWaterBody(projection, deepestY, options.isHighDetail);
+  scene.add(terrain, buildBlockSides(terrain, features, baseY), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = baseY - 0.02;
@@ -323,13 +396,13 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   // One material per tube radius: each narrows with camera distance from its own radius (tube-thinning.ts).
   const createCableMaterial = (radiusKm: number) =>
     thinTubeWithDistance(
-      new THREE.MeshStandardMaterial({ color: WEBGL_COLORS.cable, emissive: WEBGL_COLORS.cable, emissiveIntensity: 0.28, roughness: 0.38, metalness: 0.1 }),
+      createDataColorMaterial(WEBGL_COLORS.cable),
       radiusKm,
       fullWidthDistanceKm,
     );
   const cableMaterials = { power: createCableMaterial(tubeRadii.power), telecom: createCableMaterial(tubeRadii.telecom) };
   const pipelineMaterial = thinTubeWithDistance(
-    new THREE.MeshStandardMaterial({ color: WEBGL_COLORS.pipeline, emissive: WEBGL_COLORS.pipeline, emissiveIntensity: 0.12, roughness: 0.5, metalness: 0.1 }),
+    createDataColorMaterial(WEBGL_COLORS.pipeline),
     tubeRadii.pipeline,
     fullWidthDistanceKm,
   );
@@ -342,6 +415,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   // Each cut cable swaps its intact tube for two pieces once its cut time has passed.
   const cutSwitches: { cut: ReplayCut; intact: THREE.Object3D[]; pieces: THREE.Object3D[] }[] = [];
   const pipelineCurves = new Map<string, THREE.CatmullRomCurve3[]>();
+  // Every data tube, for the lookdev colour probes.
+  const dataTubes: { tone: DataTone; radius: number; tube: ReturnType<typeof createSeabedTube> }[] = [];
 
   for (const line of features.lines) {
     const scenePoints = densifyScenePoints(line.points.map(([longitude, latitude]) => toScene(longitude, latitude)), LINE_STEP_KM);
@@ -349,6 +424,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (line.kind === "pipeline") {
         const pipeline = createSeabedTube(run, tubeRadii.pipeline, pipelineMaterial, sampleSeabedHeight);
         scene.add(pipeline.mesh);
+        dataTubes.push({ tone: "pipeline", radius: tubeRadii.pipeline, tube: pipeline });
         pipelineCurves.set(line.name, [...(pipelineCurves.get(line.name) ?? []), pipeline.curve]);
         continue;
       }
@@ -356,6 +432,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       const cableMaterial = cableMaterials[line.kind];
       const intact = createSeabedTube(run, radius, cableMaterial, sampleSeabedHeight);
       scene.add(intact.mesh);
+      dataTubes.push({ tone: "cable", radius, tube: intact });
       const matchingCut = input.cuts
         .filter((cut) => cut.cableName === line.name)
         .map((cut) => ({ cut, nearest: nearestIndex(run, toScene(cut.longitude, cut.latitude)) }))
@@ -370,17 +447,19 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       before.mesh.visible = false;
       after.mesh.visible = false;
       scene.add(before.mesh, after.mesh);
+      dataTubes.push({ tone: "cable", radius, tube: before }, { tone: "cable", radius, tube: after });
       const intactObjects: THREE.Object3D[] = [intact.mesh];
       if (cut === primaryCut) {
         // The signature "signal": a faint halo and a light that runs along the cable under watch.
         const halo = new THREE.Mesh(
           new THREE.TubeGeometry(intact.curve, Math.max(12, run.length * 2), tubeRadii.signalHalo, 8, false),
           thinTubeWithDistance(
-            new THREE.MeshBasicMaterial({ color: WEBGL_COLORS.cable, transparent: true, opacity: 0.12, depthWrite: false }),
+            createDataColorMaterial(WEBGL_COLORS.cable, { opacity: 0.12, depthWrite: false }),
             tubeRadii.signalHalo,
             fullWidthDistanceKm,
           ),
         );
+        drawAfterWater(halo);
         scene.add(halo);
         intactObjects.push(halo);
         signalCurve = intact.curve;
@@ -420,11 +499,14 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     contextLabels.push(label);
   }
 
-  const signalCore = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: SCENE_COLORS.signalCore }));
+  // The signal's light keeps one size on screen whatever the framing: sized in km it filled a short track's close
+  // framing as a white dome. Drawn over the relief so a ridge never cuts it in half.
+  const signalCore = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot, color: SCENE_COLORS.signalCore, sizeAttenuation: false, depthTest: false, depthWrite: false }));
+  signalCore.scale.setScalar(SIGNAL_CORE_SCREEN_SCALE);
   const signalGlow = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: softDot, color: SCENE_COLORS.signalGlow, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }),
+    new THREE.SpriteMaterial({ map: softDot, color: SCENE_COLORS.signalGlow, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: false }),
   );
-  signalGlow.scale.setScalar(1.6);
+  signalGlow.scale.setScalar(SIGNAL_GLOW_SCREEN_SCALE);
   const signal = new THREE.Group();
   signal.add(signalCore, signalGlow);
   signal.visible = signalCurve !== null;
@@ -440,6 +522,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   }, []);
   const totalTrackKm = cumulativeKm[cumulativeKm.length - 1] ?? 0;
   let pastTrack: ProgressLine | null = null;
+  // The drawn track's points and their tones, for the lookdev colour probes.
+  let trackProbePoints: { position: THREE.Vector3; tone: DataTone; atMs: number }[] = [];
   if (trackScene.length >= 2 && totalTrackKm > 0) {
     const path = new THREE.CurvePath<THREE.Vector3>();
     for (let index = 1; index < trackScene.length; index += 1) {
@@ -453,8 +537,14 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       const isDragging = input.dragWindow !== null && atMs >= input.dragWindow.startMs && atMs <= input.dragWindow.endMs;
       return isDragging ? WEBGL_COLORS.alarm : WEBGL_COLORS.ink;
     });
-    pastTrack = createProgressLine({ points: path.getSpacedPoints(TRACK_SEGMENTS), color: trackColors, widthPx: TRACK_WIDTH_PX });
-    scene.add(pastTrack.line);
+    const trackPoints = path.getSpacedPoints(TRACK_SEGMENTS);
+    pastTrack = createProgressLine({ points: trackPoints, color: trackColors, widthPx: TRACK_WIDTH_PX });
+    scene.add(drawAfterWater(pastTrack.line));
+    trackProbePoints = trackPoints.map((position, index) => ({
+      position,
+      tone: trackColors[index] === WEBGL_COLORS.alarm ? "alarm" : "suspect",
+      atMs: timeAtTrackKm((totalTrackKm * index) / TRACK_SEGMENTS),
+    }));
   }
 
   /** The moment the vessel had sailed `km` along the track (the inverse of trackKmAt). */
@@ -489,27 +579,33 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return position ? toScene(position.longitude, position.latitude) : null;
   }
 
-  // The anchor's furrow along the track, from the start to the end of the drag window.
   const dragWindow = input.dragWindow;
-  let furrow: ProgressLine | null = null;
-  if (dragWindow && dragWindow.endMs > dragWindow.startMs) {
-    const furrowPoints = Array.from({ length: FURROW_SEGMENTS + 1 }, (_slot, index) => sceneAt(dragWindow.startMs + ((dragWindow.endMs - dragWindow.startMs) * index) / FURROW_SEGMENTS))
-      .filter((point): point is ScenePoint => point !== null)
-      .map((point) => new THREE.Vector3(point.x, sampleSeabedHeight(point.x, point.z) + FURROW_SEABED_LIFT, point.z));
-    if (furrowPoints.length >= 2) {
-      furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX });
-      scene.add(furrow.line);
-    }
-  }
 
-  const shipModel = buildShipModel(input.vessel.kind);
+  // Built at the case ship's real length, then drawn at the scale the disclosure under the view states.
+  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail });
   const ship = shipModel.group;
   ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
+  const shipDrawnLengthKm = input.vessel.lengthMetres * SHIP_DRAWN_SCALE * METRES_TO_KM;
+  // The foam trail starts as wide as the drawn hull.
+  const wakeHalfWidthKm = shipModel.form.halfBeam * SHIP_DRAWN_SCALE * METRES_TO_KM;
   const shipLabel = makeStackedLabel(input.vessel.name, describeVesselPosition(input.track, input.windowStartMs), "above");
-  shipLabel.object.position.set(0, SHIP_LABEL_HEIGHT_METRES, 0);
+  shipLabel.object.position.set(0, SHIP_LABEL_HEIGHT_LENGTHS * input.vessel.lengthMetres, 0);
   ship.add(shipLabel.object);
   ship.visible = false;
   scene.add(ship);
+  // A soft contact shadow on the water around the hull (ambient occlusion where hull meets sea), so the ship sits in
+  // the water instead of hovering over a sea that is mostly transparent from above.
+  const contactShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(input.vessel.lengthMetres * CONTACT_SHADOW_LENGTH_SHARE, shipModel.form.halfBeam * 2 * CONTACT_SHADOW_BEAM_SHARE),
+    new THREE.MeshBasicMaterial({ map: softDot, color: SCENE_COLORS.contactShadow, transparent: true, opacity: CONTACT_SHADOW_OPACITY, depthWrite: false }),
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.y = CONTACT_SHADOW_LIFT_METRES;
+  contactShadow.renderOrder = 2.6;
+  ship.add(contactShadow);
+  // The GPU tier draws the bow wave and the Kelvin wake on a patch that sails with the hull.
+  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form) : null;
+  if (kelvinWake) ship.add(kelvinWake.mesh);
   const wake = createWake();
   scene.add(wake.mesh);
   const anchorModel = buildAnchorModel(new THREE.MeshStandardMaterial({ color: SCENE_COLORS.anchor, roughness: 0.48, metalness: 0.6 }));
@@ -517,19 +613,55 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   anchor.scale.setScalar(ANCHOR_DRAWN_SCALE * METRES_TO_KM);
   anchor.visible = false;
   scene.add(anchor);
-  const chainGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-  const chain = new THREE.Line(chainGeometry, new THREE.LineBasicMaterial({ color: SCENE_COLORS.anchor, transparent: true, opacity: 0.85 }));
+  const chainGeometry = new LineGeometry();
+  chainGeometry.setPositions(new Float32Array(CHAIN_POINT_COUNT * 3));
+  const chain = new Line2(chainGeometry, new LineMaterial({ color: SCENE_COLORS.anchor, linewidth: CHAIN_WIDTH_PX, worldUnits: false }));
   chain.frustumCulled = false;
   chain.visible = false;
   scene.add(chain);
+
+  // The anchor from physics (src/lib/ships/anchor-chain.ts, the detector's own model): the case ship's chain hangs
+  // from the hawse as a catenary for the depth under it and lies on the ground behind, so the anchor trails the
+  // hawse by the layback along the ground the ship has just covered, as the detector reconstructs it.
+  const chainState = estimateCaseShipChain(input.vessel.kind, input.vessel.lengthMetres);
+  // The real hawse is this far ahead of the track point (the hull's midpoint), in km.
+  const hawseAheadKm = shipModel.hawseLocal.x * METRES_TO_KM;
+  /** Where the anchor lies at a moment and the chain's span there, or null before the first position or in water too deep for the chain. */
+  function locateAnchor(atMs: number): { point: ScenePoint; span: { laybackMetres: number; heightMetres: number } } | null {
+    const shipPoint = sceneAt(atMs);
+    if (!shipPoint) return null;
+    const span = readChainSpan(chainState, sampleElevationMetres(shipPoint.x, shipPoint.z));
+    if (!span) return null;
+    // Behind the first position the ground was never covered: the anchor holds at the track's start.
+    const anchorKm = Math.max(0, trackKmAt(atMs) + hawseAheadKm - span.laybackMetres * METRES_TO_KM);
+    const point = sceneAt(timeAtTrackKm(anchorKm));
+    return point ? { point, span } : null;
+  }
+
+  // The anchor's furrow: where the anchor itself went, from the start to the end of the drag window.
+  let furrow: ProgressLine | null = null;
+  if (dragWindow && dragWindow.endMs > dragWindow.startMs) {
+    const furrowPoints = Array.from({ length: FURROW_SEGMENTS + 1 }, (_slot, index) => locateAnchor(dragWindow.startMs + ((dragWindow.endMs - dragWindow.startMs) * index) / FURROW_SEGMENTS))
+      .flatMap((located) => (located ? [located.point] : []))
+      .map((point) => new THREE.Vector3(point.x, sampleSeabedHeight(point.x, point.z) + FURROW_SEABED_LIFT, point.z));
+    if (furrowPoints.length >= 2) {
+      furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX });
+      scene.add(drawAfterWater(furrow.line));
+    }
+  }
+  /** The chain's shape at the primary cut, for the close-up (metres from the anchor along the ground, and up). */
+  const primaryCutAnchor = locateAnchor(primaryCut.atMs);
+  const primaryCutChain = primaryCutAnchor
+    ? shapeCatenary({ paidOutMetres: chainState.nominalPaidOutMetres, heightMetres: primaryCutAnchor.span.heightMetres, laybackMetres: primaryCutAnchor.span.laybackMetres, pointCount: CLOSE_UP_CHAIN_POINT_COUNT })
+    : null;
 
   const cutMarkers = input.cuts.map((cut) => {
     const point = toScene(cut.longitude, cut.latitude);
     const seabedY = sampleSeabedHeight(point.x, point.z) + 0.2;
     const marker = new THREE.Group();
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.07, 10, 48), new THREE.MeshBasicMaterial({ color: WEBGL_COLORS.alarm }));
+    const ring = drawAfterWater(new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_KM, CUT_RING_TUBE_RADIUS_KM, 10, 48), createDataColorMaterial(WEBGL_COLORS.alarm)));
     ring.rotation.x = Math.PI / 2;
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 8), new THREE.MeshBasicMaterial({ color: WEBGL_COLORS.alarm, transparent: true, opacity: 0.7 }));
+    const beam = drawAfterWater(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 8), createDataColorMaterial(WEBGL_COLORS.alarm, { opacity: 0.7, depthWrite: false })));
     beam.scale.y = -seabedY + 1.2;
     beam.position.y = (1.2 - seabedY) / 2;
     marker.add(ring, beam);
@@ -577,9 +709,10 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   controls.minDistance = 1.5;
   controls.maxDistance = topHeightKm * 1.4;
   controls.maxPolarAngle = Math.PI * 0.46;
-  // The overview frames the whole track (the story at a glance); without one it frames the block.
+  // The overview frames the whole track and every cut (the story at a glance: Svalbard's cut marker sits away from
+  // the trawler's track); without a track it frames the block.
   const trackBounds = new THREE.Box3();
-  trackScene.forEach((point) => trackBounds.expandByPoint(new THREE.Vector3(point.x, OVERVIEW_TARGET_Y, point.z)));
+  [...trackScene, ...input.cuts.map((cut) => toScene(cut.longitude, cut.latitude))].forEach((point) => trackBounds.expandByPoint(new THREE.Vector3(point.x, OVERVIEW_TARGET_Y, point.z)));
   const focusTarget = trackScene.length >= 2 ? trackBounds.getCenter(new THREE.Vector3()) : new THREE.Vector3(0, OVERVIEW_TARGET_Y, 0);
   const focusRadiusKm = trackScene.length >= 2 ? Math.max(OVERVIEW_MIN_RADIUS_KM, trackBounds.getSize(new THREE.Vector3()).length() / 2 + OVERVIEW_PADDING_KM) : blockRadiusKm;
   const presets: OverviewScene["presets"] = {
@@ -595,6 +728,24 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   let lastAtMs = Number.NEGATIVE_INFINITY;
   let vesselFrame: VesselFrame | null = null;
   let lastHeading: ScenePoint = { x: 1, z: 0 };
+  const chainPositions = new Float32Array(CHAIN_POINT_COUNT * 3);
+  /**
+   * Draws the chain from the anchor's shackle to the drawn hull's hawse with the catenary's shape: the physical curve
+   * for the real span, stretched onto the drawn one (the hull is drawn 6 times and the water 20 times deeper).
+   */
+  function writeChain(span: { laybackMetres: number; heightMetres: number }) {
+    const shape = shapeCatenary({ paidOutMetres: chainState.nominalPaidOutMetres, heightMetres: span.heightMetres, laybackMetres: span.laybackMetres, pointCount: CHAIN_POINT_COUNT });
+    if (!shape.ok) return;
+    shape.value.points.forEach((point, index) => {
+      const across = span.laybackMetres > 0 ? point.alongMetres / span.laybackMetres : 0;
+      const up = point.upMetres / span.heightMetres;
+      chainPositions[index * 3] = shackleWorld.x + (hawseWorld.x - shackleWorld.x) * across;
+      chainPositions[index * 3 + 1] = shackleWorld.y + (hawseWorld.y - shackleWorld.y) * up;
+      chainPositions[index * 3 + 2] = shackleWorld.z + (hawseWorld.z - shackleWorld.z) * across;
+    });
+    chainGeometry.setPositions(chainPositions);
+  }
+
   // Reused every frame instead of allocating.
   const sternWorld = new THREE.Vector3();
   const hawseWorld = new THREE.Vector3();
@@ -602,6 +753,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const wakeTrail: ScenePoint[] = [];
 
   function update(atMs: number, deltaSeconds: number, nowSeconds: number) {
+    water.setWaveTime((atMs - input.windowStartMs) / 1000);
     const shipPoint = sceneAt(atMs);
     ship.visible = shipPoint !== null;
     if (shipPoint) {
@@ -612,8 +764,10 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (heading.x !== 0 || heading.z !== 0) lastHeading = heading;
       ship.rotation.y = Math.atan2(-lastHeading.z, lastHeading.x);
       ship.updateMatrixWorld();
+      // Speed over the same span the heading reads (scene km are real km across the block).
+      kelvinWake?.setSpeed((Math.hypot(after.x - before.x, after.z - before.z) * 1000) / ((2 * HEADING_SPAN_MS) / 1000));
       shipLabel.setNote(describeVesselPosition(input.track, atMs));
-      vesselFrame = { position: ship.position, heading: lastHeading };
+      vesselFrame = { position: ship.position, heading: lastHeading, drawnLengthKm: shipDrawnLengthKm };
       // The wake: the stern now, then the path sailed over the last minutes.
       sternWorld.copy(shipModel.sternLocal).applyMatrix4(ship.matrixWorld);
       const sternOffsetKm = sternWorld.distanceTo(ship.position);
@@ -624,7 +778,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
         if (!past) break;
         wakeTrail.push({ x: past.x - lastHeading.x * sternOffsetKm, z: past.z - lastHeading.z * sternOffsetKm });
       }
-      wake.update(wakeTrail, WAKE_HALF_WIDTH_KM);
+      wake.update(wakeTrail, wakeHalfWidthKm);
     } else {
       vesselFrame = null;
       wake.mesh.visible = false;
@@ -633,19 +787,18 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
     const isDragging = dragWindow !== null && shipPoint !== null && atMs >= dragWindow.startMs && atMs <= dragWindow.endMs;
     if (furrow && dragWindow) furrow.setFraction((atMs - dragWindow.startMs) / (dragWindow.endMs - dragWindow.startMs));
-    anchor.visible = isDragging;
-    chain.visible = isDragging;
-    if (isDragging && shipPoint) {
-      // The anchor drags on the seabed under the vessel, shank pointing up the chain toward the bow.
-      anchor.position.set(shipPoint.x, sampleSeabedHeight(shipPoint.x, shipPoint.z) + 0.02, shipPoint.z);
-      anchor.rotation.set(-0.12, Math.atan2(lastHeading.x, lastHeading.z), 0);
-      anchor.updateMatrixWorld();
+    const located = isDragging ? locateAnchor(atMs) : null;
+    anchor.visible = located !== null;
+    chain.visible = located !== null;
+    if (located) {
+      // The anchor lies where the chain's layback puts it, shank pointing along the chain toward the hawse.
       hawseWorld.copy(shipModel.hawseLocal).applyMatrix4(ship.matrixWorld);
+      const towardHawse = unitDirection(located.point, { x: hawseWorld.x, z: hawseWorld.z }, lastHeading);
+      anchor.position.set(located.point.x, sampleSeabedHeight(located.point.x, located.point.z) + 0.02, located.point.z);
+      anchor.rotation.set(-0.12, Math.atan2(towardHawse.x, towardHawse.z), 0);
+      anchor.updateMatrixWorld();
       shackleWorld.copy(anchorModel.shackleLocal).applyMatrix4(anchor.matrixWorld);
-      const chainPositions = chainGeometry.getAttribute("position");
-      chainPositions.setXYZ(0, hawseWorld.x, hawseWorld.y, hawseWorld.z);
-      chainPositions.setXYZ(1, shackleWorld.x, shackleWorld.y, shackleWorld.z);
-      chainPositions.needsUpdate = true;
+      writeChain(located.span);
     }
 
     for (const cutSwitch of cutSwitches) {
@@ -669,12 +822,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (isPrimaryCut && signalStopCurve) {
         signal.position.copy(signalStopCurve.getPointAt(1));
         const pulse = prefersReducedMotion ? 1 : 0.75 + 0.35 * Math.sin(nowSeconds * 6);
-        signalGlow.scale.setScalar(1.6 * pulse);
+        signalGlow.scale.setScalar(SIGNAL_GLOW_SCREEN_SCALE * pulse);
         signalGlow.material.color.set(SCENE_COLORS.cutGlow);
         signalCore.material.color.set(SCENE_COLORS.cutCore);
       } else {
         signal.position.copy(signalCurve.getPointAt(prefersReducedMotion ? 0.3 : (nowSeconds / SIGNAL_LAP_SECONDS) % 1));
-        signalGlow.scale.setScalar(1.6);
+        signalGlow.scale.setScalar(SIGNAL_GLOW_SCREEN_SCALE);
         signalGlow.material.color.set(SCENE_COLORS.signalGlow);
         signalCore.material.color.set(SCENE_COLORS.signalCore);
       }
@@ -746,5 +899,59 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     });
   }
 
-  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update };
+  function readColorProbes(cameraPosition: THREE.Vector3): ColorProbe[] {
+    const probes: ColorProbe[] = [];
+    for (const { tone, radius, tube } of dataTubes) {
+      if (!tube.mesh.visible) continue;
+      for (const share of COLOR_PROBE_SHARES) {
+        const centre = tube.curve.getPointAt(share);
+        const middleOffsetKm = readThinnedTubeMiddle(radius, centre.distanceTo(cameraPosition), fullWidthDistanceKm);
+        centre.y += middleOffsetKm;
+        // The thinned tube is 2 r s wide, and its middle sits r (s - 1) above the centreline.
+        probes.push({ tone, position: centre, widthKm: 2 * (radius + middleOffsetKm) });
+      }
+    }
+    // The track up to the vessel, leaving out the stretch under the hull and the wake (the last minutes sailed).
+    const revealedCount = pastTrack ? pastTrack.line.geometry.instanceCount + 1 : 0;
+    const coveredFromMs = lastAtMs - WAKE_STEP_MS * WAKE_SAMPLE_COUNT;
+    const drawnTrack = trackProbePoints.slice(0, revealedCount).filter((point) => point.atMs < coveredFromMs);
+    for (const tone of ["suspect", "alarm"] as const) {
+      const toned = drawnTrack.filter((point) => point.tone === tone);
+      const step = Math.max(1, Math.floor(toned.length / TRACK_PROBES_PER_TONE));
+      toned.forEach((point, index) => {
+        if (index % step === 0) probes.push({ tone, position: point.position, widthKm: null });
+      });
+    }
+    for (const cutMarker of cutMarkers) {
+      if (!cutMarker.marker.visible) continue;
+      for (const angle of CUT_RING_PROBE_ANGLES) {
+        const position = new THREE.Vector3(Math.cos(angle) * CUT_RING_RADIUS_KM, 0, Math.sin(angle) * CUT_RING_RADIUS_KM).add(cutMarker.marker.position);
+        probes.push({ tone: "alarm", position, widthKm: 2 * CUT_RING_TUBE_RADIUS_KM });
+      }
+    }
+    return probes.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
+  }
+
+  function readSeabedProbes(cameraPosition: THREE.Vector3): SeabedProbe[] {
+    return seabedProbeCandidates.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
+  }
+
+  /** Whether the terrain rises above the sight line from the camera to a point (a ridge hides what is behind it). */
+  function isBehindRelief(point: THREE.Vector3, cameraPosition: THREE.Vector3): boolean {
+    const sightKm = point.distanceTo(cameraPosition);
+    // Skip the first stretch next to the point: a line rests on the very seabed it is drawn on.
+    const startShare = Math.min(0.5, OCCLUSION_START_KM / sightKm);
+    for (let step = 0; step < OCCLUSION_STEPS; step += 1) {
+      // Samples crowd toward the point, where nearby relief hides the most.
+      const amount = startShare + (1 - startShare) * (step / OCCLUSION_STEPS) ** 2;
+      const sightX = point.x + (cameraPosition.x - point.x) * amount;
+      const sightY = point.y + (cameraPosition.y - point.y) * amount;
+      const sightZ = point.z + (cameraPosition.z - point.z) * amount;
+      if (Math.abs(sightX) > projection.widthKm / 2 || Math.abs(sightZ) > projection.depthKm / 2) return false;
+      if (sampleSeabedHeight(sightX, sightZ) > sightY) return true;
+    }
+    return false;
+  }
+
+  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes, readSeabedProbes };
 }

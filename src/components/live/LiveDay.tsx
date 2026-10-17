@@ -1,35 +1,122 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
-import { LiveGlobeStage } from "@/components/live/LiveGlobeStage";
+import { LiveGlobeStage, type WorldLinesState } from "@/components/live/LiveGlobeStage";
+import { DraftCasesCard, type DraftCasesState } from "@/components/live/LiveDraftCases";
+import { IncidentCard, IncidentsCard } from "@/components/live/LiveIncidents";
+import { LiveLineCard, type LineScanState } from "@/components/live/LiveLineCard";
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
+import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/globe/coverage";
 import { pairShipFrames } from "@/lib/globe/frame-pairing";
 import type { FrameSource } from "@/lib/globe/frame-source";
-import type { GlobeViewer } from "@/lib/globe/globe-viewer";
-import { fetchShipDetails } from "@/lib/globe/live-api";
+import type { GlobePick, GlobeViewer } from "@/lib/globe/globe-viewer";
+import type { GlobeIncident } from "@/lib/globe/incidents";
+import { addFrameToPassageScan, createPassageScan, summarizePassages, type LinePassage, type PassageScan } from "@/lib/globe/line-passages";
+import { fetchShipDetails, fetchShipDetailsBatch, type DetectionSummary } from "@/lib/globe/live-api";
 import { daySpan, locateMoment } from "@/lib/globe/live-day";
 import type { WatchedLine } from "@/lib/globe/watched-line";
+import type { GlobeLine } from "@/lib/globe/world-lines";
 import type { FrameIndexEntry } from "@/lib/live/frame-layout";
 import { readShipRecord, type ShipFrameColumns } from "@/lib/live/snapshot-codec";
+import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { formatUtcClock } from "@/lib/replay/format-utc";
 import { createReplayClock } from "@/lib/replay/replay-clock";
 
 // A day plays in 72 seconds: an hour every 3 seconds, slow enough to follow a ship across a sea.
 const DAY_PLAYBACK_SECONDS = 72;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MS_PER_MINUTE = 60_000;
 // The rail floats over the stage's right edge from this width, as in the replay console.
 const WIDE_LAYOUT_QUERY = "(min-width: 1024px)";
 const RAIL_WIDTH_PX = 360;
 const RAIL_INSET_PX = 16;
 // Bit 7 of a ship's class byte marks a Digitraffic report (src/lib/live/snapshot-codec.ts).
 const DIGITRAFFIC_FLAG = 0x80;
+// The rest of the day downloads this many frames at a time when a line's whole day is checked.
+const DAY_CHECK_CONCURRENCY = 4;
+// A line's passages are summed up at most this often while frames arrive (ms).
+const PASSAGE_PUBLISH_INTERVAL_MS = 250;
+// The crossfade from the globe into the case console (docs/UI_DESIGN_SYSTEM.md, Motion; sourceRef src/app/globals.css):
+// the console enters over duration-hero with ease-enter and an 8 px rise, the globe leaves 20% faster with ease-exit
+// while it keeps pushing in a little, as if the camera went on down.
+const DIVE_ENTER_MS = 480;
+const DIVE_EXIT_MS = 384;
+const EASE_ENTER = "cubic-bezier(0.16, 1, 0.3, 1)";
+const EASE_EXIT = "cubic-bezier(0.4, 0, 1, 1)";
+const DIVE_RISE_PX = 8;
+const DIVE_PUSH_SCALE = 1.04;
+// The globe's snapshot takes this name for the crossfade, so it can leave on its own while the page around it,
+// the same section bar on both pages, crossfades in place.
+const DIVE_SNAPSHOT_NAME = "live-globe";
+// The page holds its last frame while the case console renders; past this the crossfade starts on whatever is there
+// (Chromium gives up on a view transition whose update takes much longer).
+const DIVE_RENDER_WAIT_MS = 2500;
+const DIVE_POLL_MS = 40;
+
+/** Resolves once the case console at `path` is in the document and visible, or after DIVE_RENDER_WAIT_MS. */
+function waitForCaseConsole(path: string): Promise<void> {
+  const startedAt = performance.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      // Pages left behind stay mounted but hidden (cacheComponents), so only a visible console counts.
+      const isShown = [...document.querySelectorAll('[data-testid="replay-console"]')].some((element) => element.checkVisibility());
+      if ((window.location.pathname === path && isShown) || performance.now() - startedAt > DIVE_RENDER_WAIT_MS) resolve();
+      else window.setTimeout(check, DIVE_POLL_MS);
+    };
+    check();
+  });
+}
+
+/**
+ * Opens a case behind a same-document view transition: the globe's last frame pushes in and fades while the case
+ * console rises in under it, so there is no hard cut. Without the View Transitions API the case simply opens.
+ * Resolves when the crossfade is over.
+ */
+function crossfadeIntoCase(navigate: () => void, path: string, globeElement: HTMLElement | null): Promise<void> {
+  if (typeof document.startViewTransition !== "function") {
+    navigate();
+    return Promise.resolve();
+  }
+  const isReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (globeElement) globeElement.style.viewTransitionName = DIVE_SNAPSHOT_NAME;
+  const transition = document.startViewTransition(async () => {
+    if (globeElement) globeElement.style.viewTransitionName = "";
+    navigate();
+    await waitForCaseConsole(path);
+  });
+  transition.ready
+    .then(() => {
+      document.documentElement.animate(
+        [
+          { opacity: 1, transform: "scale(1)" },
+          { opacity: 0, transform: isReduced ? "scale(1)" : `scale(${DIVE_PUSH_SCALE})` },
+        ],
+        { duration: DIVE_EXIT_MS, easing: EASE_EXIT, fill: "forwards", pseudoElement: `::view-transition-old(${DIVE_SNAPSHOT_NAME})` },
+      );
+      document.documentElement.animate(
+        [
+          { opacity: 0, transform: isReduced ? "none" : `translateY(${DIVE_RISE_PX}px)` },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: DIVE_ENTER_MS, easing: EASE_ENTER, fill: "both", pseudoElement: "::view-transition-new(root)" },
+      );
+    })
+    .catch((error: unknown) => console.error(`[crossfadeIntoCase] ${error instanceof Error ? error.message : String(error)}`));
+  // A skipped transition rejects `ready` (logged above); the navigation itself still happened.
+  return transition.finished.catch(() => undefined);
+}
+
+// A row of the incident list flies the camera this far from the centre: about 1,900 km up, the sea around the cut in view.
+const INCIDENT_FOCUS_DISTANCE = 1.3;
 const CREDITS = [
   "Ships: aisstream.io (terrestrial AIS, kept two days) and Fintraffic / digitraffic.fi (CC BY 4.0).",
   "Land: Natural Earth 1:50m, public domain.",
-  "Cables: OpenStreetMap contributors (ODbL); pipelines: EMODnet Human Activities.",
+  "Cables and pipelines of the world: OpenStreetMap contributors, Open Database License (ODbL). OpenStreetMap maps only part of the routes on the sea floor.",
+  "The lines the replays watch: OpenStreetMap contributors (ODbL), pipelines from EMODnet Human Activities, one cable traced off a published map.",
 ] as const;
 
 type MomentState = { frame: ShipFrameColumns; digitrafficCount: number } | null;
@@ -62,14 +149,22 @@ type LiveDayProps = {
   entries: FrameIndexEntry[];
   frameSource: FrameSource;
   watchedLines: readonly WatchedLine[];
+  incidents: readonly GlobeIncident[];
   detectionsState: DetectionsState;
+  draftCasesState: DraftCasesState;
+  /** Whether the two feeds agree where both cover a region, shown in the moment card. */
+  feedCheck: ReactNode;
 };
 
 /**
  * One recorded day on the globe (the console shell of the replay: stage, floating rail, dock). Owns the day's clock;
  * as it moves, the frames on either side of the moment are loaded, paired ship by ship and blended on the GPU.
  */
-export function LiveDay({ entries, frameSource, watchedLines, detectionsState }: LiveDayProps) {
+export function LiveDay({ entries, frameSource, watchedLines, incidents, detectionsState, draftCasesState, feedCheck }: LiveDayProps) {
+  const router = useRouter();
+  const [divingSlug, setDivingSlug] = useState<string | null>(null);
+  // The globe's box, which takes a view-transition name for the dive's crossfade.
+  const globeHostRef = useRef<HTMLDivElement>(null);
   const { startMs, endMs } = daySpan(entries);
   const spanMs = endMs - startMs;
   const [clock] = useState(() => {
@@ -89,9 +184,98 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   const viewerRef = useRef<GlobeViewer | null>(null);
   const pairRef = useRef<ReturnType<typeof pairShipFrames> | null>(null);
   const selectedRef = useRef<number | null>(null);
+  // Where the feeds heard ships, grown from every frame this page decodes.
+  const [coverage] = useState(createCoverage);
+  const coverageMaskRef = useRef<Uint8Array | null>(null);
+  const [coverageFrameCount, setCoverageFrameCount] = useState(0);
+  const [globeLines, setGlobeLines] = useState<{ lines: GlobeLine[]; worldState: WorldLinesState }>({ lines: [], worldState: "loading" });
+  const [selectedIncidentSlug, setSelectedIncidentSlug] = useState<string | null>(null);
+  const selectedIncidentRef = useRef<string | null>(null);
+  // The clicked cable or pipeline and who passed it in the frames checked so far.
+  const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
+  const [lineScan, setLineScan] = useState<LineScanState | null>(null);
+  const lineScanRef = useRef<PassageScan | null>(null);
+  const lineProgressRef = useRef<LineScanState["progress"]>(null);
+  const publishTimerRef = useRef<number | null>(null);
+  const [shipNames, setShipNames] = useState<ReadonlyMap<number, string>>(() => new Map());
+  const requestedNamesRef = useRef(new Set<number>());
+  // A ship to fly to once the frames of the moment it was picked at are on the globe.
+  const pendingFocusRef = useRef<number | null>(null);
+  const pairKeysRef = useRef<{ applied: string | null; requested: string | null }>({ applied: null, requested: null });
+
+  // Line ids are positions in the list, so a new list (the world's lines arriving) closes any open line card.
+  const handleLinesChange = useCallback((lines: GlobeLine[], worldState: WorldLinesState) => {
+    setGlobeLines({ lines, worldState });
+    lineScanRef.current = null;
+    lineProgressRef.current = null;
+    setSelectedLineId(null);
+    setLineScan(null);
+    viewerRef.current?.setSelectedLine(null);
+  }, []);
+
+  /** Flies to the pending ship when the pair on the globe is the one for the current moment and holds it. */
+  const focusPendingShip = useCallback(() => {
+    const mmsi = pendingFocusRef.current;
+    if (mmsi === null || pairKeysRef.current.applied !== pairKeysRef.current.requested) return;
+    if (viewerRef.current?.focusShip(mmsi)) pendingFocusRef.current = null;
+  }, []);
+
+  /** Sums up the selected line's passages now, then asks a feed for the names it does not know yet. */
+  const publishLineScan = useCallback(() => {
+    publishTimerRef.current = null;
+    const scan = lineScanRef.current;
+    if (!scan) return;
+    const passages = summarizePassages(scan);
+    const uncheckedBytes = entries.reduce((sum, entry) => sum + (frameSource.peekFrame(entry) === null ? entry.bytes : 0), 0);
+    setLineScan({ passages, framesChecked: scan.frameTimes.size, frameCount: entries.length, uncheckedBytes, progress: lineProgressRef.current });
+    const unnamed = passages.map((passage) => passage.mmsi).filter((mmsi) => !requestedNamesRef.current.has(mmsi));
+    if (unnamed.length === 0) return;
+    unnamed.forEach((mmsi) => requestedNamesRef.current.add(mmsi));
+    void fetchShipDetailsBatch(unnamed).then((outcome) => {
+      if (!outcome.ok) {
+        console.error(`[LiveDay] ${outcome.reason}`);
+        return;
+      }
+      setShipNames((known) => {
+        const next = new Map(known);
+        outcome.value.forEach((details, mmsi) => {
+          if (details.name !== null) next.set(mmsi, details.name);
+        });
+        return next;
+      });
+    });
+  }, [entries, frameSource]);
+
+  const schedulePublish = useCallback(() => {
+    if (publishTimerRef.current === null) publishTimerRef.current = window.setTimeout(publishLineScan, PASSAGE_PUBLISH_INTERVAL_MS);
+  }, [publishLineScan]);
+
+  /** Counts a decoded frame into the coverage and into the selected line's scan. */
+  const noteFrame = useCallback(
+    (frame: ShipFrameColumns) => {
+      if (lineScanRef.current && addFrameToPassageScan(lineScanRef.current, frame)) schedulePublish();
+      if (!addFrameToCoverage(coverage, frame)) return;
+      const mask = renderCoverageMask(coverage);
+      coverageMaskRef.current = mask;
+      viewerRef.current?.setCoverage(mask);
+      setCoverageFrameCount(coverage.frameTimes.size);
+    },
+    [coverage, schedulePublish],
+  );
+
+  // Cancels a pending passage summary when the page goes.
+  useEffect(
+    () => () => {
+      if (publishTimerRef.current !== null) window.clearTimeout(publishTimerRef.current);
+    },
+    [],
+  );
 
   const readMinute = () => formatUtcClock(startMs + clock.getSnapshot().progress * spanMs);
   const minuteLabel = useSyncExternalStore(clock.subscribe, readMinute, readMinute);
+  // The moment to the minute, so the ship card's report age updates once a minute of the day, not every frame.
+  const readMomentMinuteMs = () => Math.floor((startMs + clock.getSnapshot().progress * spanMs) / MS_PER_MINUTE) * MS_PER_MINUTE;
+  const momentMinuteMs = useSyncExternalStore(clock.subscribe, readMomentMinuteMs, readMomentMinuteMs);
 
   // Follows the layout breakpoint, a browser state React does not own.
   useEffect(() => {
@@ -108,8 +292,9 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   // another pair of frames, those are loaded (from the cache when possible), paired and handed to the viewer.
   useEffect(() => {
     let isDisposed = false;
-    let appliedKey: string | null = null;
-    let requestedKey: string | null = null;
+    const keys = pairKeysRef.current;
+    keys.applied = null;
+    keys.requested = null;
     const currentMoment = () => locateMoment(entries, startMs + clock.getSnapshot().progress * spanMs);
 
     async function applyPair(earlierIndex: number, laterIndex: number | null, key: string) {
@@ -117,19 +302,22 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       const laterEntry = laterIndex === null ? undefined : entries[laterIndex];
       if (!earlierEntry) return;
       const [earlier, later] = await Promise.all([frameSource.loadFrame(earlierEntry), laterEntry ? frameSource.loadFrame(laterEntry) : Promise.resolve(null)]);
-      if (isDisposed || requestedKey !== key) return;
+      if (isDisposed || keys.requested !== key) return;
       if (!earlier.ok) {
         console.error(`[LiveDay] ${earlier.reason}`);
         setFrameProblem("A frame of this moment could not be loaded. Move the timeline to try another.");
-        requestedKey = null;
+        keys.requested = null;
         return;
       }
       if (later && !later.ok) console.error(`[LiveDay] ${later.reason}`);
+      noteFrame(earlier.value);
+      if (later?.ok) noteFrame(later.value);
       const pair = pairShipFrames(earlier.value, later?.ok ? later.value : null);
       pairRef.current = pair;
-      appliedKey = key;
+      keys.applied = key;
       viewerRef.current?.setFramePair(pair);
       viewerRef.current?.setBlend(currentMoment().blend);
+      focusPendingShip();
       setFrameProblem(null);
       setMoment({ frame: earlier.value, digitrafficCount: countDigitraffic(earlier.value) });
     }
@@ -137,14 +325,18 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
     function update() {
       const located = currentMoment();
       const key = `${located.earlierIndex}:${located.laterIndex ?? "end"}`;
-      if (key === appliedKey) viewerRef.current?.setBlend(located.blend);
-      else if (key !== requestedKey) {
-        requestedKey = key;
+      if (key === keys.applied) viewerRef.current?.setBlend(located.blend);
+      else if (key !== keys.requested) {
+        keys.requested = key;
         void applyPair(located.earlierIndex, located.laterIndex, key);
       }
       // While the day plays, the frame after next downloads ahead of the moment that needs it.
       const nextEntry = located.laterIndex === null ? undefined : entries[located.laterIndex + 1];
-      if (clock.getSnapshot().isPlaying && nextEntry) void frameSource.loadFrame(nextEntry);
+      if (clock.getSnapshot().isPlaying && nextEntry) {
+        void frameSource.loadFrame(nextEntry).then((outcome) => {
+          if (outcome.ok && !isDisposed) noteFrame(outcome.value);
+        });
+      }
     }
 
     const unsubscribe = clock.subscribe(update);
@@ -153,7 +345,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       isDisposed = true;
       unsubscribe();
     };
-  }, [clock, entries, frameSource, startMs, spanMs]);
+  }, [clock, entries, focusPendingShip, frameSource, noteFrame, startMs, spanMs]);
 
   // Looks up the selected ship's name and size, an outside service; a newer selection cancels an older answer.
   useEffect(() => {
@@ -183,36 +375,205 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       viewer.setFramePair(pairRef.current);
       viewer.setBlend(locateMoment(entries, startMs + clock.getSnapshot().progress * spanMs).blend);
       viewer.setSelectedShip(selectedRef.current);
+      viewer.setCoverage(coverageMaskRef.current);
+      viewer.setSelectedLine(lineScanRef.current?.lineId ?? null);
+      viewer.setIncidents(incidents);
+      viewer.setSelectedIncident(selectedIncidentRef.current);
     },
-    [clock, entries, startMs, spanMs],
+    [clock, entries, incidents, startMs, spanMs],
   );
 
-  const focusDetection = useCallback(
+  /** Opens a line's card and checks every frame already decoded for ships that crossed or neared it. */
+  const selectLine = useCallback(
+    (lineId: number | null) => {
+      setSelectedLineId(lineId);
+      viewerRef.current?.setSelectedLine(lineId);
+      lineProgressRef.current = null;
+      const line = lineId === null ? undefined : globeLines.lines.find((candidate) => candidate.id === lineId);
+      if (!line) {
+        lineScanRef.current = null;
+        setLineScan(null);
+        return;
+      }
+      const scan = createPassageScan(line);
+      lineScanRef.current = scan;
+      entries.forEach((entry) => {
+        const frame = frameSource.peekFrame(entry);
+        if (frame) addFrameToPassageScan(scan, frame);
+      });
+      publishLineScan();
+    },
+    [entries, frameSource, globeLines.lines, publishLineScan],
+  );
+
+  /** Downloads every frame of the day not decoded yet, a few at a time, so the line's scan covers the whole day. */
+  const checkLineDay = useCallback(async () => {
+    const scan = lineScanRef.current;
+    if (!scan || lineProgressRef.current !== null) return;
+    const missing = entries.filter((entry) => frameSource.peekFrame(entry) === null);
+    const progress = { done: 0, total: missing.length };
+    lineProgressRef.current = progress;
+    publishLineScan();
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < missing.length && lineScanRef.current === scan) {
+        const entry = missing[nextIndex];
+        nextIndex += 1;
+        if (!entry) continue;
+        const outcome = await frameSource.loadFrame(entry);
+        if (outcome.ok) noteFrame(outcome.value);
+        else console.error(`[LiveDay] ${outcome.reason}`);
+        progress.done += 1;
+        schedulePublish();
+      }
+    };
+    await Promise.all(Array.from({ length: DAY_CHECK_CONCURRENCY }, worker));
+    if (lineScanRef.current === scan) {
+      lineProgressRef.current = null;
+      publishLineScan();
+    }
+  }, [entries, frameSource, noteFrame, publishLineScan, schedulePublish]);
+
+  /** Moves the day to the moment a ship passed the line, selects it, and flies to it once that moment is drawn. */
+  const selectPassage = useCallback(
+    (passage: LinePassage) => {
+      selectShip(passage.mmsi);
+      pendingFocusRef.current = passage.mmsi;
+      const atMs = Math.min(endMs, Math.max(startMs, passage.closestAtMs));
+      clock.pause();
+      clock.seek(spanMs > 0 ? (atMs - startMs) / spanMs : 1);
+      focusPendingShip();
+    },
+    [clock, endMs, focusPendingShip, selectShip, spanMs, startMs],
+  );
+
+  /** Marks an incident as selected on the globe and in the list, and opens its card. */
+  const selectIncident = useCallback((slug: string | null) => {
+    selectedIncidentRef.current = slug;
+    setSelectedIncidentSlug(slug);
+    viewerRef.current?.setSelectedIncident(slug);
+  }, []);
+
+  /** A row of the incident list: selects it and flies over it, high enough to see the sea around the cut. */
+  const focusIncident = useCallback(
+    (slug: string) => {
+      selectIncident(slug);
+      const incident = incidents.find((candidate) => candidate.slug === slug);
+      if (incident) void viewerRef.current?.flyTo({ longitude: incident.longitude, latitude: incident.latitude, distance: INCIDENT_FOCUS_DISTANCE });
+    },
+    [incidents, selectIncident],
+  );
+
+  /**
+   * From orbit to the seabed: flies the camera down onto the incident's cut, then opens its case on the cut's minute;
+   * the navigation crossfades the globe's last frame into the case console (crossfadeIntoCase).
+   */
+  const diveIntoIncident = useCallback(
+    async (incident: GlobeIncident) => {
+      setDivingSlug(incident.slug);
+      clock.pause();
+      // The case page downloads while the camera flies, so the crossfade starts as soon as it lands.
+      router.prefetch(incident.caseHref);
+      await viewerRef.current?.flyTo({ longitude: incident.longitude, latitude: incident.latitude });
+      await crossfadeIntoCase(() => router.push(incident.caseHref), new URL(incident.caseHref, window.location.href).pathname, globeHostRef.current);
+      // Back from the case restores this page as it was left, with the button ready again.
+      setDivingSlug(null);
+    },
+    [clock, router],
+  );
+
+  /** A ship row of a draft case: selects it and flies to it when the recorded day holds it at the moment shown. */
+  const focusDraftShip = useCallback(
     (mmsi: number) => {
       selectShip(mmsi);
-      viewerRef.current?.focusShip(mmsi);
+      pendingFocusRef.current = mmsi;
+      focusPendingShip();
     },
-    [selectShip],
+    [focusPendingShip, selectShip],
+  );
+
+  const handlePick = useCallback(
+    (pick: GlobePick) => {
+      switch (pick.kind) {
+        case "ship":
+          selectShip(pick.mmsi);
+          return;
+        case "line":
+          selectLine(pick.lineId);
+          return;
+        case "incident":
+          selectIncident(pick.slug);
+          return;
+        case "none":
+          selectShip(null);
+          selectLine(null);
+          selectIncident(null);
+          return;
+        default: {
+          const unhandled: never = pick;
+          return unhandled;
+        }
+      }
+    },
+    [selectIncident, selectLine, selectShip],
+  );
+
+  /** A detection row: moves the day into its window when the window falls inside the day, then flies to the ship. */
+  const focusDetection = useCallback(
+    (detection: DetectionSummary) => {
+      selectShip(detection.mmsi);
+      pendingFocusRef.current = detection.mmsi;
+      if (detection.endMs >= startMs && detection.startMs <= endMs) {
+        const atMs = Math.min(endMs, Math.max(startMs, detection.startMs));
+        clock.pause();
+        clock.seek(spanMs > 0 ? (atMs - startMs) / spanMs : 1);
+      }
+      focusPendingShip();
+    },
+    [clock, endMs, focusPendingShip, selectShip, spanMs, startMs],
   );
 
   const shipIndex = moment && selectedMmsi !== null ? findInFrame(moment.frame, selectedMmsi) : -1;
   const selectedRecord = moment && shipIndex !== -1 ? readShipRecord(moment.frame, shipIndex) : null;
   const rightInsetPx = isWide ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
+  const selectedIncident = incidents.find((incident) => incident.slug === selectedIncidentSlug);
+  const selectedLine = selectedLineId === null ? undefined : globeLines.lines.find((line) => line.id === selectedLineId);
 
   const railCards = (
     <>
-      <MomentCard minuteLabel={minuteLabel} shipCount={moment?.frame.shipCount ?? null} digitrafficCount={moment?.digitrafficCount ?? 0} />
+      <MomentCard minuteLabel={minuteLabel} shipCount={moment?.frame.shipCount ?? null} digitrafficCount={moment?.digitrafficCount ?? 0} feedCheck={feedCheck} />
+      {selectedIncident && (
+        <IncidentCard
+          incident={selectedIncident}
+          isDiving={divingSlug === selectedIncident.slug}
+          onDive={() => void diveIntoIncident(selectedIncident)}
+          onClose={() => selectIncident(null)}
+        />
+      )}
       {selectedMmsi !== null && (
         <ShipCard
           mmsi={selectedMmsi}
           record={selectedRecord}
-          frameTimeMs={moment?.frame.frameTimeMs ?? null}
+          momentMs={momentMinuteMs}
           detailsState={detailsState}
           onFocus={() => viewerRef.current?.focusShip(selectedMmsi)}
           onClose={() => selectShip(null)}
         />
       )}
-      <DetectionsCard state={detectionsState} onSelect={focusDetection} />
+      {selectedLine && lineScan && (
+        <LiveLineCard
+          line={selectedLine}
+          scan={lineScan}
+          shipNames={shipNames}
+          selectedMmsi={selectedMmsi}
+          onCheckDay={() => void checkLineDay()}
+          onSelectPassage={selectPassage}
+          onClose={() => selectLine(null)}
+        />
+      )}
+      <DetectionsCard state={detectionsState} selectedMmsi={selectedMmsi} onSelect={focusDetection} />
+      <DraftCasesCard state={draftCasesState} selectedMmsi={selectedMmsi} onSelectShip={focusDraftShip} />
+      {incidents.length > 0 && <IncidentsCard incidents={incidents} selectedSlug={selectedIncidentSlug} onSelect={focusIncident} />}
     </>
   );
 
@@ -225,7 +586,9 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
         data-frame-count={entries.length}
         data-ship-count={moment?.frame.shipCount ?? 0}
       >
-        <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onShipPick={selectShip} />
+        <div ref={globeHostRef} className="absolute inset-0">
+          <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onPick={handlePick} onLinesChange={handleLinesChange} />
+        </div>
         <div className="pointer-events-none absolute top-4 left-4 z-(--layer-stage-controls) flex max-w-[calc(100%-32px)] flex-col items-start gap-2">
           <p className="rounded-full bg-card px-4 py-2 text-label shadow-row">A recorded day of ships, not real time</p>
           {frameProblem && (
@@ -252,6 +615,16 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
               </svg>
               Pipeline
             </span>
+            <span className="inline-flex items-center gap-1.5" data-testid="live-coverage-legend">
+              <svg width="18" height="12" viewBox="0 0 18 12" aria-hidden="true" className="rounded-[3px]">
+                <rect width="18" height="12" fill={WEBGL_COLORS.depth40} />
+                <path d="M-3 9 L6 0 M4 13 L17 0 M11 13 L21 3" stroke={WEBGL_COLORS.depthDeep} strokeWidth="1.2" />
+              </svg>
+              No feed hears this sea
+            </span>
+            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="text-muted underline decoration-faint underline-offset-4 hover:text-ink">
+              Lines &copy; OpenStreetMap
+            </a>
           </div>
           <Popover.Root>
             <Popover.Trigger
@@ -275,6 +648,16 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
                   report to the next, and a ship that leaves a frame fades out. A move faster than 50 knots is drawn as a jump: a bad position or a
                   reused identity, not a voyage.
                 </p>
+                <p className="text-small">
+                  Hatched sea: no ship heard within about 55 km in the <span className="tabular-nums">{coverageFrameCount}</span>{" "}
+                  {coverageFrameCount === 1 ? "frame" : "frames"} loaded so far. The feeds are coastal receivers, so a ship out there goes unseen; the sea
+                  is not empty.
+                </p>
+                {globeLines.worldState === "failed" && (
+                  <p className="text-small" role="status">
+                    The world&apos;s cables did not load; only the lines the replays watch are drawn.
+                  </p>
+                )}
                 <ul className="flex flex-col gap-1.5 text-caption font-normal text-muted">
                   {CREDITS.map((credit) => (
                     <li key={credit}>{credit}</li>

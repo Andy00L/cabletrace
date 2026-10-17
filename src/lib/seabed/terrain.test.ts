@@ -8,6 +8,7 @@ import {
   densifyScenePoints,
   elevationToSceneY,
   smoothElevations,
+  chooseSmoothingPasses,
 } from "./terrain";
 
 const REGION = { west: 25.45, east: 26.45, south: 59.75, north: 60.3 };
@@ -19,6 +20,13 @@ describe("decodeElevations", () => {
     view.setInt16(0, -523, true);
     view.setInt16(2, 120, true);
     expect(Array.from(decodeElevations(buffer))).toEqual([-52.29999923706055, 12]);
+  });
+});
+
+describe("chooseSmoothingPasses", () => {
+  test("rounds off GEBCO's whole-metre terraces and keeps EMODnet's relief", () => {
+    expect(chooseSmoothingPasses("GEBCO Compilation Group (2026) GEBCO 2026 Grid, public domain")).toBe(3);
+    expect(chooseSmoothingPasses("EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM 2024), CC BY 4.0")).toBe(1);
   });
 });
 
@@ -48,9 +56,10 @@ describe("downsampleElevations", () => {
 });
 
 describe("elevationToSceneY", () => {
-  test("exaggerates water 20 times and land 10 times, in kilometres", () => {
-    expect(elevationToSceneY(-100)).toBeCloseTo(-2, 6);
-    expect(elevationToSceneY(50)).toBeCloseTo(0.5, 6);
+  test("exaggerates water and land by the area's own factors, in kilometres", () => {
+    expect(elevationToSceneY(-100, { water: 20, land: 10 })).toBeCloseTo(-2, 6);
+    expect(elevationToSceneY(50, { water: 20, land: 10 })).toBeCloseTo(0.5, 6);
+    expect(elevationToSceneY(-3200, { water: 2, land: 2 })).toBeCloseTo(-6.4, 6);
   });
 });
 
