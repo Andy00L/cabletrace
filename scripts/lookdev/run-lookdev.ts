@@ -11,6 +11,7 @@ import { formatMinute } from "../../src/lib/console/console-state";
 import { WEBGL_COLORS } from "../../src/lib/design/webgl-colors";
 import type { Result } from "../../src/lib/result";
 import type { DataTone } from "../../src/lib/seabed/scene/overview";
+import type { SeabedViewName } from "../../src/lib/seabed/scene/viewer";
 import { resolveChromiumPath } from "../perf/chromium-path";
 import { compareImages, downscaleImage, formatHexColor, matchColorNear, parseHexColor, type RgbColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
@@ -44,6 +45,9 @@ const MIN_PROBES_PER_RUN = 20;
 // median deviation of 0 or 1 and at least 94.9% within 4; a regraded seabed or a lit material shifts every probe.
 const SEABED_TOLERANCE = 4;
 const MIN_SEABED_CLOSE_SHARE = 0.9;
+// The views that look down at the water. The vessel view looks along it, where the surface reflects much of the sky
+// (Fresnel: about 35% at 80 degrees from vertical) and the hull and wakes cover the seabed, so the tokens do not apply.
+const SEABED_JUDGED_VIEWS: readonly SeabedViewName[] = ["overview", "top"];
 // The picture counts as settled when no frame was drawn for this long (a calm scene draws only on change).
 const SETTLE_MS = 800;
 const FRAME_TIMEOUT_MS = 120_000;
@@ -358,7 +362,7 @@ async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, 
     const tones = shot.view === "closeup" ? [] : judgeTones(canvasImage.value, probes, shot.requiredTones);
     const parsedSeabedProbes: unknown = JSON.parse(rawSeabedProbes);
     const seabedProbes = Array.isArray(parsedSeabedProbes) ? parsedSeabedProbes.filter(isSeabedProbe) : [];
-    const seabed = shot.view === "closeup" ? null : judgeSeabed(canvasImage.value, seabedProbes);
+    const seabed = SEABED_JUDGED_VIEWS.includes(shot.view) ? judgeSeabed(canvasImage.value, seabedProbes) : null;
     if (probes.length > 0) {
       const overlayDirectory = path.join(options.outDirectory, tier);
       mkdirSync(overlayDirectory, { recursive: true });
