@@ -4,6 +4,7 @@ import {
   parseAisstreamMessage,
   parseAisstreamTime,
   parseDigitrafficLocations,
+  parseDigitrafficPositions,
   parseDigitrafficVessels,
   type ShipStatic,
 } from "./ais-reports";
@@ -90,10 +91,19 @@ describe("parseAisstreamMessage", () => {
         reportedAtMs: Date.UTC(2026, 9, 17, 8, 25, 58, 734),
         source: "aisstream",
       },
+      status: { navigationStatus: 5, turnRate: null },
       staticData: null,
     });
     const classB = parseAisstreamMessage(CLASS_B_POSITION);
     expect(classB.kind === "position" && classB.report).toMatchObject({ mmsi: 244000202, speedKnots: 2.5, courseDegrees: 147.9, headingDegrees: null });
+    expect(classB.kind === "position" && classB.status).toEqual({ navigationStatus: null, turnRate: null });
+  });
+
+  test("keeps the rate of turn code and drops its not-available value", () => {
+    const turning = parseAisstreamMessage(POSITION_REPORT.replace('"TrueHeading":511', '"TrueHeading":511,"RateOfTurn":-12'));
+    expect(turning.kind === "position" && turning.status).toEqual({ navigationStatus: 5, turnRate: -12 });
+    const unknownTurn = parseAisstreamMessage(POSITION_REPORT.replace('"NavigationalStatus":5', '"NavigationalStatus":15,"RateOfTurn":-128'));
+    expect(unknownTurn.kind === "position" && unknownTurn.status).toEqual({ navigationStatus: 15, turnRate: null });
   });
 
   test("keeps the name and type that message 19 carries next to its position", () => {
@@ -174,6 +184,22 @@ describe("Digitraffic parsers", () => {
       ],
     });
     expect(parseDigitrafficLocations({ features: "none" }, 0)).toEqual({ ok: false, reason: "Digitraffic locations: no features array" });
+  });
+
+  test("keeps navigational status and rate of turn for the recorder", () => {
+    const parsed = parseDigitrafficPositions(
+      {
+        features: [
+          { geometry: { coordinates: [25.1, 60.0] }, properties: { mmsi: 230000003, sog: 6.4, cog: 88, heading: 90, navStat: 0, rot: 4, timestampExternal: 10 } },
+          { geometry: { coordinates: [25.2, 60.0] }, properties: { mmsi: 230000004, sog: 0, cog: 0, heading: 1, navStat: 99, rot: -128, timestampExternal: 10 } },
+        ],
+      },
+      0,
+    );
+    expect(parsed.ok && parsed.value.map((position) => position.status)).toEqual([
+      { navigationStatus: 0, turnRate: 4 },
+      { navigationStatus: null, turnRate: null },
+    ]);
   });
 
   test("reads vessel metadata with sizes from the reference points and draught in tenths", () => {

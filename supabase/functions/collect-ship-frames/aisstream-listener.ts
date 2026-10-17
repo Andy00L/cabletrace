@@ -11,7 +11,12 @@ const STREAM_URL = "wss://stream.aisstream.io/v0/stream";
 // aisstream wants the subscription within 3 s of opening; the open itself gets a little longer.
 const OPEN_TIMEOUT_MS = 10_000;
 // The whole world, as aisstream's [[south, west], [north, east]] corner pairs.
-const WORLD_BOUNDING_BOXES = [[[-90, -180], [90, 180]]];
+const WORLD_BOUNDING_BOXES: AisstreamBoundingBox[] = [
+  [
+    [-90, -180],
+    [90, 180],
+  ],
+];
 // Connections per run, one after the other: never more than one open, within the 3 per key.
 const MAX_CONNECTIONS = 3;
 // Not worth reconnecting for less than this.
@@ -30,16 +35,29 @@ export type ListenStats = {
   connections: number;
 };
 
+/** One subscription box: [[south, west], [north, east]] in degrees. */
+export type AisstreamBoundingBox = [[number, number], [number, number]];
+
 export type ListenOptions = {
   apiKey: string;
   listenMs: number;
   onMessageText: (messageText: string) => void;
+  // The frame collector listens to the world; the near-cable recorder to its regions' boxes.
+  boundingBoxes?: readonly AisstreamBoundingBox[];
+  messageTypes?: readonly string[];
   // Tests point this at a local server; production uses aisstream.
   streamUrl?: string;
 };
 
 /** One connection: resolves after `listenMs`, or earlier with what arrived if the server closes. Never rejects. */
-function listenOnce({ apiKey, listenMs, onMessageText, streamUrl = STREAM_URL }: ListenOptions): Promise<Result<ListenStats>> {
+function listenOnce({
+  apiKey,
+  listenMs,
+  onMessageText,
+  boundingBoxes = WORLD_BOUNDING_BOXES,
+  messageTypes = AISSTREAM_MESSAGE_TYPES,
+  streamUrl = STREAM_URL,
+}: ListenOptions): Promise<Result<ListenStats>> {
   return new Promise((resolve) => {
     const startedAt = performance.now();
     const decoder = new TextDecoder();
@@ -84,7 +102,7 @@ function listenOnce({ apiKey, listenMs, onMessageText, streamUrl = STREAM_URL }:
       openedAt = performance.now();
       clearTimeout(openTimer);
       // The subscription carries the key: it goes to the socket only, never to a log.
-      socket.send(JSON.stringify({ APIKey: apiKey, BoundingBoxes: WORLD_BOUNDING_BOXES, FilterMessageTypes: [...AISSTREAM_MESSAGE_TYPES] }));
+      socket.send(JSON.stringify({ APIKey: apiKey, BoundingBoxes: boundingBoxes, FilterMessageTypes: [...messageTypes] }));
       listenTimer = setTimeout(() => settle({ ok: true, value: readStats(null) }), listenMs);
     };
 
@@ -113,13 +131,13 @@ function listenOnce({ apiKey, listenMs, onMessageText, streamUrl = STREAM_URL }:
  * Listens for `listenMs` in total, reconnecting when the server drops the socket early. A connection
  * that ends without any message (refused key, outage) stops the run: retrying would not help.
  */
-export async function listenToAisstream({ apiKey, listenMs, onMessageText, streamUrl }: ListenOptions): Promise<Result<ListenStats>> {
+export async function listenToAisstream({ listenMs, ...subscription }: ListenOptions): Promise<Result<ListenStats>> {
   const deadline = performance.now() + listenMs;
   let combined: ListenStats | null = null;
   for (let connection = 1; connection <= MAX_CONNECTIONS; connection += 1) {
     const remainingMs = Math.round(deadline - performance.now());
     if (combined !== null && remainingMs < MIN_RECONNECT_WINDOW_MS) break;
-    const outcome = await listenOnce({ apiKey, listenMs: remainingMs, onMessageText, streamUrl });
+    const outcome = await listenOnce({ ...subscription, listenMs: remainingMs });
     if (!outcome.ok) return combined === null ? outcome : { ok: true, value: { ...combined, closedEarly: `${combined.closedEarly}; reconnect failed: ${outcome.reason}` } };
     const stats = outcome.value;
     combined =

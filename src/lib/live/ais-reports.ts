@@ -12,16 +12,18 @@ import type { ShipRecord, ShipSource } from "./snapshot-codec.ts";
 const MAX_SPEED_KNOTS = 102.2;
 const COURSE_NOT_AVAILABLE = 360;
 const HEADING_NOT_AVAILABLE = 511;
+// Navigational status 0-15 (ITU-R M.1371-5, Table 45; 15 means "not defined"). Rate of turn as the transponder's
+// ROT_AIS code, -127 to 127, with -128 meaning "not available" (message 1, rate of turn field); Digitraffic's `rot`
+// carries the same code, so the recorder stores both feeds alike.
+const MAX_NAVIGATION_STATUS = 15;
+const TURN_RATE_NOT_AVAILABLE = -128;
+const MAX_TURN_RATE = 127;
 
-// The aisstream message types the collector subscribes to (FilterMessageTypes): positions from
-// class A (messages 1-3) and class B (18, 19), static data from class A (5) and class B (24).
-export const AISSTREAM_MESSAGE_TYPES = [
-  "PositionReport",
-  "StandardClassBPositionReport",
-  "ExtendedClassBPositionReport",
-  "ShipStaticData",
-  "StaticDataReport",
-] as const;
+// The aisstream message types (FilterMessageTypes): positions from class A (messages 1-3) and class B (18, 19), which
+// the near-cable recorder subscribes to, and static data from class A (5) and class B (24), which the frame collector
+// adds for names and ship types.
+export const AISSTREAM_POSITION_MESSAGE_TYPES = ["PositionReport", "StandardClassBPositionReport", "ExtendedClassBPositionReport"] as const;
+export const AISSTREAM_MESSAGE_TYPES = [...AISSTREAM_POSITION_MESSAGE_TYPES, "ShipStaticData", "StaticDataReport"] as const;
 
 /** Name, identity and size of a ship, from AIS static messages. Null fields were not sent. */
 export type ShipStatic = {
@@ -37,8 +39,14 @@ export type ShipStatic = {
   source: ShipSource;
 };
 
+/** What the recorder stores beyond the frame's ship record: the crew's navigational status and the rate of turn code. */
+export type PositionStatus = { navigationStatus: number | null; turnRate: number | null };
+
+/** A position report with its status fields, as the recorder needs it; the frame keeps only `report`. */
+export type PositionDetail = { report: ShipRecord; status: PositionStatus };
+
 export type AisstreamMessage =
-  | { kind: "position"; report: ShipRecord; staticData: ShipStatic | null }
+  | { kind: "position"; report: ShipRecord; status: PositionStatus; staticData: ShipStatic | null }
   | { kind: "static"; staticData: ShipStatic }
   | { kind: "server-error"; reason: string }
   | { kind: "ignored"; reason: string };
@@ -80,6 +88,14 @@ function readCourseDegrees(value: number | null): number | null {
 
 function readHeadingDegrees(value: number | null): number | null {
   return value !== null && Number.isInteger(value) && value >= 0 && value < 360 && value !== HEADING_NOT_AVAILABLE ? value : null;
+}
+
+function readNavigationStatus(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) && value >= 0 && value <= MAX_NAVIGATION_STATUS ? value : null;
+}
+
+function readTurnRate(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) && value !== TURN_RATE_NOT_AVAILABLE && Math.abs(value) <= MAX_TURN_RATE ? value : null;
 }
 
 function isValidPosition(longitude: number | null, latitude: number | null): boolean {
@@ -227,18 +243,20 @@ export function parseAisstreamMessage(messageText: string): AisstreamMessage {
     const report = readPosition(body, mmsi, reportedAtMs);
     if (report === null) return { kind: "ignored", reason: "no valid position" };
     const staticData = messageType === "ExtendedClassBPositionReport" ? readExtendedClassBStatic(body, mmsi) : null;
-    return { kind: "position", report, staticData };
+    // Class B reports carry neither field; null means the ship did not say.
+    const status = { navigationStatus: readNavigationStatus(readNumber(body, "NavigationalStatus")), turnRate: readTurnRate(readNumber(body, "RateOfTurn")) };
+    return { kind: "position", report, status, staticData };
   }
   return { kind: "ignored", reason: `message type ${messageType}` };
 }
 
 /**
- * Parses Digitraffic /api/ais/v1/locations (GeoJSON). Reports older than `sinceMs` are skipped: the
- * endpoint returns the last position of every vessel it has seen, some of them a day old.
+ * Parses Digitraffic /api/ais/v1/locations (GeoJSON) with each report's status fields. Reports older than
+ * `sinceMs` are skipped: the endpoint returns the last position of every vessel it has seen, some of them a day old.
  */
-export function parseDigitrafficLocations(payload: unknown, sinceMs: number): Result<ShipRecord[]> {
+export function parseDigitrafficPositions(payload: unknown, sinceMs: number): Result<PositionDetail[]> {
   if (!isRecord(payload) || !Array.isArray(payload.features)) return { ok: false, reason: "Digitraffic locations: no features array" };
-  const reports: ShipRecord[] = [];
+  const positions: PositionDetail[] = [];
   for (const feature of payload.features) {
     if (!isRecord(feature) || !isRecord(feature.geometry) || !isRecord(feature.properties)) continue;
     const coordinates = feature.geometry.coordinates;
@@ -249,19 +267,28 @@ export function parseDigitrafficLocations(payload: unknown, sinceMs: number): Re
     const mmsi = readMmsi(properties, "mmsi");
     const reportedAtMs = readNumber(properties, "timestampExternal");
     if (mmsi === null || reportedAtMs === null || reportedAtMs < sinceMs) continue;
-    reports.push({
-      mmsi,
-      longitude,
-      latitude,
-      speedKnots: readSpeedKnots(readNumber(properties, "sog")),
-      courseDegrees: readCourseDegrees(readNumber(properties, "cog")),
-      headingDegrees: readHeadingDegrees(readNumber(properties, "heading")),
-      shipClass: "unknown",
-      reportedAtMs,
-      source: "digitraffic",
+    positions.push({
+      report: {
+        mmsi,
+        longitude,
+        latitude,
+        speedKnots: readSpeedKnots(readNumber(properties, "sog")),
+        courseDegrees: readCourseDegrees(readNumber(properties, "cog")),
+        headingDegrees: readHeadingDegrees(readNumber(properties, "heading")),
+        shipClass: "unknown",
+        reportedAtMs,
+        source: "digitraffic",
+      },
+      status: { navigationStatus: readNavigationStatus(readNumber(properties, "navStat")), turnRate: readTurnRate(readNumber(properties, "rot")) },
     });
   }
-  return { ok: true, value: reports };
+  return { ok: true, value: positions };
+}
+
+/** The ship records of parseDigitrafficPositions, for the live frames. */
+export function parseDigitrafficLocations(payload: unknown, sinceMs: number): Result<ShipRecord[]> {
+  const positions = parseDigitrafficPositions(payload, sinceMs);
+  return positions.ok ? { ok: true, value: positions.value.map((position) => position.report) } : positions;
 }
 
 /** Parses Digitraffic /api/ais/v1/vessels. Draught comes in tenths of a metre (AIS message 5); 0 means unknown. */

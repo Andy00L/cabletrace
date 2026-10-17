@@ -6,6 +6,7 @@ import type { ShipStatic } from "../../../src/lib/live/ais-reports.ts";
 import { gunzipBytes, gzipBytes } from "../../../src/lib/live/frame-compression.ts";
 import { FRAME_INDEX_PATH, frameObjectPath, parseFrameIndex, parseFrameObjectName, SLOT_MS, slotStartMs } from "../../../src/lib/live/frame-layout.ts";
 import { decodeShipFrame, encodeShipFrame, readShipRecords, type ShipRecord } from "../../../src/lib/live/snapshot-codec.ts";
+import type { CrossSourceSample } from "../../../src/lib/live/cross-source.ts";
 import { collectShipFrame, type CollectorPorts } from "./collect.ts";
 
 const SLOT_START_MS = Date.UTC(2026, 9, 17, 14, 30);
@@ -31,7 +32,12 @@ function staticMessage(mmsi: number, shipType: number): string {
   });
 }
 
-type MemoryStore = { objects: Map<string, { bytes: Uint8Array; cacheSeconds: number }>; upserted: ShipStatic[]; listings: number };
+type MemoryStore = {
+  objects: Map<string, { bytes: Uint8Array; cacheSeconds: number }>;
+  upserted: ShipStatic[];
+  listings: number;
+  crossSource?: CrossSourceSample[];
+};
 
 function createPorts(store: MemoryStore, messages: string[], digitrafficFeatures: unknown[], runStartMs = RUN_START_MS): CollectorPorts {
   let clockMs = runStartMs;
@@ -72,6 +78,10 @@ function createPorts(store: MemoryStore, messages: string[], digitrafficFeatures
         ok: true,
         value: [{ mmsi: 230_000_001, name: "FINNMAID", shipType: 69, referencePointA: 150, referencePointB: 68, draught: 64, timestamp: RUN_START_MS }],
       }),
+    storeCrossSourceSamples: (samples) => {
+      store.crossSource = [...(store.crossSource ?? []), ...samples];
+      return Promise.resolve({ ok: true, value: null });
+    },
     nowMs: () => clockMs,
   };
 }
@@ -167,6 +177,36 @@ Deno.test("merges the feeds with the previous frame, seals it, prunes, indexes a
   equal(nextSummary.sealedFramePath, frameObjectPath(SLOT_START_MS));
   // Ships heard 10 minutes ago are carried forward; 444000001, last heard 30 minutes 40 seconds before this frame, is gone.
   deepStrictEqual((await readStoredFrame(store, SLOT_START_MS + SLOT_MS)).map((ship) => ship.mmsi), [230_000_001, 555_000_001, 555_000_002, 555_000_003]);
+});
+
+Deno.test("compares aisstream with Digitraffic inside the cross-check regions and stores one sample each", async () => {
+  const store: MemoryStore = { objects: new Map(), upserted: [], listings: 0 };
+  const gulf = { id: "gulf-of-finland", box: { west: 22.0, east: 30.5, south: 59.0, north: 60.8 } };
+  const summary = await collectShipFrame(
+    createPorts(
+      store,
+      [
+        // Heard by both feeds 5 s apart: a matched pair.
+        positionMessage(230_000_001, 24.9, 60.1, RUN_START_MS + 10_000),
+        // Heard by aisstream only.
+        positionMessage(230_000_002, 25.5, 59.9, RUN_START_MS + 12_000),
+        // Outside the Gulf: not compared.
+        positionMessage(555_000_001, 3.0, 52.0, RUN_START_MS + 10_000),
+      ],
+      [{ type: "Feature", geometry: { type: "Point", coordinates: [24.9, 60.1] }, properties: { mmsi: 230_000_001, sog: 8.2, cog: 12.5, heading: 13, timestampExternal: RUN_START_MS + 15_000 } }],
+    ),
+    { listenMs: 40_000, crossCheckRegions: [gulf] },
+  );
+  deepStrictEqual(summary.errors, []);
+  equal(store.crossSource?.length, 1);
+  const sample = store.crossSource?.[0];
+  ok(sample !== undefined);
+  deepStrictEqual(
+    { regionId: sample.regionId, aisstreamShips: sample.aisstreamShips, digitrafficShips: sample.digitrafficShips, shared: sample.sharedShips, only: sample.aisstreamOnlyShips, pairs: sample.matchedPairs },
+    { regionId: "gulf-of-finland", aisstreamShips: 2, digitrafficShips: 1, shared: 1, only: 1, pairs: 1 },
+  );
+  // 5 s at 8.2 knots is 21 m of dead reckoning north-north-east, away from Digitraffic's identical fix.
+  ok(sample.medianOffsetMetres !== null && sample.medianOffsetMetres > 15 && sample.medianOffsetMetres < 30);
 });
 
 Deno.test("keeps the stored frames when neither feed brought anything", async () => {
