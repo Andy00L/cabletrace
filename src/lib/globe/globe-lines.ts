@@ -19,6 +19,7 @@ export const LINE_LIFT = 1.0006;
 const MAX_SEGMENT_DEGREES = 0.5;
 const LINE_WIDTH_PX: Readonly<Record<SeabedLineKind, number>> = { power: 2.5, telecom: 1.5, pipeline: 3 };
 const SIGNAL_HALO_PX = 12;
+const SELECTION_CASING_EXTRA_PX = 3;
 const SIGNAL_HALO_OPACITY = 0.12;
 const SIGNAL_LIGHT_PX = 7;
 // The light takes this long to run a line's length, as in the replay (SIGNAL_LAP_SECONDS, src/lib/seabed/scene/overview.ts).
@@ -148,6 +149,7 @@ export type GlobeLineLayer = {
   /** Sets widths for the camera distance and moves the signal lights; true while the lights are running. */
   update: (options: { nowMs: number; cameraPosition: THREE.Vector3; homeDistance: number; isCalm: boolean; pixelRatio: number }) => boolean;
   setResolution: (widthPx: number, heightPx: number) => void;
+  setSelectedLine: (lineId: number | null) => void;
   dispose: () => void;
 };
 
@@ -215,6 +217,16 @@ export function createGlobeLineLayer(lines: readonly GlobeLine[]): GlobeLineLaye
   signalLights.renderOrder = 4;
   signalLights.visible = signalPaths.length > 0;
   object.add(signalLights);
+  // The selected line: drawn again over everything, at its token width on a white casing (Data: every line on the map
+  // sits on a white casing 2 to 3 px wider).
+  const selection = new THREE.Group();
+  selection.renderOrder = 4;
+  object.add(selection);
+  const selectionMaterials = {
+    casing: new LineMaterial({ color: new THREE.Color(WEBGL_COLORS.casing), linewidth: 1, worldUnits: false, depthWrite: false }),
+    line: new LineMaterial({ color: new THREE.Color(WEBGL_COLORS.cable), linewidth: 1, worldUnits: false, depthWrite: false }),
+  };
+  let selectionGeometry: LineSegmentsGeometry | null = null;
   let lastWidthScale = -1;
   let lastPixelRatio = -1;
 
@@ -242,12 +254,37 @@ export function createGlobeLineLayer(lines: readonly GlobeLine[]): GlobeLineLaye
     },
     setResolution(widthPx, heightPx) {
       materials.forEach((material) => material.resolution.set(widthPx, heightPx));
+      selectionMaterials.casing.resolution.set(widthPx, heightPx);
+      selectionMaterials.line.resolution.set(widthPx, heightPx);
+    },
+    setSelectedLine(lineId) {
+      selection.clear();
+      selectionGeometry?.dispose();
+      selectionGeometry = null;
+      const selected = surfaceLines.find((surfaceLine) => surfaceLine.line.id === lineId);
+      if (!selected) return;
+      const positions = toSegmentPositions(selected.parts);
+      if (positions.length === 0) return;
+      selectionGeometry = new LineSegmentsGeometry();
+      selectionGeometry.setPositions(positions);
+      const widthPx = LINE_WIDTH_PX[selected.line.kind];
+      selectionMaterials.line.color.set(colorOf(selected.line.kind));
+      selectionMaterials.line.linewidth = widthPx;
+      selectionMaterials.casing.linewidth = widthPx + SELECTION_CASING_EXTRA_PX;
+      const casing = new LineSegments2(selectionGeometry, selectionMaterials.casing);
+      casing.renderOrder = 4;
+      const line = new LineSegments2(selectionGeometry, selectionMaterials.line);
+      line.renderOrder = 4;
+      selection.add(casing, line);
     },
     dispose() {
       geometries.forEach((geometry) => geometry.dispose());
       materials.forEach((material) => material.dispose());
       signalGeometry.dispose();
       signalMaterial.dispose();
+      selectionGeometry?.dispose();
+      selectionMaterials.casing.dispose();
+      selectionMaterials.line.dispose();
     },
   };
 }

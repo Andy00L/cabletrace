@@ -7,7 +7,7 @@ import type { LandPolygons } from "@/lib/globe/land-polygons";
 import { COVERAGE_HEIGHT, COVERAGE_WIDTH } from "@/lib/globe/coverage";
 import { createLandTexture, WORLD_BOX, type LandBox } from "@/lib/globe/land-texture";
 import { writeUnitVector } from "@/lib/globe/sphere";
-import { createGlobeLineLayer, type GlobeLineLayer } from "@/lib/globe/globe-lines";
+import { createGlobeLineLayer, LINE_LIFT, type GlobeLineLayer } from "@/lib/globe/globe-lines";
 import type { GlobeLine } from "@/lib/globe/world-lines";
 import type { Result } from "@/lib/result";
 
@@ -45,6 +45,8 @@ const SHIP_POINT_MAX_PX = 7;
 const SELECTION_RING_PX = 18;
 // A click lands on the nearest visible ship within this radius (CSS px); a press that moves farther is a drag.
 const PICK_RADIUS_PX = 12;
+// A line is picked within this radius, and a ship this close beats a line.
+const LINE_PICK_RADIUS_PX = 6;
 const CLICK_SLOP_PX = 5;
 // Rotation slows as the camera closes in, so a drag moves the ground under the pointer at about the same pace.
 const ROTATE_SPEED_PER_UNIT = 0.55;
@@ -58,6 +60,9 @@ const FOCUS_MOVE_MS = 900;
 const HATCH_SPACING_PX = 7;
 const HATCH_LINE_PX = 1.2;
 
+/** What a click on the globe landed on. */
+export type GlobePick = { kind: "ship"; mmsi: number } | { kind: "line"; lineId: number } | { kind: "none" };
+
 export type GlobeViewer = {
   /** The two frames to blend between, or null while none is loaded. */
   setFramePair: (pair: FramePair | null) => void;
@@ -66,6 +71,8 @@ export type GlobeViewer = {
   setSelectedShip: (mmsi: number | null) => void;
   /** The cables and pipelines to draw (world and watched, src/lib/globe/world-lines.ts); replaces any drawn before. */
   setLines: (lines: readonly GlobeLine[]) => void;
+  /** Draws one line on a white casing above the rest, or none. */
+  setSelectedLine: (lineId: number | null) => void;
   /** Where the feeds heard ships (src/lib/globe/coverage.ts, renderCoverageMask), or null to hatch nothing. */
   setCoverage: (mask: Uint8Array | null) => void;
   /** Flies the camera over a ship of the current pair; false when the pair does not hold it. */
@@ -79,8 +86,8 @@ export type GlobeViewer = {
 type GlobeViewerOptions = {
   container: HTMLElement;
   land: LandPolygons;
-  /** Called with the MMSI of a clicked ship, or null when a click lands on no ship. */
-  onShipPick: (mmsi: number | null) => void;
+  /** Called with what a click landed on. */
+  onPick: (pick: GlobePick) => void;
   prefersReducedMotion: boolean;
 };
 
@@ -203,7 +210,7 @@ function cameraPositionFor(longitude: number, latitude: number, distance: number
 
 /** Builds the globe inside `container` and starts drawing on demand. Never throws. */
 export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeViewer> {
-  const { container, land, onShipPick, prefersReducedMotion } = options;
+  const { container, land, onPick, prefersReducedMotion } = options;
   const rendererKind = detectRendererKind();
   const tier = RENDER_TIERS[rendererKind];
   const isCalm = prefersReducedMotion || rendererKind === "software";
@@ -286,6 +293,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   );
   scene.add(rim);
   let lineLayer: GlobeLineLayer | null = null;
+  let selectedLineId: number | null = null;
 
   const shipGeometry = new THREE.BufferGeometry();
   const shipMaterial = new THREE.ShaderMaterial({
@@ -395,41 +403,76 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   resizeObserver.observe(container);
   resize();
 
-  // Clicks pick the nearest visible ship; a press that turns into a drag rotates the globe and picks nothing.
+  // A click picks what lies under the pointer; a press that turns into a drag rotates the globe and picks nothing.
   let pressStart: { x: number; y: number } | null = null;
   const onPointerDown = (event: PointerEvent) => {
     pressStart = { x: event.clientX, y: event.clientY };
   };
   const pickVector = new THREE.Vector3();
+  type ScreenPoint = { x: number; y: number; isFacing: boolean };
+  function toScreen(x: number, y: number, z: number, bounds: DOMRect, lift: number): ScreenPoint {
+    pickVector.set(x, y, z);
+    // A point on the sphere faces the camera when its dot product with the camera position exceeds its own lift.
+    const isFacing = pickVector.dot(camera.position) > lift;
+    pickVector.project(camera);
+    return { x: ((pickVector.x + 1) / 2) * bounds.width, y: ((1 - pickVector.y) / 2) * bounds.height, isFacing };
+  }
+
+  /** The nearest visible ship to a screen point, within the pick radius. */
+  function pickShip(pointerX: number, pointerY: number, bounds: DOMRect): { mmsi: number; distance: number } | null {
+    if (!pair) return null;
+    let nearest: { mmsi: number; distance: number } | null = null;
+    for (let shipIndex = 0; shipIndex < pair.shipCount; shipIndex += 1) {
+      if (readShip(shipIndex, pickVector) < 0.5) continue;
+      const point = toScreen(pickVector.x, pickVector.y, pickVector.z, bounds, SHIP_LIFT);
+      if (!point.isFacing) continue;
+      const distance = Math.hypot(point.x - pointerX, point.y - pointerY);
+      if (distance < (nearest?.distance ?? PICK_RADIUS_PX)) nearest = { mmsi: pair.mmsi[shipIndex] ?? 0, distance };
+    }
+    return nearest;
+  }
+
+  /** The nearest visible line to a screen point, within the line pick radius. */
+  function pickLine(pointerX: number, pointerY: number, bounds: DOMRect): { lineId: number; distance: number } | null {
+    if (!lineLayer) return null;
+    let nearest: { lineId: number; distance: number } | null = null;
+    for (const { line, parts } of lineLayer.surfaceLines) {
+      for (const part of parts) {
+        let previous: ScreenPoint | null = null;
+        for (let offset = 0; offset + 2 < part.length; offset += 3) {
+          const point = toScreen(part[offset] ?? 0, part[offset + 1] ?? 0, part[offset + 2] ?? 0, bounds, LINE_LIFT);
+          if (previous && previous.isFacing && point.isFacing) {
+            const deltaX = point.x - previous.x;
+            const deltaY = point.y - previous.y;
+            const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+            const share = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((pointerX - previous.x) * deltaX + (pointerY - previous.y) * deltaY) / lengthSquared));
+            const distance = Math.hypot(pointerX - (previous.x + share * deltaX), pointerY - (previous.y + share * deltaY));
+            // Ties go to the watched copy of a line, which is listed after the world's copy.
+            if (distance <= (nearest?.distance ?? LINE_PICK_RADIUS_PX)) nearest = { lineId: line.id, distance };
+          }
+          previous = point;
+        }
+      }
+    }
+    return nearest;
+  }
+
   const onPointerUp = (event: PointerEvent) => {
     if (!pressStart || Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) > CLICK_SLOP_PX) {
       pressStart = null;
       return;
     }
     pressStart = null;
-    if (!pair) {
-      onShipPick(null);
-      return;
-    }
     const bounds = renderer.domElement.getBoundingClientRect();
     const pointerX = event.clientX - bounds.left;
     const pointerY = event.clientY - bounds.top;
-    let nearestMmsi: number | null = null;
-    let nearestDistance = PICK_RADIUS_PX;
-    for (let shipIndex = 0; shipIndex < pair.shipCount; shipIndex += 1) {
-      if (readShip(shipIndex, pickVector) < 0.5) continue;
-      // A point on the unit sphere faces the camera when its dot product with the camera position exceeds 1.
-      if (pickVector.dot(camera.position) <= SHIP_LIFT) continue;
-      pickVector.project(camera);
-      const screenX = ((pickVector.x + 1) / 2) * bounds.width;
-      const screenY = ((1 - pickVector.y) / 2) * bounds.height;
-      const distance = Math.hypot(screenX - pointerX, screenY - pointerY);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestMmsi = pair.mmsi[shipIndex] ?? null;
-      }
-    }
-    onShipPick(nearestMmsi);
+    const ship = pickShip(pointerX, pointerY, bounds);
+    const line = pickLine(pointerX, pointerY, bounds);
+    // A ship right under the pointer wins; then a line under it; then a ship a little farther off.
+    if (ship && ship.distance <= LINE_PICK_RADIUS_PX) onPick({ kind: "ship", mmsi: ship.mmsi });
+    else if (line) onPick({ kind: "line", lineId: line.lineId });
+    else if (ship) onPick({ kind: "ship", mmsi: ship.mmsi });
+    else onPick({ kind: "none" });
   };
   renderer.domElement.addEventListener("pointerdown", onPointerDown);
   renderer.domElement.addEventListener("pointerup", onPointerUp);
@@ -513,8 +556,14 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
           lineLayer.dispose();
         }
         lineLayer = createGlobeLineLayer(lines);
+        lineLayer.setSelectedLine(selectedLineId);
         lineLayer.setResolution(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
         scene.add(lineLayer.object);
+        markDirty();
+      },
+      setSelectedLine(lineId) {
+        selectedLineId = lineId;
+        lineLayer?.setSelectedLine(lineId);
         markDirty();
       },
       setCoverage(mask) {

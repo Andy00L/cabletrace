@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { GlobeViewer } from "@/lib/globe/globe-viewer";
+import type { GlobePick, GlobeViewer } from "@/lib/globe/globe-viewer";
 import { parseLandPolygons } from "@/lib/globe/land-polygons";
 import type { Result } from "@/lib/result";
 import type { WatchedLine } from "@/lib/globe/watched-line";
@@ -30,7 +30,7 @@ type LiveGlobeStageProps = {
   rightInsetPx: number;
   /** Receives the viewer once it draws, and null when it goes. */
   onViewerChange: (viewer: GlobeViewer | null) => void;
-  onShipPick: (mmsi: number | null) => void;
+  onPick: (pick: GlobePick) => void;
   /** Receives the lines the globe draws: the watched ones first, then the world's once their file has loaded. */
   onLinesChange: (lines: GlobeLine[], worldState: WorldLinesState) => void;
 };
@@ -38,16 +38,16 @@ type LiveGlobeStageProps = {
 export type WorldLinesState = "loading" | "loaded" | "failed";
 
 /** The 3D globe. Ships, time and selection are handed to the viewer by the console; this only builds and frees it. */
-export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onShipPick, onLinesChange }: LiveGlobeStageProps) {
+export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onPick, onLinesChange }: LiveGlobeStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GlobeViewer | null>(null);
   const [stageState, setStageState] = useState<StageState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   // The latest callbacks, so new functions from the parent do not rebuild the globe.
-  const callbacksRef = useRef({ onViewerChange, onShipPick, onLinesChange });
+  const callbacksRef = useRef({ onViewerChange, onPick, onLinesChange });
   useEffect(() => {
-    callbacksRef.current = { onViewerChange, onShipPick, onLinesChange };
-  }, [onViewerChange, onShipPick, onLinesChange]);
+    callbacksRef.current = { onViewerChange, onPick, onLinesChange };
+  }, [onViewerChange, onPick, onLinesChange]);
 
   // Syncs with three.js, a WebGL scene React does not own: built on mount (and on retry), disposed on unmount.
   useEffect(() => {
@@ -76,7 +76,7 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onS
       const created = viewerModule.createGlobeViewer({
         container: host,
         land: land.value,
-        onShipPick: (mmsi) => callbacksRef.current.onShipPick(mmsi),
+        onPick: (pick) => callbacksRef.current.onPick(pick),
         prefersReducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       });
       if (!created.ok) {

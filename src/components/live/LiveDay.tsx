@@ -5,12 +5,14 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
 import { LiveGlobeStage, type WorldLinesState } from "@/components/live/LiveGlobeStage";
+import { LiveLineCard, type LineScanState } from "@/components/live/LiveLineCard";
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
 import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/globe/coverage";
 import { pairShipFrames } from "@/lib/globe/frame-pairing";
 import type { FrameSource } from "@/lib/globe/frame-source";
-import type { GlobeViewer } from "@/lib/globe/globe-viewer";
-import { fetchShipDetails } from "@/lib/globe/live-api";
+import type { GlobePick, GlobeViewer } from "@/lib/globe/globe-viewer";
+import { addFrameToPassageScan, createPassageScan, summarizePassages, type LinePassage, type PassageScan } from "@/lib/globe/line-passages";
+import { fetchShipDetails, fetchShipDetailsBatch } from "@/lib/globe/live-api";
 import { daySpan, locateMoment } from "@/lib/globe/live-day";
 import type { WatchedLine } from "@/lib/globe/watched-line";
 import type { GlobeLine } from "@/lib/globe/world-lines";
@@ -29,6 +31,10 @@ const RAIL_WIDTH_PX = 360;
 const RAIL_INSET_PX = 16;
 // Bit 7 of a ship's class byte marks a Digitraffic report (src/lib/live/snapshot-codec.ts).
 const DIGITRAFFIC_FLAG = 0x80;
+// The rest of the day downloads this many frames at a time when a line's whole day is checked.
+const DAY_CHECK_CONCURRENCY = 4;
+// A line's passages are summed up at most this often while frames arrive (ms).
+const PASSAGE_PUBLISH_INTERVAL_MS = 250;
 const CREDITS = [
   "Ships: aisstream.io (terrestrial AIS, kept two days) and Fintraffic / digitraffic.fi (CC BY 4.0).",
   "Land: Natural Earth 1:50m, public domain.",
@@ -98,7 +104,85 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   const coverageMaskRef = useRef<Uint8Array | null>(null);
   const [coverageFrameCount, setCoverageFrameCount] = useState(0);
   const [globeLines, setGlobeLines] = useState<{ lines: GlobeLine[]; worldState: WorldLinesState }>({ lines: [], worldState: "loading" });
-  const handleLinesChange = useCallback((lines: GlobeLine[], worldState: WorldLinesState) => setGlobeLines({ lines, worldState }), []);
+  // The clicked cable or pipeline and who passed it in the frames checked so far.
+  const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
+  const [lineScan, setLineScan] = useState<LineScanState | null>(null);
+  const lineScanRef = useRef<PassageScan | null>(null);
+  const lineProgressRef = useRef<LineScanState["progress"]>(null);
+  const publishTimerRef = useRef<number | null>(null);
+  const [shipNames, setShipNames] = useState<ReadonlyMap<number, string>>(() => new Map());
+  const requestedNamesRef = useRef(new Set<number>());
+  // A ship to fly to once the frames of the moment it was picked at are on the globe.
+  const pendingFocusRef = useRef<number | null>(null);
+  const pairKeysRef = useRef<{ applied: string | null; requested: string | null }>({ applied: null, requested: null });
+
+  // Line ids are positions in the list, so a new list (the world's lines arriving) closes any open line card.
+  const handleLinesChange = useCallback((lines: GlobeLine[], worldState: WorldLinesState) => {
+    setGlobeLines({ lines, worldState });
+    lineScanRef.current = null;
+    lineProgressRef.current = null;
+    setSelectedLineId(null);
+    setLineScan(null);
+    viewerRef.current?.setSelectedLine(null);
+  }, []);
+
+  /** Flies to the pending ship when the pair on the globe is the one for the current moment and holds it. */
+  const focusPendingShip = useCallback(() => {
+    const mmsi = pendingFocusRef.current;
+    if (mmsi === null || pairKeysRef.current.applied !== pairKeysRef.current.requested) return;
+    if (viewerRef.current?.focusShip(mmsi)) pendingFocusRef.current = null;
+  }, []);
+
+  /** Sums up the selected line's passages now, then asks a feed for the names it does not know yet. */
+  const publishLineScan = useCallback(() => {
+    publishTimerRef.current = null;
+    const scan = lineScanRef.current;
+    if (!scan) return;
+    const passages = summarizePassages(scan);
+    const uncheckedBytes = entries.reduce((sum, entry) => sum + (frameSource.peekFrame(entry) === null ? entry.bytes : 0), 0);
+    setLineScan({ passages, framesChecked: scan.frameTimes.size, frameCount: entries.length, uncheckedBytes, progress: lineProgressRef.current });
+    const unnamed = passages.map((passage) => passage.mmsi).filter((mmsi) => !requestedNamesRef.current.has(mmsi));
+    if (unnamed.length === 0) return;
+    unnamed.forEach((mmsi) => requestedNamesRef.current.add(mmsi));
+    void fetchShipDetailsBatch(unnamed).then((outcome) => {
+      if (!outcome.ok) {
+        console.error(`[LiveDay] ${outcome.reason}`);
+        return;
+      }
+      setShipNames((known) => {
+        const next = new Map(known);
+        outcome.value.forEach((details, mmsi) => {
+          if (details.name !== null) next.set(mmsi, details.name);
+        });
+        return next;
+      });
+    });
+  }, [entries, frameSource]);
+
+  const schedulePublish = useCallback(() => {
+    if (publishTimerRef.current === null) publishTimerRef.current = window.setTimeout(publishLineScan, PASSAGE_PUBLISH_INTERVAL_MS);
+  }, [publishLineScan]);
+
+  /** Counts a decoded frame into the coverage and into the selected line's scan. */
+  const noteFrame = useCallback(
+    (frame: ShipFrameColumns) => {
+      if (lineScanRef.current && addFrameToPassageScan(lineScanRef.current, frame)) schedulePublish();
+      if (!addFrameToCoverage(coverage, frame)) return;
+      const mask = renderCoverageMask(coverage);
+      coverageMaskRef.current = mask;
+      viewerRef.current?.setCoverage(mask);
+      setCoverageFrameCount(coverage.frameTimes.size);
+    },
+    [coverage, schedulePublish],
+  );
+
+  // Cancels a pending passage summary when the page goes.
+  useEffect(
+    () => () => {
+      if (publishTimerRef.current !== null) window.clearTimeout(publishTimerRef.current);
+    },
+    [],
+  );
 
   const readMinute = () => formatUtcClock(startMs + clock.getSnapshot().progress * spanMs);
   const minuteLabel = useSyncExternalStore(clock.subscribe, readMinute, readMinute);
@@ -118,29 +202,21 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   // another pair of frames, those are loaded (from the cache when possible), paired and handed to the viewer.
   useEffect(() => {
     let isDisposed = false;
-    let appliedKey: string | null = null;
-    let requestedKey: string | null = null;
+    const keys = pairKeysRef.current;
+    keys.applied = null;
+    keys.requested = null;
     const currentMoment = () => locateMoment(entries, startMs + clock.getSnapshot().progress * spanMs);
-
-    /** Counts a decoded frame into the coverage and redraws the hatching when it heard somewhere new. */
-    function noteFrame(frame: ShipFrameColumns) {
-      if (isDisposed || !addFrameToCoverage(coverage, frame)) return;
-      const mask = renderCoverageMask(coverage);
-      coverageMaskRef.current = mask;
-      viewerRef.current?.setCoverage(mask);
-      setCoverageFrameCount(coverage.frameTimes.size);
-    }
 
     async function applyPair(earlierIndex: number, laterIndex: number | null, key: string) {
       const earlierEntry = entries[earlierIndex];
       const laterEntry = laterIndex === null ? undefined : entries[laterIndex];
       if (!earlierEntry) return;
       const [earlier, later] = await Promise.all([frameSource.loadFrame(earlierEntry), laterEntry ? frameSource.loadFrame(laterEntry) : Promise.resolve(null)]);
-      if (isDisposed || requestedKey !== key) return;
+      if (isDisposed || keys.requested !== key) return;
       if (!earlier.ok) {
         console.error(`[LiveDay] ${earlier.reason}`);
         setFrameProblem("A frame of this moment could not be loaded. Move the timeline to try another.");
-        requestedKey = null;
+        keys.requested = null;
         return;
       }
       if (later && !later.ok) console.error(`[LiveDay] ${later.reason}`);
@@ -148,9 +224,10 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       if (later?.ok) noteFrame(later.value);
       const pair = pairShipFrames(earlier.value, later?.ok ? later.value : null);
       pairRef.current = pair;
-      appliedKey = key;
+      keys.applied = key;
       viewerRef.current?.setFramePair(pair);
       viewerRef.current?.setBlend(currentMoment().blend);
+      focusPendingShip();
       setFrameProblem(null);
       setMoment({ frame: earlier.value, digitrafficCount: countDigitraffic(earlier.value) });
     }
@@ -158,16 +235,16 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
     function update() {
       const located = currentMoment();
       const key = `${located.earlierIndex}:${located.laterIndex ?? "end"}`;
-      if (key === appliedKey) viewerRef.current?.setBlend(located.blend);
-      else if (key !== requestedKey) {
-        requestedKey = key;
+      if (key === keys.applied) viewerRef.current?.setBlend(located.blend);
+      else if (key !== keys.requested) {
+        keys.requested = key;
         void applyPair(located.earlierIndex, located.laterIndex, key);
       }
       // While the day plays, the frame after next downloads ahead of the moment that needs it.
       const nextEntry = located.laterIndex === null ? undefined : entries[located.laterIndex + 1];
       if (clock.getSnapshot().isPlaying && nextEntry) {
         void frameSource.loadFrame(nextEntry).then((outcome) => {
-          if (outcome.ok) noteFrame(outcome.value);
+          if (outcome.ok && !isDisposed) noteFrame(outcome.value);
         });
       }
     }
@@ -178,7 +255,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       isDisposed = true;
       unsubscribe();
     };
-  }, [clock, coverage, entries, frameSource, startMs, spanMs]);
+  }, [clock, entries, focusPendingShip, frameSource, noteFrame, startMs, spanMs]);
 
   // Looks up the selected ship's name and size, an outside service; a newer selection cancels an older answer.
   useEffect(() => {
@@ -209,8 +286,95 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       viewer.setBlend(locateMoment(entries, startMs + clock.getSnapshot().progress * spanMs).blend);
       viewer.setSelectedShip(selectedRef.current);
       viewer.setCoverage(coverageMaskRef.current);
+      viewer.setSelectedLine(lineScanRef.current?.lineId ?? null);
     },
     [clock, entries, startMs, spanMs],
+  );
+
+  /** Opens a line's card and checks every frame already decoded for ships that crossed or neared it. */
+  const selectLine = useCallback(
+    (lineId: number | null) => {
+      setSelectedLineId(lineId);
+      viewerRef.current?.setSelectedLine(lineId);
+      lineProgressRef.current = null;
+      const line = lineId === null ? undefined : globeLines.lines.find((candidate) => candidate.id === lineId);
+      if (!line) {
+        lineScanRef.current = null;
+        setLineScan(null);
+        return;
+      }
+      const scan = createPassageScan(line);
+      lineScanRef.current = scan;
+      entries.forEach((entry) => {
+        const frame = frameSource.peekFrame(entry);
+        if (frame) addFrameToPassageScan(scan, frame);
+      });
+      publishLineScan();
+    },
+    [entries, frameSource, globeLines.lines, publishLineScan],
+  );
+
+  /** Downloads every frame of the day not decoded yet, a few at a time, so the line's scan covers the whole day. */
+  const checkLineDay = useCallback(async () => {
+    const scan = lineScanRef.current;
+    if (!scan || lineProgressRef.current !== null) return;
+    const missing = entries.filter((entry) => frameSource.peekFrame(entry) === null);
+    const progress = { done: 0, total: missing.length };
+    lineProgressRef.current = progress;
+    publishLineScan();
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < missing.length && lineScanRef.current === scan) {
+        const entry = missing[nextIndex];
+        nextIndex += 1;
+        if (!entry) continue;
+        const outcome = await frameSource.loadFrame(entry);
+        if (outcome.ok) noteFrame(outcome.value);
+        else console.error(`[LiveDay] ${outcome.reason}`);
+        progress.done += 1;
+        schedulePublish();
+      }
+    };
+    await Promise.all(Array.from({ length: DAY_CHECK_CONCURRENCY }, worker));
+    if (lineScanRef.current === scan) {
+      lineProgressRef.current = null;
+      publishLineScan();
+    }
+  }, [entries, frameSource, noteFrame, publishLineScan, schedulePublish]);
+
+  /** Moves the day to the moment a ship passed the line, selects it, and flies to it once that moment is drawn. */
+  const selectPassage = useCallback(
+    (passage: LinePassage) => {
+      selectShip(passage.mmsi);
+      pendingFocusRef.current = passage.mmsi;
+      const atMs = Math.min(endMs, Math.max(startMs, passage.closestAtMs));
+      clock.pause();
+      clock.seek(spanMs > 0 ? (atMs - startMs) / spanMs : 1);
+      focusPendingShip();
+    },
+    [clock, endMs, focusPendingShip, selectShip, spanMs, startMs],
+  );
+
+  const handlePick = useCallback(
+    (pick: GlobePick) => {
+      switch (pick.kind) {
+        case "ship":
+          selectShip(pick.mmsi);
+          return;
+        case "line":
+          selectLine(pick.lineId);
+          return;
+        case "none":
+          selectShip(null);
+          selectLine(null);
+          return;
+        default: {
+          const unhandled: never = pick;
+          return unhandled;
+        }
+      }
+    },
+    [selectLine, selectShip],
   );
 
   const focusDetection = useCallback(
@@ -224,6 +388,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   const shipIndex = moment && selectedMmsi !== null ? findInFrame(moment.frame, selectedMmsi) : -1;
   const selectedRecord = moment && shipIndex !== -1 ? readShipRecord(moment.frame, shipIndex) : null;
   const rightInsetPx = isWide ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
+  const selectedLine = selectedLineId === null ? undefined : globeLines.lines.find((line) => line.id === selectedLineId);
 
   const railCards = (
     <>
@@ -236,6 +401,17 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
           detailsState={detailsState}
           onFocus={() => viewerRef.current?.focusShip(selectedMmsi)}
           onClose={() => selectShip(null)}
+        />
+      )}
+      {selectedLine && lineScan && (
+        <LiveLineCard
+          line={selectedLine}
+          scan={lineScan}
+          shipNames={shipNames}
+          selectedMmsi={selectedMmsi}
+          onCheckDay={() => void checkLineDay()}
+          onSelectPassage={selectPassage}
+          onClose={() => selectLine(null)}
         />
       )}
       <DetectionsCard state={detectionsState} onSelect={focusDetection} />
@@ -251,7 +427,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
         data-frame-count={entries.length}
         data-ship-count={moment?.frame.shipCount ?? 0}
       >
-        <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onShipPick={selectShip} onLinesChange={handleLinesChange} />
+        <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onPick={handlePick} onLinesChange={handleLinesChange} />
         <div className="pointer-events-none absolute top-4 left-4 z-(--layer-stage-controls) flex max-w-[calc(100%-32px)] flex-col items-start gap-2">
           <p className="rounded-full bg-card px-4 py-2 text-label shadow-row">A recorded day of ships, not real time</p>
           {frameProblem && (
