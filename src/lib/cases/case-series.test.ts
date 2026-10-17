@@ -28,7 +28,7 @@ function makeInput(track: ReplaySceneInput["track"]): ReplaySceneInput {
     track,
     dragWindow: null,
     cuts: [{ cableName: "Fixture cable", label: "Fixture cable", atMs: START_MS, longitude: 25.5, latitude: 59.5 }],
-    vessel: { name: "Vessel", kind: "tanker" },
+    vessel: { name: "Vessel", kind: "tanker", lengthMetres: 200 },
   };
 }
 

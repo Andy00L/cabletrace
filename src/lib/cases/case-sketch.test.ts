@@ -25,7 +25,7 @@ const INPUT: ReplaySceneInput = {
   ],
   dragWindow: { startMs: 0, endMs: 2_000 },
   cuts: [{ cableName: "Cable", label: "Cable", atMs: 2_000, longitude: 20.5, latitude: 56.5 }],
-  vessel: { name: "Vessel", kind: "tanker" },
+  vessel: { name: "Vessel", kind: "tanker", lengthMetres: 200 },
 };
 
 describe("buildCaseSketch", () => {
