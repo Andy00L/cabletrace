@@ -254,12 +254,12 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
     pipelines: null,
     // N25_00_E120_00 is all sea and not published.
     demTiles: ["N25_00_E119_00", "N26_00_E119_00", "N26_00_E120_00"],
-    // OpenStreetMap Nominatim lookups, 17 Oct 2026 (township relations; Dongyin lighthouse is the lighthouse node).
+    // OpenStreetMap Nominatim lookups, 17 Oct 2026 (township relations). Dongyin lighthouse, 2 km from the Dongyin
+    // label, is left out because the two labels overlap.
     places: [
       { name: "Nangan", longitude: 119.93863, latitude: 26.15308 },
       { name: "Beigan", longitude: 119.99733, latitude: 26.22505 },
       { name: "Dongyin", longitude: 120.49042, latitude: 26.36682 },
-      { name: "Dongyin lighthouse", longitude: 120.51034, latitude: 26.36576 },
     ],
     tracedLines: [TDM2_PLACED, TM3_DONGYIN_PLACED],
     cablesCredit: `${OSM_CABLES_CREDIT}; ${TDM2_PLACED.source}; ${TM3_DONGYIN_PLACED.source}`,
