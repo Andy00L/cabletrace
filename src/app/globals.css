@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/*
+ * CableTrace design tokens. Source of truth: docs/UI_DESIGN_SYSTEM.md.
+ * Light theme only for the first version. The default Tailwind palette is
+ * cleared so only these colors can be used.
+ */
+@theme {
+  --color-*: initial;
+  --color-page: #F3F3F1;
+  --color-card: #FFFFFF;
+  --color-soft: #E8E8E5;
+  --color-ink: #141414;
+  --color-ink-hover: #2B2B29;
+  --color-muted: #62625D;
+  --color-faint: #9A9A94;
+  --color-cable: #2F6BD8;
+  --color-pipeline: #B66E12;
+  --color-pipeline-text: #8A520D;
+  --color-alarm: #D93A26;
+  --color-ship: #A8A8A2;
+  --color-live: #2E9E5B;
+
+  --font-sans: var(--font-tiktok-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Type scale (docs/UI_DESIGN_SYSTEM.md, Type). The default scale is cleared so only these sizes exist. */
+  --text-*: initial;
+  --text-display: 44px;
+  --text-display--line-height: 48px;
+  --text-display--letter-spacing: -0.02em;
+  --text-display--font-weight: 600;
+  --text-title: 32px;
+  --text-title--line-height: 38px;
+  --text-title--letter-spacing: -0.015em;
+  --text-title--font-weight: 600;
+  --text-heading: 22px;
+  --text-heading--line-height: 28px;
+  --text-heading--letter-spacing: -0.01em;
+  --text-heading--font-weight: 600;
+  --text-card-title: 18px;
+  --text-card-title--line-height: 24px;
+  --text-card-title--font-weight: 500;
+  --text-label: 15px;
+  --text-label--line-height: 20px;
+  --text-label--font-weight: 500;
+  --text-body: 16px;
+  --text-body--line-height: 24px;
+  --text-small: 14px;
+  --text-small--line-height: 20px;
+  --text-caption: 13px;
+  --text-caption--line-height: 18px;
+  --text-caption--font-weight: 500;
+  --text-micro: 12px;
+  --text-micro--line-height: 16px;
+  --text-micro--letter-spacing: 0.01em;
+  --text-micro--font-weight: 500;
+
+  --radius-chip: 8px;
+  --radius-field: 12px;
+  --radius-inner: 16px;
+  --radius-row: 20px;
+  --radius-card: 24px;
+
+  --shadow-card: 0 1px 2px rgba(20, 20, 18, 0.04), 0 4px 12px rgba(20, 20, 18, 0.04), 0 16px 32px rgba(20, 20, 18, 0.04);
+  --shadow-row: 0 1px 2px rgba(20, 20, 18, 0.04), 0 4px 12px rgba(20, 20, 18, 0.04);
+  --shadow-raised: 0 2px 4px rgba(20, 20, 18, 0.06), 0 8px 20px rgba(20, 20, 18, 0.08);
+  --shadow-selected: 0 1px 2px rgba(20, 20, 18, 0.08), 0 2px 6px rgba(20, 20, 18, 0.06);
+
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* One focus treatment for every interactive element (docs/UI_DESIGN_SYSTEM.md, focus-ring). */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-card), 0 0 0 4px var(--color-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

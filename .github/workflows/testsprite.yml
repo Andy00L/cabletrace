@@ -1,0 +1,129 @@
+# Runs the TestSprite suite against each pull request's own Vercel preview and reports one check,
+# "TestSprite". main requires that check, so a pull request set to auto-merge merges only once its
+# preview passes. The check exists from the moment the pull request opens and stays pending while
+# the preview builds, so it can never read as passed before the tests have run.
+#
+# The TestSprite Free plan allows one environment per workspace, so the gate points the project's
+# default environment at the preview for the run and back at production afterwards.
+name: TestSprite
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  deployments: read
+
+# One gate run at a time across all pull requests, because each run repoints the same environment.
+# GitHub keeps at most one run waiting and cancels an older waiting run when a newer one arrives.
+concurrency:
+  group: testsprite-gate
+  cancel-in-progress: false
+
+jobs:
+  testsprite:
+    name: TestSprite
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # The CableTrace frontend project in TestSprite (created with `testsprite project create`).
+      TESTSPRITE_PROJECT_ID: 1821635f-b9f9-4187-97ed-855e901ac01f
+      # Pinned so a CLI release never changes the gate without a pull request.
+      TESTSPRITE_CLI_VERSION: 0.14.0
+      # Where the project's default environment points between gate runs.
+      PRODUCTION_URL: https://cabletrace.vercel.app
+    steps:
+      - name: Check the API key is available
+        env:
+          TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
+        # Pull requests from forks get no secrets; fail instead of skipping, because a skipped
+        # required check counts as passed.
+        run: |
+          if [ -z "$TESTSPRITE_API_KEY" ]; then
+            echo "::error title=TestSprite::TESTSPRITE_API_KEY is not available to this run (pull requests from forks get no secrets)."
+            exit 1
+          fi
+
+      - name: Wait for the Vercel preview of this commit
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Vercel's GitHub App records a deployment for every pushed commit; its environment name
+        # starts with "Preview" for branch deployments. Polls every 20 seconds for up to 20 minutes.
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            deployment_id=$(gh api "repos/$GITHUB_REPOSITORY/deployments?sha=$HEAD_SHA&per_page=20" \
+              --jq '[.[] | select(.environment | startswith("Preview"))][0].id // empty')
+            if [ -n "$deployment_id" ]; then
+              latest_status=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses?per_page=1" --jq '.[0] // {}')
+              state=$(jq -r '.state // "pending"' <<<"$latest_status")
+              case "$state" in
+                success)
+                  preview_url=$(jq -r '.environment_url // empty' <<<"$latest_status")
+                  if [ -z "$preview_url" ]; then
+                    echo "::error title=TestSprite::The Vercel deployment succeeded without a URL."
+                    exit 1
+                  fi
+                  echo "Preview ready: $preview_url"
+                  echo "url=$preview_url" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+                failure|error|inactive)
+                  echo "::error title=TestSprite::The Vercel preview for $HEAD_SHA ended in state $state."
+                  exit 1
+                  ;;
+              esac
+            fi
+            echo "Waiting for the Vercel preview of $HEAD_SHA (attempt $attempt of 60)"
+            sleep 20
+          done
+          # Vercel only records GitHub deployments when the project's gitProviderOptions.createDeployments
+          # is "enabled"; the cabletrace project was created with it disabled.
+          echo "::error title=TestSprite::No Vercel preview for $HEAD_SHA after 20 minutes. Check that the Vercel project creates GitHub deployments (gitProviderOptions.createDeployments)."
+          exit 1
+
+      # The CLI runs on Node (it needs ^20.19, ^22.13 or 24+); Bun installs it, as everywhere in this repo.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install the TestSprite CLI
+        run: |
+          bun add --global "@testsprite/testsprite-cli@$TESTSPRITE_CLI_VERSION"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Point the project at the preview
+        env:
+          TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        run: testsprite project update "$TESTSPRITE_PROJECT_ID" --url "$PREVIEW_URL"
+
+      - name: Run the suite against the preview
+        env:
+          TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
+        # Under GITHUB_ACTIONS the CLI writes failure annotations and a job summary table itself.
+        run: |
+          testsprite test run --all --project "$TESTSPRITE_PROJECT_ID" \
+            --wait --timeout 900 --report junit --report-file testsprite-junit.xml
+
+      - name: Keep the JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testsprite-junit
+          path: testsprite-junit.xml
+          if-no-files-found: ignore
+
+      # Cleanup only: a failed restore is a warning, not a red check, since the tests already ran.
+      # The next gate run repoints the environment anyway.
+      - name: Point the project back at production
+        if: always()
+        env:
+          TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
+        run: |
+          testsprite project update "$TESTSPRITE_PROJECT_ID" --url "$PRODUCTION_URL" \
+            || echo "::warning title=TestSprite::Could not point the project back at $PRODUCTION_URL."
