@@ -348,6 +348,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Police investigating incidents in the Gulf of Finland in cooperation with other authorities",
       url: "https://poliisi.fi/en/-/police-investigating-incidents-in-the-gulf-of-finland-in-cooperation-with-other-authorities",
       publishedOn: "2024-12-26",
+      archivedUrl: "https://web.archive.org/web/20241226152457/https://poliisi.fi/en/-/police-investigating-incidents-in-the-gulf-of-finland-in-cooperation-with-other-authorities",
     },
     {
       id: 8,
@@ -355,6 +356,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Anchor allegedly involved in cable ruptures on Christmas day recovered in Gulf of Finland",
       url: "https://poliisi.fi/en/-/anchor-allegedly-involved-in-cable-ruptures-on-christmas-day-recovered-in-gulf-of-finland",
       publishedOn: "2025-01-07",
+      archivedUrl: "https://web.archive.org/web/20250107153848/https://poliisi.fi/en/-/anchor-allegedly-involved-in-cable-ruptures-on-christmas-day-recovered-in-gulf-of-finland",
     },
     {
       id: 9,
@@ -362,6 +364,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Forensic analysis of the anchor hoisted from Gulf of Finland started",
       url: "https://poliisi.fi/en/-/forensic-analysis-of-the-anchor-hoisted-from-gulf-of-finland-started",
       publishedOn: "2025-01-09",
+      archivedUrl: "https://web.archive.org/web/20250111065638/https://poliisi.fi/en/-/forensic-analysis-of-the-anchor-hoisted-from-gulf-of-finland-started",
     },
     {
       id: 10,
@@ -369,6 +372,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Active early phase of cable investigation to be completed",
       url: "https://poliisi.fi/en/-/active-early-phase-of-cable-investigation-to-be-completed",
       publishedOn: "2025-01-22",
+      archivedUrl: "https://web.archive.org/web/20250122145105/https://poliisi.fi/en/-/active-early-phase-of-cable-investigation-to-be-completed",
     },
     {
       id: 11,
@@ -376,6 +380,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Eagle S tanker to move to international waters under Border Guard's control",
       url: "https://poliisi.fi/en/-/eagle-s-tanker-to-move-to-international-waters-under-border-guard-s-control",
       publishedOn: "2025-03-02",
+      archivedUrl: "https://web.archive.org/web/20250310215651/https://poliisi.fi/en/-/eagle-s-tanker-to-move-to-international-waters-under-border-guard-s-control",
     },
     {
       id: 13,
@@ -383,6 +388,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Estlink 2 electricity transmission cable damaged in the Baltic Sea on 25 Dec 2024",
       url: "https://raja.fi/en/-/estlink-2-electricity-transmission-cable-damaged-in-the-baltic-sea-on-25-dec-2024",
       publishedOn: "2024-12-26",
+      archivedUrl: "https://web.archive.org/web/20250103003037/https://raja.fi/en/-/estlink-2-electricity-transmission-cable-damaged-in-the-baltic-sea-on-25-dec-2024",
     },
     {
       id: 15,
@@ -390,6 +396,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Estlink 2 unavailability",
       url: "https://umm.nordpoolgroup.com/#/messages/79210ee1-3395-4f75-a972-7b03888b107a/5",
       publishedOn: "2024-12-25",
+      archivedUrl: "https://web.archive.org/web/20170201134931/https://umm.nordpoolgroup.com/",
     },
     {
       id: 19,
@@ -397,6 +404,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Fault detected in Cinia C-Lion1 submarine cable",
       url: "https://www.cinia.fi/en/news/fault-detected-in-cinia-c-lion1-submarine-cable",
       publishedOn: "2024-12-26",
+      archivedUrl: "https://web.archive.org/web/20241226125741/https://www.cinia.fi/en/news/fault-detected-in-cinia-c-lion1-submarine-cable",
     },
     {
       id: 24,
@@ -404,6 +412,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Charges have been brought in the case concerning the cutting of submarine cables in the Gulf of Finland during Christmas 2024",
       url: "https://www.syyttajalaitos.fi/en/news/news-archive/charges-have-been-brought-in-the-case-concerning-the-cutting-of-submarine-cables-in-the-gulf-of-finland-during-christmas-2024/",
       publishedOn: "2025-08-11",
+      archivedUrl: null,
     },
     {
       id: 27,
@@ -411,6 +420,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Käräjäoikeuden ratkaisu EagleS -alukseen liittyvässä rikosasiassa",
       url: "https://www.tuomioistuimet.fi/ajankohtaista/tiedotteet/karajaoikeuden-ratkaisu-eagles-alukseen-liittyvassa-rikosasiassa/",
       publishedOn: "2025-10-03",
+      archivedUrl: "https://web.archive.org/web/20260518220028/https://www.tuomioistuimet.fi/ajankohtaista/tiedotteet/karajaoikeuden-ratkaisu-eagles-alukseen-liittyvassa-rikosasiassa/",
     },
     {
       id: 28,
@@ -418,6 +428,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Tiedote hovioikeuden päätöksestä ns. Eagle S -aluksen asiassa (R 16/2025/2572)",
       url: "https://www.tuomioistuimet.fi/ajankohtaista/tiedotteet/tiedote-hovioikeuden-paatoksesta-ns-eagle-s-aluksen-asiassa-r-16-2025-2572/",
       publishedOn: "2026-08-27",
+      archivedUrl: "https://web.archive.org/web/20260914042203/https://www.tuomioistuimet.fi/ajankohtaista/tiedotteet/tiedote-hovioikeuden-paatoksesta-ns-eagle-s-aluksen-asiassa-r-16-2025-2572/",
     },
     {
       id: 29,
@@ -425,14 +436,16 @@ export const EAGLE_S_2024: CableCase = {
       title: "Estlink cable disruption: Finnish Border Guard detains tanker linked to Russia's 'dark fleet'",
       url: "https://yle.fi/a/74-20133516",
       publishedOn: "2024-12-26",
+      archivedUrl: "https://web.archive.org/web/20241226112207/https://yle.fi/a/74-20133516",
     },
-    { id: 31, publisher: "Yle News", title: "Maps reveal the path of the Eagle S on Christmas Day", url: "https://yle.fi/a/74-20133606", publishedOn: "2024-12-27" },
+    { id: 31, publisher: "Yle News", title: "Maps reveal the path of the Eagle S on Christmas Day", url: "https://yle.fi/a/74-20133606", publishedOn: "2024-12-27", archivedUrl: "https://web.archive.org/web/20241227124616/https://yle.fi/a/74-20133606" },
     {
       id: 36,
       publisher: "ERR News",
       title: "Communications cables between Estonia and Finland disrupted, services online",
       url: "https://news.err.ee/1609560718/communications-cables-between-estonia-and-finland-disrupted-services-online",
       publishedOn: "2024-12-26",
+      archivedUrl: "https://web.archive.org/web/20241226114700/https://news.err.ee/1609560718/communications-cables-between-estonia-and-finland-disrupted-services-online",
     },
     {
       id: 37,
@@ -440,6 +453,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Finnish police: Ship at the site of EstLink 2's breakage missing anchor",
       url: "https://news.err.ee/1609560763/finnish-police-ship-at-the-site-of-estlink-2-s-breakage-missing-anchor",
       publishedOn: "2024-12-26",
+      archivedUrl: "https://web.archive.org/web/20241226144908/https://news.err.ee/1609560763/finnish-police-ship-at-the-site-of-estlink-2-s-breakage-missing-anchor",
     },
     {
       id: 42,
@@ -447,6 +461,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Poliisitutkinta: Eagle S -tankkerin miehistö meni paniikkiin, kun kuuli ankkurin putoamisesta mereen",
       url: "https://yle.fi/a/74-20178527",
       publishedOn: "2025-08-25",
+      archivedUrl: "https://web.archive.org/web/20250825132401/https://yle.fi/a/74-20178527",
     },
     {
       id: 43,
@@ -454,7 +469,8 @@ export const EAGLE_S_2024: CableCase = {
       title: "Eagle S -tutkinnasta hätkähdyttävä tieto: Musta laatikko oli pois päältä, kun laiva alkoi katkoa kaapeleita",
       url: "https://yle.fi/a/74-20179391",
       publishedOn: "2025-08-26",
+      archivedUrl: "https://web.archive.org/web/20250826115354/https://yle.fi/a/74-20179391",
     },
-    { id: 54, publisher: "VesselFinder", title: "EAGLES, Crude Oil Tanker, IMO 9329760", url: "https://www.vesselfinder.com/vessels/details/9329760", publishedOn: "2026-10-17" },
+    { id: 54, publisher: "VesselFinder", title: "EAGLES, Crude Oil Tanker, IMO 9329760", url: "https://www.vesselfinder.com/vessels/details/9329760", publishedOn: "2026-10-17", archivedUrl: null },
   ],
 };

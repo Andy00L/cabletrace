@@ -131,6 +131,14 @@ export function SourceList({ cableCase }: { cableCase: CableCase }) {
               </a>
               <span className="text-caption font-normal text-muted">
                 {source.publisher}, {formatPublishedDate(source.publishedOn)}
+                {source.archivedUrl && (
+                  <>
+                    {". "}
+                    <a href={source.archivedUrl} target="_blank" rel="noopener noreferrer" className="text-ink underline decoration-faint underline-offset-4 transition-colors duration-140 ease-standard hover:decoration-ink">
+                      Archived copy
+                    </a>
+                  </>
+                )}
               </span>
             </span>
           </li>

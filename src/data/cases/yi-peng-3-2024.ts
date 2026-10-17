@@ -322,6 +322,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "Resilient Internet connectivity in Europe mitigates impact from multiple cable cuts",
       url: "https://blog.cloudflare.com/resilient-internet-connectivity-baltic-cable-cuts/",
       publishedOn: "2024-11-20",
+      archivedUrl: "https://web.archive.org/web/20241120213442/https://blog.cloudflare.com/resilient-internet-connectivity-baltic-cable-cuts/",
     },
     {
       id: 2,
@@ -329,6 +330,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "C-Lion1 breaks in the Baltic Sea, no evidence of intentional damage",
       url: "https://www.submarinenetworks.com/en/systems/intra-europe/sea-lion/c-lion1-breaks-in-the-baltic-sea,-no-evidence-of-intentional-damage",
       publishedOn: "2024-11-19",
+      archivedUrl: "https://web.archive.org/web/20241119212205/https://www.submarinenetworks.com/en/systems/intra-europe/sea-lion/c-lion1-breaks-in-the-baltic-sea,-no-evidence-of-intentional-damage",
     },
     {
       id: 3,
@@ -336,6 +338,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "A fault in the Cinia C-Lion1 submarine cable between Finland and Germany",
       url: "https://cinia.fi/en/news/a-fault-in-the-cinia-c-lion1-submarine-cable-between-finland-and-germany",
       publishedOn: "2024-11-18",
+      archivedUrl: "https://web.archive.org/web/20241118104026/https://www.cinia.fi/en/news/a-fault-in-the-cinia-c-lion1-submarine-cable-between-finland-and-germany",
     },
     {
       id: 4,
@@ -343,6 +346,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "Waarom Chinees vrachtschip plots in het vizier komt als verdachte van beschadiging kabels in Oostzee",
       url: "https://www.vrt.be/vrtnws/nl/2024/11/20/chinees-cargoschip-gespot-in-de-buurt-van-beschadigde-kabels-oos/",
       publishedOn: "2024-11-20",
+      archivedUrl: "https://web.archive.org/web/20241120162624/https://www.vrt.be/vrtnws/nl/2024/11/20/chinees-cargoschip-gespot-in-de-buurt-van-beschadigde-kabels-oos/",
     },
     {
       id: 5,
@@ -350,6 +354,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "Chinese ship suspected of deliberately cutting cables in Baltic Sea - media",
       url: "https://www.lrt.lt/en/news-in-english/19/2426033/chinese-ship-suspected-of-deliberately-cutting-cables-in-baltic-sea-media",
       publishedOn: "2024-11-28",
+      archivedUrl: "https://web.archive.org/web/20241128204902/https://www.lrt.lt/en/news-in-english/19/2426033/chinese-ship-suspected-of-deliberately-cutting-cables-in-baltic-sea-media",
     },
     {
       id: 6,
@@ -357,6 +362,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "Pressmeddelande: Undersökningar på det kinesiska fartyget Yi Peng 3",
       url: "https://www.shk.se/aktuellt/pressmeddelanden/2024-12-19-pressmeddelande-undersokningar-pa-det-kinesiska-fartyget-yi-peng-3",
       publishedOn: "2024-12-19",
+      archivedUrl: "https://web.archive.org/web/20260418210453/https://shk.se/aktuellt/pressmeddelanden/2024-12-19-pressmeddelande-undersokningar-pa-det-kinesiska-fartyget-yi-peng-3",
     },
     {
       id: 7,
@@ -364,6 +370,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "Inga bevis för avsiktligt kabelbrott i Östersjön",
       url: "https://www.svt.se/nyheter/inrikes/inga-bevis-for-avsiktligt-kabelbrott-i-ostersjon",
       publishedOn: "2025-04-15",
+      archivedUrl: "https://web.archive.org/web/20250415093825/https://www.svt.se/nyheter/inrikes/inga-bevis-for-avsiktligt-kabelbrott-i-ostersjon",
     },
     {
       id: 8,
@@ -371,6 +378,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "Swedish Report Fails to Find Evidence of Sabotage by Chinese Bulker",
       url: "https://maritime-executive.com/article/swedish-report-fails-to-find-evidence-of-sabotage-by-chinese-bulker",
       publishedOn: "2025-04-15",
+      archivedUrl: "https://web.archive.org/web/20250415172418/https://maritime-executive.com/article/swedish-report-fails-to-find-evidence-of-sabotage-by-chinese-bulker",
     },
     {
       id: 9,
@@ -378,6 +386,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "Kinesiska fartyget har börjat röra på sig - sätter kurs mot Egypten",
       url: "https://www.svt.se/nyheter/inrikes/kinesiska-fartyget-har-borjat-rora-pa-sig",
       publishedOn: "2024-12-21",
+      archivedUrl: "https://web.archive.org/web/20241222084007/https://www.svt.se/nyheter/inrikes/kinesiska-fartyget-har-borjat-rora-pa-sig",
     },
     {
       id: 10,
@@ -385,6 +394,7 @@ export const YI_PENG_3_2024: CableCase = {
       title: "AIS data archive, aisdk-2024-11-18.zip",
       url: "https://s3.eu-central-1.amazonaws.com/aisdata.ais.dk/aisdk-2024-11-18.zip",
       publishedOn: "2025-07-21",
+      archivedUrl: null,
     },
   ],
 };
