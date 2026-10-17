@@ -3,11 +3,9 @@
 // Every run opens a fresh browser context (cold HTTP cache) at a 1440 x 900 desktop viewport with no network throttling.
 // Exit codes: 0 every budget met, 1 a budget broken, 2 the pages could not be measured.
 // Headless Chromium draws WebGL with SwiftShader (on the CPU), so the 3D numbers are a slow-machine bound, not a GPU result.
-import { existsSync, readdirSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { chromium, type Browser, type Page, type Request } from "playwright";
 import type { Result } from "../../src/lib/result";
+import { resolveChromiumPath } from "./chromium-path";
 
 // Budgets (desktop, broadband). Sources: docs/PERFORMANCE.md, Budgets.
 const LCP_BUDGET_MS = 1500;
@@ -82,27 +80,6 @@ function parseCliOptions(argumentList: string[]): Result<CliOptions> {
   if (!Number.isInteger(runCount) || runCount < 1) return { ok: false, reason: `--runs must be a positive integer, got ${runFlag}` };
   const chromiumPath = readFlagValue(argumentList, "--chromium") ?? process.env.PERF_CHROMIUM_PATH ?? null;
   return { ok: true, value: { baseUrl: baseUrl.replace(/\/$/, ""), runCount, chromiumPath } };
-}
-
-// Playwright's own Chromium build when it is installed, otherwise the newest build in the Playwright cache.
-// The project pins playwright 1.58.2, whose build may not be the one downloaded on this machine.
-function resolveChromiumPath(requestedPath: string | null): Result<string> {
-  if (requestedPath !== null) {
-    return existsSync(requestedPath) ? { ok: true, value: requestedPath } : { ok: false, reason: `no Chromium at ${requestedPath}` };
-  }
-  const bundledPath = chromium.executablePath();
-  if (existsSync(bundledPath)) return { ok: true, value: bundledPath };
-  const cacheDirectory = path.join(os.homedir(), ".cache", "ms-playwright");
-  const cachedBuilds = existsSync(cacheDirectory)
-    ? readdirSync(cacheDirectory)
-        .filter((entryName) => /^chromium-\d+$/.test(entryName))
-        .sort((first, second) => Number(second.split("-")[1]) - Number(first.split("-")[1]))
-    : [];
-  for (const buildName of cachedBuilds) {
-    const candidatePath = path.join(cacheDirectory, buildName, "chrome-linux64", "chrome");
-    if (existsSync(candidatePath)) return { ok: true, value: candidatePath };
-  }
-  return { ok: false, reason: "no Chromium found; pass --chromium or set PERF_CHROMIUM_PATH" };
 }
 
 // Runs in the page before any of its scripts: marks the first time each probe reaches each state, so the timing
