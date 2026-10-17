@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
+import { CaseCharts } from "@/components/console/ConsoleDock";
 import { describeNearestLine, describeSpeed, describeWaterUnder, NumberGrid, useMomentSample } from "@/components/console/MomentNumbers";
 import { Icon } from "@/components/icons/Icon";
 import { CaseEventList } from "@/components/replay/CaseEventList";
@@ -10,7 +11,7 @@ import { formatUtcClock } from "@/lib/replay/format-utc";
 import { progressToTimeMs } from "@/lib/replay/replay-scene";
 
 const CARD_CLASS = "flex flex-col gap-3 rounded-row bg-card px-5 py-4.5 shadow-card";
-const ROW_BUTTON_CLASS = "grid w-full items-center gap-x-3 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page";
+const ROW_BUTTON_CLASS = "grid w-full items-center gap-x-3 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-page";
 
 function ShipSample() {
   return (
@@ -42,7 +43,7 @@ function HideButton({ onHide }: { onHide: (() => void) | null }) {
 
 /** The ship's name, which opens the vessel card on the ship in the 3D view: the keyboard path to the ship in the scene. */
 function ShipHeading({ onHide }: { onHide: (() => void) | null }) {
-  const { consoleCase, openLayer } = useConsole();
+  const { consoleCase, openLayer, layer } = useConsole();
   return (
     <div className="flex items-center gap-3">
       <h2 className="min-w-0 text-card-title">
@@ -50,7 +51,8 @@ function ShipHeading({ onHide }: { onHide: (() => void) | null }) {
           type="button"
           onClick={(event) => openLayer({ kind: "vessel" }, event.currentTarget)}
           title="Show the vessel card on the ship"
-          className="-mx-2 -my-1 flex items-center gap-3 rounded-field px-2 py-1 text-left transition-colors duration-140 ease-standard hover:bg-page"
+          aria-current={layer.kind === "vessel" ? "true" : undefined}
+          className="-mx-2 -my-1 flex items-center gap-3 rounded-field px-2 py-1 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-page"
           data-testid="open-vessel-card"
         >
           <ShipSample />
@@ -121,9 +123,9 @@ function DerivedNumbers() {
   );
 }
 
-/** Ship mode: the full ship card and the numbers derived at the replay moment. */
-function ShipRail({ onHide }: { onHide: (() => void) | null }) {
-  const { consoleCase } = useConsole();
+/** Ship mode: the full ship card, the numbers derived at the replay moment, and the charts when the dock has none. */
+function ShipRail({ onHide, showsCharts }: { onHide: (() => void) | null; showsCharts: boolean }) {
+  const { consoleCase, series } = useConsole();
   const { vessel } = consoleCase;
   const facts = [
     { label: "Type", value: vessel.type },
@@ -147,6 +149,11 @@ function ShipRail({ onHide }: { onHide: (() => void) | null }) {
         <CitationButtons citations={vessel.citations} />
       </section>
       <DerivedNumbers />
+      {showsCharts && series && (
+        <section className={CARD_CLASS} aria-label="Charts on the replay's time axis">
+          <CaseCharts series={series} isStacked />
+        </section>
+      )}
     </>
   );
 }
@@ -156,7 +163,7 @@ function ShipRail({ onHide }: { onHide: (() => void) | null }) {
 const SHA256_SHOWN_CHARACTERS = 12;
 
 function EvidenceRail({ onHide }: { onHide: (() => void) | null }) {
-  const { consoleCase, openLayer, caseFileSha256 } = useConsole();
+  const { consoleCase, openLayer, focusTarget, layer, caseFileSha256 } = useConsole();
   const { recordedTrack } = consoleCase;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
@@ -168,7 +175,15 @@ function EvidenceRail({ onHide }: { onHide: (() => void) | null }) {
         <ol className="-mx-2 flex flex-col gap-0.5">
           {consoleCase.positions.map((position, index) => (
             <li key={position.atMs}>
-              <button type="button" onClick={(event) => openLayer({ kind: "placement", positionIndex: index }, event.currentTarget)} className={`${ROW_BUTTON_CLASS} grid-cols-[48px_minmax(0,1fr)_20px]`}>
+              <button
+                type="button"
+                onClick={(event) => {
+                  openLayer({ kind: "placement", positionIndex: index }, event.currentTarget);
+                  focusTarget({ kind: "placement", positionIndex: index });
+                }}
+                aria-current={layer.kind === "placement" && layer.positionIndex === index ? "true" : undefined}
+                className={`${ROW_BUTTON_CLASS} grid-cols-[48px_minmax(0,1fr)_20px]`}
+              >
                 <span className="flex flex-col">
                   <span className="text-small font-medium tabular-nums">{position.timeLabel}</span>
                   {position.dayLabel && <span className="text-micro text-muted tabular-nums">{position.dayLabel}</span>}
@@ -194,7 +209,15 @@ function EvidenceRail({ onHide }: { onHide: (() => void) | null }) {
         <ol className="-mx-2 flex flex-col gap-0.5">
           {consoleCase.cuts.map((cut, index) => (
             <li key={cut.slug}>
-              <button type="button" onClick={(event) => openLayer({ kind: "cut", cutIndex: index }, event.currentTarget)} className={`${ROW_BUTTON_CLASS} grid-cols-[14px_minmax(0,1fr)_auto]`}>
+              <button
+                type="button"
+                onClick={(event) => {
+                  openLayer({ kind: "cut", cutIndex: index }, event.currentTarget);
+                  focusTarget({ kind: "cut", cutIndex: index });
+                }}
+                aria-current={layer.kind === "cut" && layer.cutIndex === index ? "true" : undefined}
+                className={`${ROW_BUTTON_CLASS} grid-cols-[14px_minmax(0,1fr)_auto]`}
+              >
                 <CutMark />
                 <span className="text-small">
                   {cut.label}, {cut.owner}
@@ -242,14 +265,17 @@ function EvidenceRail({ onHide }: { onHide: (() => void) | null }) {
   );
 }
 
-/** The rail's content for the current mode. `onHide` folds the floating rail; null where it cannot fold. */
-export function ConsoleRail({ onHide }: { onHide: (() => void) | null }) {
+/**
+ * The rail's content for the current mode. `onHide` folds the floating rail; null where it cannot fold. `showsCharts`
+ * puts the three charts in Ship mode, for layouts whose dock has no room for them.
+ */
+export function ConsoleRail({ onHide, showsCharts }: { onHide: (() => void) | null; showsCharts: boolean }) {
   const { mode } = useConsole();
   switch (mode) {
     case "replay":
       return <ReplayRail onHide={onHide} />;
     case "ship":
-      return <ShipRail onHide={onHide} />;
+      return <ShipRail onHide={onHide} showsCharts={showsCharts} />;
     case "evidence":
       return <EvidenceRail onHide={onHide} />;
     default: {

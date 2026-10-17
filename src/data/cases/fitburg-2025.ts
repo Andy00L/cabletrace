@@ -105,6 +105,7 @@ export const FITBURG_2025: CableCase = {
     kind: "general-cargo",
     flag: "Saint Vincent and the Grenadines",
     type: "General cargo ship, 132 m",
+    lengthMetres: 132,
     imo: "9250397",
     mmsi: "375068000",
     citations: [
