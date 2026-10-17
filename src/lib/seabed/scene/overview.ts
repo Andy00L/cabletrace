@@ -7,11 +7,11 @@ import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene
 import { buildAnchorModel } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
 import { LAND_RAMP, SCENE_COLORS, SEABED_RAMP } from "@/lib/seabed/scene/scene-colors";
-import { buildShipModel } from "@/lib/seabed/scene/ship-model";
 import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
 import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
+import { buildShip } from "@/lib/ships/build-ship";
 import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
 import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, type ScenePoint } from "@/lib/seabed/terrain";
 
@@ -55,8 +55,8 @@ const CUT_RING_PROBE_ANGLES = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
 const METRES_TO_KM = 1 / 1000;
 const SHIP_DRAWN_SCALE = SCENE_SCALES.shipDrawnScale;
 const ANCHOR_DRAWN_SCALE = SCENE_SCALES.anchorDrawnScale;
-// Above the model's waterline in its own metres (the label scales with the hull).
-const SHIP_LABEL_HEIGHT_METRES = 55;
+// The vessel's label floats this many ship lengths above its waterline, clear of the bridge and masts.
+const SHIP_LABEL_HEIGHT_LENGTHS = 0.24;
 // The wake follows the last 13 minutes of the path, sampled every 20 s.
 const WAKE_STEP_MS = 20 * 1000;
 const WAKE_SAMPLE_COUNT = 40;
@@ -130,6 +130,8 @@ type OverviewOptions = {
   input: ReplaySceneInput;
   softDot: THREE.Texture;
   prefersReducedMotion: boolean;
+  /** The GPU tier: finer detail (hull plating relief) that a CPU renderer would pay for every frame. */
+  isHighDetail: boolean;
 };
 
 function buildRamp(stops: readonly [number, string][]) {
@@ -529,16 +531,15 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     }
   }
 
-  const shipModel = buildShipModel(input.vessel.kind);
+  // Built at the case ship's real length, then drawn at the scale the disclosure under the view states.
+  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail });
   const ship = shipModel.group;
-  // Sized to the case ship's real length, then drawn at the scale the disclosure under the view states.
-  const shipSizeFactor = input.vessel.lengthMetres / shipModel.lengthOverallMetres;
-  ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM * shipSizeFactor);
+  ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
   const shipDrawnLengthKm = input.vessel.lengthMetres * SHIP_DRAWN_SCALE * METRES_TO_KM;
   // The foam trail starts as wide as the drawn hull.
-  const wakeHalfWidthKm = (shipModel.beamMetres / 2) * shipSizeFactor * SHIP_DRAWN_SCALE * METRES_TO_KM;
+  const wakeHalfWidthKm = shipModel.form.halfBeam * SHIP_DRAWN_SCALE * METRES_TO_KM;
   const shipLabel = makeStackedLabel(input.vessel.name, describeVesselPosition(input.track, input.windowStartMs), "above");
-  shipLabel.object.position.set(0, SHIP_LABEL_HEIGHT_METRES, 0);
+  shipLabel.object.position.set(0, SHIP_LABEL_HEIGHT_LENGTHS * input.vessel.lengthMetres, 0);
   ship.add(shipLabel.object);
   ship.visible = false;
   scene.add(ship);

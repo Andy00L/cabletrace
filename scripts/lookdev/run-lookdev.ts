@@ -15,6 +15,7 @@ import { resolveChromiumPath } from "../perf/chromium-path";
 import { compareImages, downscaleImage, formatHexColor, matchColorNear, parseHexColor, type RgbColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
 import { listLookdevShots, type LookdevShot } from "./shots";
+import { buildTurntablePage } from "./turntable";
 
 type TierName = "software" | "hardware";
 
@@ -39,6 +40,7 @@ const SETTLE_MS = 800;
 const FRAME_TIMEOUT_MS = 120_000;
 // Scrub steps timed per overview shot for the frame-time figure.
 const SCRUB_STEPS = 6;
+const TURNTABLE_SHOT_NAME = "ships-turntable";
 
 const TONE_HEX: Record<DataTone, string> = { cable: WEBGL_COLORS.cable, pipeline: WEBGL_COLORS.pipeline, suspect: WEBGL_COLORS.ink, alarm: WEBGL_COLORS.alarm };
 
@@ -228,6 +230,61 @@ function judgeTones(image: RgbaImage, probes: readonly ProbePoint[], requiredTon
   });
 }
 
+type BaselineVerdict = { differingShare: number | null; meanDelta: number | null; baselineNote: string; isBaselinePass: boolean };
+
+/** Writes the frame to the run's folder, then compares it with its baseline (or writes the baseline with --update). */
+function judgeAgainstBaseline(input: { tier: TierName; name: string; framePng: Uint8Array; frame: RgbaImage; options: CliOptions }): Result<BaselineVerdict> {
+  const { tier, name, framePng, frame, options } = input;
+  const tierOut = path.join(options.outDirectory, tier);
+  mkdirSync(tierOut, { recursive: true });
+  writeFileSync(path.join(tierOut, `${name}.png`), framePng);
+  const scaled = downscaleImage(frame, BASELINE_SCALE);
+  const baselinePath = path.join("scripts", "lookdev", "baselines", tier, `${name}.png`);
+  if (options.shouldUpdate) {
+    mkdirSync(path.dirname(baselinePath), { recursive: true });
+    writeFileSync(baselinePath, encodePng(scaled));
+    return { ok: true, value: { differingShare: null, meanDelta: null, baselineNote: "baseline written", isBaselinePass: true } };
+  }
+  if (!existsSync(baselinePath)) return { ok: true, value: { differingShare: null, meanDelta: null, baselineNote: "no baseline", isBaselinePass: false } };
+  const baseline = decodePng(readFileSync(baselinePath));
+  if (!baseline.ok) return { ok: false, reason: `baseline ${baselinePath}: ${baseline.reason}` };
+  const difference = compareImages(baseline.value, scaled, PIXEL_THRESHOLD);
+  if (difference === null) {
+    const baselineNote = `size changed: baseline ${baseline.value.width} x ${baseline.value.height}, frame ${scaled.width} x ${scaled.height}`;
+    return { ok: true, value: { differingShare: null, meanDelta: null, baselineNote, isBaselinePass: false } };
+  }
+  writeFileSync(path.join(tierOut, `${name}.diff.png`), encodePng(difference.diffImage));
+  const isBaselinePass = difference.differingShare <= MAX_DIFFERING_SHARE;
+  return { ok: true, value: { differingShare: difference.differingShare, meanDelta: difference.meanDelta, baselineNote: isBaselinePass ? "matches" : "regressed", isBaselinePass } };
+}
+
+/** The ship turntable (every hull kind side by side), judged on its look only. */
+async function captureTurntable(browser: Browser, tier: TierName, pageUrl: string, options: CliOptions): Promise<Result<ShotOutcome>> {
+  const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  try {
+    const startedAt = performance.now();
+    await page.goto(pageUrl, { waitUntil: "load", timeout: FRAME_TIMEOUT_MS });
+    await page.waitForSelector("body[data-state]", { state: "attached", timeout: FRAME_TIMEOUT_MS });
+    const pageState = await page.evaluate(() => document.body.dataset.state ?? "");
+    if (pageState !== "ready") return { ok: false, reason: "the turntable page failed to draw (see its console)" };
+    const renderMs = performance.now() - startedAt;
+    const rendererKind = await page.evaluate(() => document.querySelector("canvas[data-renderer]")?.getAttribute("data-renderer") ?? "unknown");
+    if (rendererKind !== tier) return { ok: false, reason: `asked for the ${tier} tier, the page drew on ${rendererKind}` };
+    const framePng = await page.locator("body").screenshot({ animations: "disabled" });
+    const frame = decodePng(framePng);
+    if (!frame.ok) return { ok: false, reason: `turntable frame: ${frame.reason}` };
+    const judged = judgeAgainstBaseline({ tier, name: TURNTABLE_SHOT_NAME, framePng, frame: frame.value, options });
+    if (!judged.ok) return judged;
+    const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
+    return { ok: true, value: { shot: TURNTABLE_SHOT_NAME, tier, rendererName: rendererKind, renderMs, scrubFrameMs: null, differingShare, meanDelta, baselineNote, tones: [], isPass: isBaselinePass } };
+  } catch (error) {
+    return { ok: false, reason: describeError(error) };
+  } finally {
+    await context.close();
+  }
+}
+
 async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, options: CliOptions): Promise<Result<ShotOutcome>> {
   const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: "reduce" });
   await context.addInitScript(markLookdevCanvas);
@@ -259,35 +316,10 @@ async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, 
     const probes = Array.isArray(parsedProbes) ? parsedProbes.filter(isProbePoint) : [];
     const tones = shot.view === "closeup" ? [] : judgeTones(canvasImage.value, probes, shot.requiredTones);
 
-    const tierOut = path.join(options.outDirectory, tier);
-    mkdirSync(tierOut, { recursive: true });
-    writeFileSync(path.join(tierOut, `${shot.name}.png`), lookPng);
-    const scaled = downscaleImage(look.value, BASELINE_SCALE);
-    const baselinePath = path.join("scripts", "lookdev", "baselines", tier, `${shot.name}.png`);
-    let differingShare: number | null = null;
-    let meanDelta: number | null = null;
-    let baselineNote = "";
-    if (options.shouldUpdate) {
-      mkdirSync(path.dirname(baselinePath), { recursive: true });
-      writeFileSync(baselinePath, encodePng(scaled));
-      baselineNote = "baseline written";
-    } else if (!existsSync(baselinePath)) {
-      baselineNote = "no baseline";
-    } else {
-      const baseline = decodePng(readFileSync(baselinePath));
-      if (!baseline.ok) return { ok: false, reason: `baseline ${baselinePath}: ${baseline.reason}` };
-      const difference = compareImages(baseline.value, scaled, PIXEL_THRESHOLD);
-      if (difference === null) {
-        baselineNote = `size changed: baseline ${baseline.value.width} x ${baseline.value.height}, frame ${scaled.width} x ${scaled.height}`;
-      } else {
-        differingShare = difference.differingShare;
-        meanDelta = difference.meanDelta;
-        writeFileSync(path.join(tierOut, `${shot.name}.diff.png`), encodePng(difference.diffImage));
-        baselineNote = difference.differingShare > MAX_DIFFERING_SHARE ? "regressed" : "matches";
-      }
-    }
+    const judged = judgeAgainstBaseline({ tier, name: shot.name, framePng: lookPng, frame: look.value, options });
+    if (!judged.ok) return judged;
     const scrubFrameMs = shot.view === "overview" ? await measureScrubFrameMs(page) : null;
-    const isBaselinePass = baselineNote === "matches" || baselineNote === "baseline written";
+    const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
     return {
       ok: true,
       value: { shot: shot.name, tier, rendererName, renderMs, scrubFrameMs, differingShare, meanDelta, baselineNote, tones, isPass: isBaselinePass && tones.every((tone) => tone.isPass) },
@@ -327,6 +359,12 @@ async function main(): Promise<number> {
     return 2;
   }
   const shots = listLookdevShots().filter((shot) => options.only === null || shot.name.includes(options.only));
+  const isTurntableIncluded = options.only === null || TURNTABLE_SHOT_NAME.includes(options.only);
+  const turntablePage = isTurntableIncluded ? await buildTurntablePage(options.outDirectory) : null;
+  if (turntablePage && !turntablePage.ok) {
+    console.error(`[runLookdev] the ship turntable did not bundle: ${turntablePage.reason}`);
+    return 2;
+  }
   const outcomes: ShotOutcome[] = [];
   let hasRenderFailure = false;
   for (const tier of options.tiers) {
@@ -351,6 +389,16 @@ async function main(): Promise<number> {
       }
       outcomes.push(captured.value);
       printOutcome(captured.value);
+    }
+    if (turntablePage?.ok) {
+      const captured = await captureTurntable(browser, tier, turntablePage.value, options);
+      if (captured.ok) {
+        outcomes.push(captured.value);
+        printOutcome(captured.value);
+      } else {
+        console.error(`[runLookdev] ${tier} ${TURNTABLE_SHOT_NAME}: could not render: ${captured.reason}`);
+        hasRenderFailure = true;
+      }
     }
     await browser.close();
   }

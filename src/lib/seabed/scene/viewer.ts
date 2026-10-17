@@ -175,6 +175,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     input,
     softDot,
     prefersReducedMotion: isCalm,
+    isHighDetail: rendererKind === "hardware",
   });
 
   // Set whenever the picture must be redrawn even though the replay moment did not change.
