@@ -86,9 +86,6 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
       }
       viewer = created.value;
       viewerRef.current = created.value;
-      const watchedOnly = combineGlobeLines([], watchedLines);
-      created.value.setLines(watchedOnly);
-      callbacksRef.current.onLinesChange(watchedOnly, "loading");
       callbacksRef.current.onViewerChange(created.value);
       cablesDownloadRef.current = { viewer: created.value, download: null, isApplied: false };
       setStageState({ kind: "ready" });
@@ -103,14 +100,20 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
     };
   }, [watchedLines, attempt]);
 
-  // Downloads and lays out the world's lines once the ready globe has been committed: the file (567 KB of JSON) and
-  // building 4,000 lines take a few hundred ms of main thread on a software renderer, which must not hold back the globe
-  // showing. Syncs the three.js scene React does not own.
+  // Draws the lines once the ready globe has been committed, the watched ones at once and the world's when their file
+  // lands: the file (567 KB of JSON), building 4,000 lines and compiling the line shaders take several hundred ms of
+  // main thread on a software renderer (no parallel shader compile there), which must not hold back the globe showing.
+  // Syncs the three.js scene React does not own.
   useEffect(() => {
     const pending = cablesDownloadRef.current;
     if (stageState.kind !== "ready" || !pending || pending.isApplied) return;
     let isCurrent = true;
-    pending.download ??= fetchJson(CABLES_URL);
+    if (pending.download === null) {
+      const watchedOnly = combineGlobeLines([], watchedLines);
+      pending.viewer.setLines(watchedOnly);
+      callbacksRef.current.onLinesChange(watchedOnly, "loading");
+      pending.download = fetchJson(CABLES_URL);
+    }
     void pending.download.then((downloaded) => {
       if (!isCurrent || pending.isApplied || viewerRef.current !== pending.viewer) return;
       pending.isApplied = true;
