@@ -21,7 +21,7 @@ function sample(regionId: string, sharedShips: number): CrossSourceSample {
 describe("judgeByRegion", () => {
   test("judges each region on its own samples, in first-seen order", () => {
     const verdicts = judgeByRegion([sample("gulf-of-finland", 39), sample("central-baltic", 20), sample("gulf-of-finland", 38)]);
-    expect(verdicts.map((verdict) => [verdict.regionId, verdict.verdict, verdict.sampleCount])).toEqual([
+    expect(verdicts.map(({ regionId, verdict }) => [regionId, verdict.verdict, verdict.sampleCount])).toEqual([
       ["gulf-of-finland", "agree", 2],
       ["central-baltic", "disagree", 1],
     ]);

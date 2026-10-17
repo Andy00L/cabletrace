@@ -6,7 +6,8 @@
 //   places  at least 95% of matched reports (stamped at most 2 minutes apart) lie within 250 m of each other after
 //           dead reckoning, over at least 20 matched pairs
 // Usage: bun scripts/regions/cross-source.ts [hours, default 24] [region id, default every region compared]
-// Needs NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (the site's public read key).
+// Needs NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY: the samples function is closed to the publishable key
+// (supabase/migrations/20261019600200_cross_source_server_only.sql).
 // Exit codes: 0 the feeds agree, 1 they disagree beyond tolerance, 2 could not judge (no access, too few samples).
 import { CROSS_SOURCE_MAX_HOURS, fetchCrossSourceSamples, judgeByRegion } from "@/lib/health/cross-source-health";
 
@@ -31,15 +32,15 @@ async function main(): Promise<number> {
     console.error(`[crossSource] ${samples.reason}`);
     return 2;
   }
-  const verdicts = judgeByRegion(samples.value).filter((verdict) => regionArgument === undefined || verdict.regionId === regionArgument);
+  const verdicts = judgeByRegion(samples.value).filter(({ regionId }) => regionArgument === undefined || regionId === regionArgument);
   if (verdicts.length === 0) {
     console.error(`[crossSource] no samples in the last ${hours} hours${regionArgument === undefined ? "" : ` for ${regionArgument}`}`);
     return 2;
   }
   let exitCode = 0;
-  for (const verdict of verdicts) {
+  for (const { regionId, verdict } of verdicts) {
     console.log(
-      `[crossSource] ${verdict.regionId}: ${verdict.verdict} over ${verdict.sampleCount} samples; ships ${verdict.sharedShips}/${verdict.aisstreamShips} in both (${formatShare(verdict.shipAgreementShare)}); ` +
+      `[crossSource] ${regionId}: ${verdict.verdict} over ${verdict.sampleCount} samples; ships ${verdict.sharedShips}/${verdict.aisstreamShips} in both (${formatShare(verdict.shipAgreementShare)}); ` +
         `${verdict.matchedPairs} matched pairs, ${formatShare(verdict.positionAgreementShare)} within tolerance`,
     );
     verdict.reasons.forEach((reason) => console.log(`[crossSource]   ${reason}`));

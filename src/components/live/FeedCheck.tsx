@@ -1,7 +1,7 @@
-import type { RegionCrossSource } from "@/lib/health/cross-source-health";
+import type { FeedCheckRegion } from "@/lib/health/feed-check-report";
 import { POSITION_AGREEMENT_MIN_SHARE, POSITION_TOLERANCE_METRES, SHIP_AGREEMENT_MIN_SHARE } from "@/lib/live/cross-source";
 
-export type FeedCheckState = { kind: "loading" } | { kind: "failed" } | { kind: "loaded"; regions: RegionCrossSource[] };
+export type FeedCheckState = { kind: "loading" } | { kind: "failed" } | { kind: "loaded"; regions: FeedCheckRegion[] };
 
 function formatPercent(share: number | null): string {
   return share === null ? "n/a" : `${(share * 100).toFixed(share >= 0.995 && share < 1 ? 1 : 0)}%`;
@@ -9,7 +9,7 @@ function formatPercent(share: number | null): string {
 
 /**
  * Where aisstream and Digitraffic both cover a region, whether they agree on its ships and positions over the last
- * hours (the live layer's outside judge, src/lib/health/cross-source-health.ts). A disagreement shows as an alert
+ * hours (the live layer's outside judge, read from /api/health: src/lib/health/feed-check-report.ts). A disagreement shows as an alert
  * line; too few shared reports to judge, a failed read or the first load show nothing.
  */
 export function FeedCheck({ state, regionNames }: { state: FeedCheckState; regionNames: Readonly<Record<string, string>> }) {

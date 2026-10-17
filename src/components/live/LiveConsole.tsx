@@ -7,7 +7,7 @@ import { LiveDay } from "@/components/live/LiveDay";
 import type { DetectionsState } from "@/components/live/LiveRail";
 import { fetchRecentDraftCases } from "@/lib/fault-signals/fault-api";
 import { createFrameSource } from "@/lib/globe/frame-source";
-import { checkCrossSource } from "@/lib/health/cross-source-health";
+import { fetchFeedCheck } from "@/lib/health/feed-check-report";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { fetchRecentDetections } from "@/lib/globe/live-api";
 import type { WatchedLine } from "@/lib/globe/watched-line";
@@ -53,7 +53,7 @@ export function LiveConsole({ watchedLines, incidents, regionNames }: LiveConsol
       if (!outcome.ok) console.error(`[LiveConsole] ${outcome.reason}`);
       setDraftCasesState(outcome.ok ? { kind: "loaded", drafts: outcome.value } : { kind: "failed" });
     });
-    void checkCrossSource().then((outcome) => {
+    void fetchFeedCheck().then((outcome) => {
       if (!isCurrent) return;
       if (!outcome.ok) console.error(`[LiveConsole] ${outcome.reason}`);
       setFeedCheckState(outcome.ok ? { kind: "loaded", regions: outcome.value } : { kind: "failed" });
