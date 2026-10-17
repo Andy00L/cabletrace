@@ -80,6 +80,8 @@ describe("findCaseProblems", () => {
     expect(withArchive("https://web.archive.org/web/20241226093000/http://www.example.org/")).toEqual([]);
     const escapedSource = { ...FIXTURE.sources[0], url: "https://example.org/data.aspx?id=TNDM%2c114" };
     expect(findCaseProblems({ ...FIXTURE, sources: [{ ...escapedSource, archivedUrl: "https://web.archive.org/web/20241226093000/https://example.org/data.aspx?id=TNDM%2C114" }] })).toEqual([]);
+    const quotedSource = { ...FIXTURE.sources[0], url: "https://example.org/Products?$filter=Name%20eq%20'S2B'" };
+    expect(findCaseProblems({ ...FIXTURE, sources: [{ ...quotedSource, archivedUrl: "https://web.archive.org/web/20241226093000/https://example.org/Products?$filter=Name%20eq%20%27S2B%27" }] })).toEqual([]);
     expect(withArchive("https://archive.ph/Ab3dE")).toEqual([]);
     expect(withArchive("https://archive.today/2024.12.26-093000/https://example.org")).toEqual([]);
   });

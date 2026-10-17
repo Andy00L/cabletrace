@@ -12,7 +12,7 @@ import type { Browser, Page } from "playwright";
 import { formatPublishedDate } from "../../src/lib/cases/case-view";
 import type { CableCase, Citation } from "../../src/lib/cases/case-file";
 import type { Result } from "../../src/lib/result";
-import { CLOSE_UP_SCALE_NOTES, OVERVIEW_SCALE_NOTE } from "../../src/lib/seabed/scene-scales";
+import { chooseSceneExaggeration, CLOSE_UP_SCALE_NOTES, describeOverviewScale } from "../../src/lib/seabed/scene-scales";
 import { parseSeabedFeatures } from "../../src/lib/seabed/seabed-data";
 import { describeError, LAYER_SETTLE_MS, launchBrowser, openConsole, parseCheckArguments, type Viewport } from "./console-page";
 
@@ -52,23 +52,33 @@ function describeAction(action: Action): string {
   return action.kind === "click" ? `click "${action.controlKey.split("|")[2] ?? action.controlKey}"` : `press ${action.key}`;
 }
 
-/** Every piece of evidence the case holds, as text or a link that must appear on screen. */
+type SceneFacts = { overviewScale: string; depthCredit: string; lineCredit: string };
+
 /**
- * The depth, cable and pipeline credits as the scale popover writes them from the case's seabed file (the case page
- * reads the same file with src/lib/seabed/load-seabed-sources.ts; the sentences are built in StageOverlays.tsx).
+ * The overview's scale sentence and the depth, cable and pipeline credits as the scale popover writes them from the
+ * case's seabed file (the case page reads the same file and picks the exaggeration with chooseSceneExaggeration; the
+ * credit sentences are built in src/components/console/StageOverlays.tsx).
  */
-function readSceneCredits(seabedArea: string): Result<{ depth: string; lines: string }> {
+function readSceneFacts(seabedArea: string): Result<SceneFacts> {
   try {
     const features = parseSeabedFeatures(JSON.parse(readFileSync(path.join(process.cwd(), "public", "seabed", `${seabedArea}-seabed.json`), "utf8")));
     if (!features.ok) return features;
     const { depth, cables, pipelines } = features.value.sources;
-    return { ok: true, value: { depth: `Depth: ${depth}.`, lines: `Cables: ${cables}. Pipelines: ${pipelines}. OpenStreetMap data is under the ODbL.` } };
+    return {
+      ok: true,
+      value: {
+        overviewScale: describeOverviewScale(chooseSceneExaggeration(features.value.elevationRange)),
+        depthCredit: `Depth: ${depth}.`,
+        lineCredit: `Cables: ${cables}. Pipelines: ${pipelines}. OpenStreetMap data is under the ODbL.`,
+      },
+    };
   } catch (error) {
     return { ok: false, reason: `seabed file for ${seabedArea}: ${describeError(error)}` };
   }
 }
 
-function listEvidence(cableCase: CableCase, sceneCredits: { depth: string; lines: string }): EvidenceItem[] {
+/** Every piece of evidence the case holds, as text or a link that must appear on screen. */
+function listEvidence(cableCase: CableCase, sceneFacts: SceneFacts): EvidenceItem[] {
   const items: EvidenceItem[] = [];
   const seenTexts = new Set<string>();
   const addText = (kind: EvidenceKind, label: string, text: string) => {
@@ -106,12 +116,12 @@ function listEvidence(cableCase: CableCase, sceneCredits: { depth: string; lines
     addText("aftermath step", `aftermath "${shorten(step.title)}"`, step.title);
     addCitations(step.citations);
   });
-  addText("scale sentence", "overview scale sentence", OVERVIEW_SCALE_NOTE);
+  addText("scale sentence", "overview scale sentence", sceneFacts.overviewScale);
   addText("scale sentence", "close-up scale sentence (illustrated)", CLOSE_UP_SCALE_NOTES.illustrated);
   addText("scale sentence", "close-up scale sentence (measured)", CLOSE_UP_SCALE_NOTES.measured);
-  addText("data credit", "depth credit", sceneCredits.depth);
+  addText("data credit", "depth credit", sceneFacts.depthCredit);
   LAND_CREDIT_MARKERS.forEach((marker) => addText("data credit", marker.label, marker.text));
-  addText("data credit", "cable and pipeline credit", sceneCredits.lines);
+  addText("data credit", "cable and pipeline credit", sceneFacts.lineCredit);
   return items;
 }
 
@@ -281,9 +291,9 @@ async function checkCase(browser: Browser, input: { baseUrl: string; cableCase: 
   const { baseUrl, cableCase, viewport, workerCount } = input;
   const startedMs = performance.now();
   const firstUrl = `${baseUrl}/cases/${cableCase.slug}`;
-  const sceneCredits = readSceneCredits(cableCase.seabedArea);
-  if (!sceneCredits.ok) return sceneCredits;
-  const items = listEvidence(cableCase, sceneCredits.value);
+  const sceneFacts = readSceneFacts(cableCase.seabedArea);
+  if (!sceneFacts.ok) return sceneFacts;
+  const items = listEvidence(cableCase, sceneFacts.value);
   const depthByItem = new Map<EvidenceItem, number>();
   const failedActions: string[] = [];
   const resets: ResetCounts = { inPlace: 0, reloads: 0 };

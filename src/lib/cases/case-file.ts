@@ -200,15 +200,20 @@ export function findCaseProblems(cableCase: CableCase): string[] {
   // scripts/cases/check-sources.ts.
   const waybackCapture = /^(\d{4})(\d{2})(\d{2})\d{6}\/(https?:\/\/\S+)$/;
   const archiveTodaySnapshot = /^https:\/\/archive\.(?:today|ph|is|li|vn|fo|md)\/(?:[A-Za-z0-9]{4,10}|(\d{4})\.(\d{2})\.(\d{2})-\d{6}\/(https?:\/\/\S+))$/;
-  // Scheme, a leading "www.", a trailing slash, the fragment (archives never store it) and the case of percent-escapes
-  // (%2c is %2C, RFC 3986 section 2.1) differ between a page and its capture without changing which page it is.
+  // Scheme, a leading "www.", a trailing slash, the fragment (archives never store it) and percent-escapes differ
+  // between a page and its capture without changing which page it is: an escaped letter, digit or one of -._~!'()*
+  // reads as the character itself (RFC 3986 sections 2.3 and 6.2.2.2; the Wayback Machine writes ' as %27), and any
+  // other escape compares in upper case (%2c is %2C, section 2.1).
   const toComparableUrl = (url: string) =>
     url
       .replace(/#.*$/, "")
       .replace(/^https?:\/\//, "")
       .replace(/^www\./, "")
       .replace(/\/$/, "")
-      .replace(/%[0-9a-f]{2}/gi, (escape) => escape.toUpperCase());
+      .replace(/%([0-9a-f]{2})/gi, (escape: string, hex: string) => {
+        const character = String.fromCharCode(Number.parseInt(hex, 16));
+        return /^[A-Za-z0-9\-._~!'()*]$/.test(character) ? character : escape.toUpperCase();
+      });
   // `publishedOn` is a local date; a page published just after midnight in Europe or Asia is the previous UTC day.
   const publicationSlackMs = 24 * 60 * 60 * 1000;
   const seenSourceIds = new Set<number>();
