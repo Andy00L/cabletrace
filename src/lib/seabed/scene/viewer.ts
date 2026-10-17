@@ -25,10 +25,14 @@ const MAX_OVERVIEW_FOV_DEGREES = 60;
 // Below this view width (CSS px, a phone) land and pipeline names are hidden so the case labels stay readable.
 const COMPACT_LABEL_WIDTH_PX = 640;
 const RADIANS_PER_DEGREE = Math.PI / 180;
-// The follow camera sits off the vessel's starboard quarter (km), close enough to read the deck, and eases toward it.
-const FOLLOW_BEHIND_KM = 1.45;
-const FOLLOW_SIDE_KM = 1.55;
-const FOLLOW_ABOVE_KM = 0.62;
+// The follow camera sits off the vessel's starboard quarter, close enough to read the deck, and eases toward it.
+// Offsets are in drawn ship lengths (tuned on Eagle S, 228.6 m drawn 1.37 km long), so every hull fills the frame alike.
+const FOLLOW_BEHIND_LENGTHS = 1.06;
+const FOLLOW_SIDE_LENGTHS = 1.13;
+const FOLLOW_ABOVE_LENGTHS = 0.45;
+// It aims a little ahead of and above the hull's origin (the waterline amidships).
+const FOLLOW_AIM_AHEAD_LENGTHS = 0.22;
+const FOLLOW_AIM_ABOVE_LENGTHS = 0.036;
 const FOLLOW_EASE_PER_SECOND = 3.5;
 // The follow camera counts as arrived within this distance (km), and stops asking for frames.
 const FOLLOW_SETTLED_KM = 0.002;
@@ -440,13 +444,12 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     let isCameraEasing = false;
     const vesselFrame = activeView === "vessel" ? overview.readVesselFrame() : null;
     if (vesselFrame) {
-      const { position, heading } = vesselFrame;
-      followPosition.set(
-        position.x - heading.x * FOLLOW_BEHIND_KM - heading.z * FOLLOW_SIDE_KM,
-        position.y + FOLLOW_ABOVE_KM,
-        position.z - heading.z * FOLLOW_BEHIND_KM + heading.x * FOLLOW_SIDE_KM,
-      );
-      followTarget.set(position.x + heading.x * 0.3, position.y + 0.05, position.z + heading.z * 0.3);
+      const { position, heading, drawnLengthKm } = vesselFrame;
+      const behindKm = FOLLOW_BEHIND_LENGTHS * drawnLengthKm;
+      const sideKm = FOLLOW_SIDE_LENGTHS * drawnLengthKm;
+      followPosition.set(position.x - heading.x * behindKm - heading.z * sideKm, position.y + FOLLOW_ABOVE_LENGTHS * drawnLengthKm, position.z - heading.z * behindKm + heading.x * sideKm);
+      const aimAheadKm = FOLLOW_AIM_AHEAD_LENGTHS * drawnLengthKm;
+      followTarget.set(position.x + heading.x * aimAheadKm, position.y + FOLLOW_AIM_ABOVE_LENGTHS * drawnLengthKm, position.z + heading.z * aimAheadKm);
       const ease = isCalm ? 1 : 1 - Math.exp(-elapsedSeconds * FOLLOW_EASE_PER_SECOND);
       overview.camera.position.lerp(followPosition, ease);
       overview.controls.target.lerp(followTarget, ease);

@@ -7,8 +7,8 @@ import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 // A procedural cargo ship, built in metres with the waterline at y = 0, bow toward +x and starboard toward
 // +z. One hull with the proportions of a 228 m ship (the Eagle S product tanker; the Yi Peng 3 bulk carrier is
 // 224 by 32 m), and four decks: a tanker's pipe rack, manifold cranes and tank domes, a bulk carrier's hatch
-// covers, a general cargo ship's three holds with side cranes, or a container ship's stacks in bays. The
-// general cargo ship and the container ship of the cases are shorter (132 m and 169 m) but share this hull.
+// covers, a general cargo ship's three holds with side cranes, or a container ship's stacks in bays. The hull
+// is 232.6 m overall; the overview scales it to each case ship's length (132 m to 228.6 m).
 // The details are the ones visible on any such ship, not a survey of one hull. Monochrome on purpose: the
 // scene's only colors are data colors.
 
@@ -445,6 +445,9 @@ export type ShipModel = {
   sternLocal: THREE.Vector3;
   /** Port hawse pipe at the bow, in model metres, where the anchor chain leaves the hull. */
   hawseLocal: THREE.Vector3;
+  /** Length overall and beam of the built hull (metres), for callers that size it to a real ship. */
+  lengthOverallMetres: number;
+  beamMetres: number;
 };
 
 /** Builds the ship once; callers scale the group (the overview draws it larger than life to read). The viewer frees its GPU memory with the rest of the scene. */
@@ -464,8 +467,9 @@ export function buildShipModel(kind: ShipKind): ShipModel {
   const deckEquipment: PartList = [...buildRailings()];
   DECK_BUILDERS[kind](deckEquipment, superstructure.structure);
   buildForecastleGear(deckEquipment);
+  const hullShell = buildHullShell();
   const meshes = [
-    new THREE.Mesh(buildHullShell(), hullMaterial),
+    new THREE.Mesh(hullShell, hullMaterial),
     new THREE.Mesh(buildTransom(), transomMaterial),
     new THREE.Mesh(buildDeck(), deckMaterial),
     new THREE.Mesh(mergeParts(deckEquipment), equipmentMaterial),
@@ -475,6 +479,8 @@ export function buildShipModel(kind: ShipKind): ShipModel {
     new THREE.Mesh(mergeParts(superstructure.band), bandMaterial),
     new THREE.Mesh(mergeParts(superstructure.lifeboat), lifeboatMaterial),
   ];
+  hullShell.computeBoundingBox();
+  const hullBox = hullShell.boundingBox ?? new THREE.Box3();
   const group = new THREE.Group();
   meshes.forEach((mesh) => {
     mesh.castShadow = true;
@@ -485,5 +491,7 @@ export function buildShipModel(kind: ShipKind): ShipModel {
     group,
     sternLocal: new THREE.Vector3(-HALF_LENGTH, 0, 0),
     hawseLocal: new THREE.Vector3(HALF_LENGTH - 9, DEPTH + FORECASTLE_RISE - DRAFT - 2.5, -11),
+    lengthOverallMetres: hullBox.max.x - hullBox.min.x,
+    beamMetres: hullBox.max.z - hullBox.min.z,
   };
 }

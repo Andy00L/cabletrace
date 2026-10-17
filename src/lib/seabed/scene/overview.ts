@@ -55,11 +55,11 @@ const CUT_RING_PROBE_ANGLES = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
 const METRES_TO_KM = 1 / 1000;
 const SHIP_DRAWN_SCALE = SCENE_SCALES.shipDrawnScale;
 const ANCHOR_DRAWN_SCALE = SCENE_SCALES.anchorDrawnScale;
+// Above the model's waterline in its own metres (the label scales with the hull).
 const SHIP_LABEL_HEIGHT_METRES = 55;
 // The wake follows the last 13 minutes of the path, sampled every 20 s.
 const WAKE_STEP_MS = 20 * 1000;
 const WAKE_SAMPLE_COUNT = 40;
-const WAKE_HALF_WIDTH_KM = 16 * METRES_TO_KM * SHIP_DRAWN_SCALE;
 // The overview camera looks from the south-east, down about 35 degrees (the approved prototype angle).
 const OVERVIEW_DIRECTION = new THREE.Vector3(14, 19, 26).normalize();
 const OVERVIEW_TARGET_Y = -1.8;
@@ -71,8 +71,8 @@ export const OVERVIEW_FOV_DEGREES = 32;
 // The top view fits the block for this aspect ratio, a little wider than the replay card.
 const TOP_VIEW_ASPECT = 1.6;
 
-/** Where the vessel is and which way it heads, for the camera that follows it. */
-export type VesselFrame = { position: THREE.Vector3; heading: ScenePoint };
+/** Where the vessel is, which way it heads and how long it is drawn (km), for the camera that follows it. */
+export type VesselFrame = { position: THREE.Vector3; heading: ScenePoint; drawnLengthKm: number };
 
 export type OverviewViewName = "overview" | "top";
 
@@ -531,7 +531,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
   const shipModel = buildShipModel(input.vessel.kind);
   const ship = shipModel.group;
-  ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
+  // Sized to the case ship's real length, then drawn at the scale the disclosure under the view states.
+  const shipSizeFactor = input.vessel.lengthMetres / shipModel.lengthOverallMetres;
+  ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM * shipSizeFactor);
+  const shipDrawnLengthKm = input.vessel.lengthMetres * SHIP_DRAWN_SCALE * METRES_TO_KM;
+  // The foam trail starts as wide as the drawn hull.
+  const wakeHalfWidthKm = (shipModel.beamMetres / 2) * shipSizeFactor * SHIP_DRAWN_SCALE * METRES_TO_KM;
   const shipLabel = makeStackedLabel(input.vessel.name, describeVesselPosition(input.track, input.windowStartMs), "above");
   shipLabel.object.position.set(0, SHIP_LABEL_HEIGHT_METRES, 0);
   ship.add(shipLabel.object);
@@ -640,7 +645,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       ship.rotation.y = Math.atan2(-lastHeading.z, lastHeading.x);
       ship.updateMatrixWorld();
       shipLabel.setNote(describeVesselPosition(input.track, atMs));
-      vesselFrame = { position: ship.position, heading: lastHeading };
+      vesselFrame = { position: ship.position, heading: lastHeading, drawnLengthKm: shipDrawnLengthKm };
       // The wake: the stern now, then the path sailed over the last minutes.
       sternWorld.copy(shipModel.sternLocal).applyMatrix4(ship.matrixWorld);
       const sternOffsetKm = sternWorld.distanceTo(ship.position);
@@ -651,7 +656,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
         if (!past) break;
         wakeTrail.push({ x: past.x - lastHeading.x * sternOffsetKm, z: past.z - lastHeading.z * sternOffsetKm });
       }
-      wake.update(wakeTrail, WAKE_HALF_WIDTH_KM);
+      wake.update(wakeTrail, wakeHalfWidthKm);
     } else {
       vesselFrame = null;
       wake.mesh.visible = false;
