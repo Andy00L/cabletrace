@@ -8,7 +8,7 @@ import { ConsoleDock } from "@/components/console/ConsoleDock";
 import { ConsoleLayers } from "@/components/console/ConsoleLayers";
 import { ConsoleRail } from "@/components/console/ConsoleRail";
 import { ConsoleTopBar, type CaseSwitcherItem } from "@/components/console/ConsoleTopBar";
-import { StageOverlays, type SceneSources } from "@/components/console/StageOverlays";
+import { StageOverlays, type SceneSummary } from "@/components/console/StageOverlays";
 import { SeabedView } from "@/components/replay/SeabedView";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
@@ -50,8 +50,8 @@ type ReplayConsoleProps = {
   consoleCase: ConsoleCase;
   series: CaseSeries | null;
   switcherCases: CaseSwitcherItem[];
-  /** Who made the area's depth grid and mapped its cables and pipelines, from its seabed file; null when it could not be read. */
-  sceneSources: SceneSources | null;
+  /** The area's credits and exaggeration, from its seabed file; null when it could not be read. */
+  sceneSummary: SceneSummary | null;
   caseFileSha256: string | null;
 };
 
@@ -84,7 +84,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * of cards over the stage's right edge, the dock with the clock, the timeline and the charts, and the layers that
  * open over them. Owns the replay clock and keeps view, mode, open layer and time in the URL.
  */
-export function ReplayConsole({ input, consoleCase, series, switcherCases, sceneSources, caseFileSha256 }: ReplayConsoleProps) {
+export function ReplayConsole({ input, consoleCase, series, switcherCases, sceneSummary, caseFileSha256 }: ReplayConsoleProps) {
   const searchParams = useSearchParams();
   const urlContext = useMemo<ConsoleContext>(
     () => ({
@@ -296,7 +296,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
                 railWidthPx={hasFloatingRail ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : 0}
                 onResetView={() => viewer?.resetView()}
                 onShowRail={hasFloatingRail && !isRailOpen ? () => setIsRailOpen(true) : null}
-                sceneSources={sceneSources}
+                sceneSummary={sceneSummary}
               />
               {isRailFloating && (
                 <div

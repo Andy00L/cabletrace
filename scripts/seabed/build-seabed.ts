@@ -1,6 +1,6 @@
 // Builds the seabed files the 3D view loads for one area of SEABED_AREAS:
 //   <out>/<area>-terrain.bin  little-endian int16 elevations in decimetres, row 0 = north
-//   <out>/<area>-seabed.json  region, grid, cable and pipeline lines, place names, sources
+//   <out>/<area>-seabed.json  region, grid, elevation range, cable and pipeline lines, place names, sources
 // Water depth comes from the EMODnet DTM where it covers the area (European seas) and from the GEBCO grid
 // elsewhere; each area's JSON names the grid in `sources.depth`, with its citation and licence. Land height and the
 // coastline come from the Copernicus GLO-30 DEM everywhere (sea pixels are exactly 0 in that product, and a 1 degree
@@ -591,9 +591,17 @@ async function main() {
   const terrain = buildTerrain(grid, tiles, lattice);
   await mkdir(outDir, { recursive: true });
   await writeFile(path.join(outDir, `${areaName}-terrain.bin`), new Uint8Array(terrain.decimetres.buffer));
+  let deepest = 0;
+  let highest = 0;
+  for (const value of terrain.decimetres) {
+    deepest = Math.min(deepest, value);
+    highest = Math.max(highest, value);
+  }
   const features = {
     region: area.region,
     grid: { width: terrain.width, height: terrain.height, unit: "decimetres", rowOrder: "north to south" },
+    // The replay picks its vertical exaggeration from this range (src/lib/seabed/scene-scales.ts).
+    elevationRange: { lowestMetres: deepest / 10, highestMetres: highest / 10 },
     lines,
     places: area.places,
     sources: {
@@ -604,12 +612,6 @@ async function main() {
     },
   };
   await writeFile(path.join(outDir, `${areaName}-seabed.json`), JSON.stringify(features));
-  let deepest = 0;
-  let highest = 0;
-  for (const value of terrain.decimetres) {
-    deepest = Math.min(deepest, value);
-    highest = Math.max(highest, value);
-  }
   console.log(`[main] ${areaName} terrain ${terrain.width}x${terrain.height}, ${deepest / 10} m to ${highest / 10} m, land share ${terrain.landShare.toFixed(3)}`);
   console.log(`[main] ${lines.length} line runs: ${[...new Set(lines.map((line) => line.name))].join(", ")}`);
   console.log(`[main] done in ${Math.round(performance.now() - startedAt)} ms`);

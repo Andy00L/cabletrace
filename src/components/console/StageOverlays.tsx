@@ -7,7 +7,7 @@ import { StatusIsland } from "@/components/console/StatusIsland";
 import { Icon, type IconName } from "@/components/icons/Icon";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
 import type { SeabedDetail } from "@/lib/console/console-state";
-import { CLOSE_UP_SCALE_NOTES, OVERVIEW_SCALE_NOTE } from "@/lib/seabed/scene-scales";
+import { CLOSE_UP_SCALE_NOTES, describeOverviewScale, type SceneExaggeration } from "@/lib/seabed/scene-scales";
 import type { SeabedViewName } from "@/lib/seabed/scene/viewer";
 
 const VIEW_OPTIONS: readonly SegmentOption<SeabedViewName>[] = [
@@ -39,14 +39,19 @@ const LEGEND_ITEMS = [
 // them): an area outside Europe has its depth from another grid, and a route traced off a published map names it.
 const LAND_CREDIT =
   "Land: produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.";
-const DEFAULT_SCENE_SOURCES: SceneSources = {
+// The Gulf of Finland's credits and scale, for an area whose seabed file could not be read.
+const DEFAULT_SCENE_SUMMARY: SceneSummary = {
   depth: "EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM 2024), CC BY 4.0",
   cables: "OpenStreetMap contributors",
   pipelines: "EMODnet Human Activities",
+  exaggeration: { water: 20, land: 10 },
 };
 
-/** Who made the depth grid and mapped the cables and pipelines of the area on screen, as its seabed file credits them. */
-export type SceneSources = { depth: string; cables: string; pipelines: string };
+/**
+ * Who made the depth grid and mapped the cables and pipelines of the area on screen, as its seabed file credits
+ * them, and how much the overview exaggerates its relief (chooseSceneExaggeration).
+ */
+export type SceneSummary = { depth: string; cables: string; pipelines: string; exaggeration: SceneExaggeration };
 
 type StageOverlaysProps = {
   stageElement: HTMLElement | null;
@@ -58,7 +63,7 @@ type StageOverlaysProps = {
   onResetView: () => void;
   /** Shows the folded rail again; null when the rail is open or not floating. */
   onShowRail: (() => void) | null;
-  sceneSources: SceneSources | null;
+  sceneSummary: SceneSummary | null;
 };
 
 function CameraButton({ icon, label, isPressed, onClick }: { icon: IconName; label: string; isPressed?: boolean; onClick: () => void }) {
@@ -76,13 +81,13 @@ function CameraButton({ icon, label, isPressed, onClick }: { icon: IconName; lab
 }
 
 /** The controls that belong to the picture, inset 16 px inside the stage (board 6). */
-export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, sceneSources }: StageOverlaysProps) {
+export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, sceneSummary }: StageOverlaysProps) {
   const { view, setView, detail, setDetail } = useConsole();
   const [isFullScreen, setIsFullScreen] = useState(false);
   const isCloseUp = view === "closeup";
-  const scaleNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail] : OVERVIEW_SCALE_NOTE;
+  const { depth, cables, pipelines, exaggeration } = sceneSummary ?? DEFAULT_SCENE_SUMMARY;
+  const scaleNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail] : describeOverviewScale(exaggeration);
   const clearRight = isRailFloating ? railWidthPx : 16;
-  const { depth, cables, pipelines } = sceneSources ?? DEFAULT_SCENE_SOURCES;
   const sceneCredits = [`Depth: ${depth}.`, LAND_CREDIT, `Cables: ${cables}. Pipelines: ${pipelines}. OpenStreetMap data is under the ODbL.`];
 
   // Tracks the browser's full-screen state, which React does not own (Esc can leave it too).

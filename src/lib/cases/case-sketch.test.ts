@@ -9,6 +9,7 @@ const SEABED: SeabedData = {
   features: {
     region: { west: 20, east: 21, south: 56, north: 57 },
     grid: GRID,
+    elevationRange: { lowestMetres: -30, highestMetres: 10 },
     lines: [{ name: "Cable", kind: "telecom", points: [[20, 56.5], [21, 56.5]] }],
     places: [],
     sources: { depth: "d", land: "l", cables: "c", pipelines: "p" },
