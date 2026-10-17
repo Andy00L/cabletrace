@@ -1,6 +1,5 @@
 "use client";
 
-import { LazyMotion } from "motion/react";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConsoleControllerContext, type ConsoleController } from "@/components/console/console-context";
@@ -37,8 +36,6 @@ const MODE_OPTIONS: readonly SegmentOption<ConsoleMode>[] = [
 ];
 
 type UiState = { view: SeabedViewName; mode: ConsoleMode; detail: SeabedDetail; layer: ConsoleLayer };
-
-const loadMotionFeatures = () => import("@/components/console/motion-features").then((module) => module.default);
 
 type ReplayConsoleProps = {
   input: ReplaySceneInput;
@@ -225,7 +222,6 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases }: Rep
 
   return (
     <ConsoleControllerContext.Provider value={controller}>
-      <LazyMotion features={loadMotionFeatures} strict>
         <div className="flex h-dvh flex-col overflow-hidden" data-testid="replay-console">
           <h1 className="sr-only">{consoleCase.title}</h1>
           <ConsoleTopBar switcherCases={switcherCases} />
@@ -274,7 +270,6 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases }: Rep
           </div>
           <ConsoleLayers stageElement={stageElement} opener={opener} />
         </div>
-      </LazyMotion>
     </ConsoleControllerContext.Provider>
   );
 }

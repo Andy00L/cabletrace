@@ -1,6 +1,5 @@
 "use client";
 
-import { m } from "motion/react";
 import { useState, useSyncExternalStore } from "react";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
@@ -8,12 +7,10 @@ import { Icon } from "@/components/icons/Icon";
 import { describeAnchorStatus } from "@/lib/replay/anchor-status";
 import { progressToTimeMs } from "@/lib/replay/replay-scene";
 
-// The island grows on one layout transition (docs/UI_DESIGN_SYSTEM.md, Motion: duration-standard, ease-enter).
-const ISLAND_TRANSITION = { duration: 0.22, ease: [0.16, 1, 0.3, 1] } as const;
 
 /**
  * The anchor status at the top of the stage: a white pill saying what the anchor is doing; pressed, it grows into
- * the latest event with its quote (after bencho.dev's dynamic-island, MIT: one shape, the contents cross-fade).
+ * the latest event with its quote (after bencho.dev's dynamic-island, MIT: one shape grows, the content fades in).
  * Re-renders only when the status or the latest event changes, not on every frame.
  */
 export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
@@ -36,9 +33,12 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
 
   return (
     <div className={`pointer-events-none absolute left-4 z-(--layer-stage-controls) flex justify-center xl:top-4 xl:left-1/2 xl:-translate-x-1/2 ${isCloseUp ? "top-28" : "top-16"}`}>
-      <m.div layout transition={ISLAND_TRANSITION} style={{ borderRadius: isOpen ? 20 : 999 }} className="pointer-events-auto flex w-max max-w-[min(380px,calc(100vw-48px))] flex-col overflow-hidden bg-card shadow-row">
-        <m.button
-          layout="position"
+      {/* One shape grows from pill to card: width and height transition between their auto sizes where the
+          browser can (interpolate-size), and snap where it cannot; the corner radius follows. */}
+      <div
+        className={`pointer-events-auto flex w-max max-w-[min(380px,calc(100vw-48px))] flex-col overflow-hidden bg-card shadow-row transition-[width,height,border-radius] duration-220 ease-enter [interpolate-size:allow-keywords] ${isOpen ? "rounded-row" : "rounded-full"}`}
+      >
+        <button
           type="button"
           onClick={() => setIsOpen((wasOpen) => !wasOpen)}
           aria-expanded={isOpen}
@@ -49,7 +49,7 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
           {isDragging && <span className="size-2 flex-none rounded-full bg-alarm" aria-hidden="true" />}
           <span aria-live="polite">{status.text}</span>
           <Icon name="chevronDown" size={16} className={`flex-none text-muted transition-transform duration-220 ease-standard ${isOpen ? "rotate-180" : ""}`} />
-        </m.button>
+        </button>
         {isOpen && (
           <div className="flex w-[340px] max-w-full animate-layer-enter flex-col gap-2.5 px-4 pt-1 pb-4">
             {latestEvent ? (
@@ -69,7 +69,7 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
             )}
           </div>
         )}
-      </m.div>
+      </div>
     </div>
   );
 }

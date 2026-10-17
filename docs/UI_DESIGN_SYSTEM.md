@@ -192,13 +192,13 @@ The dock's three charts share the timeline's window: speed over ground (`ink`), 
 
 ### Components
 
-Primitives are written in `src/components/ui/` on the tokens above. Behaviour comes from Radix, motion from `motion` (one engine, loaded with `LazyMotion`).
+Primitives are written in `src/components/ui/` on the tokens above. Behaviour comes from Radix; motion is CSS only (the layer keyframes in `globals.css` and transitions on the motion tokens). The `motion` library was tried and left out: its features chunk alone weighed 45 KB compressed, most of the replay page's 60 KB budget for the console.
 
 | Component | Source and licence | What changed |
 |---|---|---|
 | Dialog, Sheet | `@radix-ui/react-dialog` 1.3.1 (MIT), structure after shadcn/ui's dialog and sheet (MIT) | Written without `cn` or `tailwind-merge`: tailwind-merge would treat our `text-label` size and `text-ink` colour as one conflicting group. Tokens only; `scrim`; focus returns to the trigger. |
 | Popover | `@radix-ui/react-popover` 1.3.1 (MIT), structure after shadcn/ui's popover | Same rules; `shadow-popover`, radius `row`. |
-| Anchor status island | Idea from bencho.dev `dynamic-island` (MIT, Lorenzo Cabra, https://bencho.dev/blocks/dynamic-island) | Kept: the pill and its expanded card are one shape on one layout transition, the contents cross-fade. Dropped: the demo activities, `lucide-react`, the blur, the overshoot, the black fill (a white pill keeps one ink control per view). Code written here. |
+| Anchor status island | Idea from bencho.dev `dynamic-island` (MIT, Lorenzo Cabra, https://bencho.dev/blocks/dynamic-island) | Kept: the pill and its expanded card are one shape; width, height and corner transition together (`interpolate-size`, a snap where unsupported) and the content fades in. Dropped: the spring, the demo activities, `lucide-react`, the blur, the overshoot, the black fill (a white pill keeps one ink control per view). Code written here. |
 | Timeline snapping | Idea from bencho.dev `time-scrubber` (MIT) | Kept: releasing the scrubber near an event or a cut lands on it. The ruler and fling were not adopted: the native range input keeps the keyboard and screen reader path the tests use. |
 | Toast | Idea from bencho.dev `toast-stack` (MIT) | One toast at a time ("Link copied"), bottom centre, `duration-standard`; no stack, no hover fan. |
 | Icons | `src/components/icons/` | One set drawn here on a 20 px grid, 1.6 px stroke, round caps and joins. No `lucide-react`. |
