@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { Icon } from "@/components/icons/Icon";
 import { useScrollSelectedIntoView } from "@/components/live/scroll-selected-into-view";
 import type { DetectionSummary, ShipDetails } from "@/lib/globe/live-api";
@@ -30,8 +30,8 @@ const SHIP_CLASS_LABELS: Record<ShipClass, string> = {
 export type DetailsState = { kind: "idle" } | { kind: "loading" } | { kind: "failed" } | { kind: "loaded"; details: ShipDetails | null };
 export type DetectionsState = { kind: "loading" } | { kind: "failed" } | { kind: "loaded"; detections: DetectionSummary[] };
 
-/** The moment on the timeline: how many ships the frame holds and which feed heard them. */
-export function MomentCard({ minuteLabel, shipCount, digitrafficCount }: { minuteLabel: string; shipCount: number | null; digitrafficCount: number }) {
+/** The moment on the timeline: how many ships the frame holds, which feed heard them, and whether the feeds agree. */
+export function MomentCard({ minuteLabel, shipCount, digitrafficCount, feedCheck }: { minuteLabel: string; shipCount: number | null; digitrafficCount: number; feedCheck: ReactNode }) {
   return (
     <section className={CARD_CLASS} aria-label="This moment" data-testid="live-moment">
       <div className="flex items-baseline justify-between gap-3">
@@ -56,6 +56,7 @@ export function MomentCard({ minuteLabel, shipCount, digitrafficCount }: { minut
           the globe is hatched none of them heard a ship. Ships sail there too; no receiver reaches them.
         </p>
       )}
+      {feedCheck}
     </section>
   );
 }
