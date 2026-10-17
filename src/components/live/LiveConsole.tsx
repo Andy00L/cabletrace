@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { LiveDay } from "@/components/live/LiveDay";
 import type { DetectionsState } from "@/components/live/LiveRail";
 import { createFrameSource } from "@/lib/globe/frame-source";
+import type { GlobeIncident } from "@/lib/globe/incidents";
 import { fetchRecentDetections } from "@/lib/globe/live-api";
 import type { WatchedLine } from "@/lib/globe/watched-line";
 import type { FrameIndexEntry } from "@/lib/live/frame-layout";
@@ -11,7 +12,7 @@ import type { FrameIndexEntry } from "@/lib/live/frame-layout";
 type IndexState = { kind: "loading" } | { kind: "failed" } | { kind: "empty" } | { kind: "ready"; entries: FrameIndexEntry[] };
 
 /** Finds the recorded day (the frame index) and the detector's results, then shows the day on the globe. */
-export function LiveConsole({ watchedLines }: { watchedLines: readonly WatchedLine[] }) {
+export function LiveConsole({ watchedLines, incidents }: { watchedLines: readonly WatchedLine[]; incidents: readonly GlobeIncident[] }) {
   const [frameSource] = useState(createFrameSource);
   const [indexState, setIndexState] = useState<IndexState>({ kind: "loading" });
   const [detectionsState, setDetectionsState] = useState<DetectionsState>({ kind: "loading" });
@@ -39,7 +40,7 @@ export function LiveConsole({ watchedLines }: { watchedLines: readonly WatchedLi
   }, [frameSource]);
 
   if (indexState.kind === "ready") {
-    return <LiveDay entries={indexState.entries} frameSource={frameSource} watchedLines={watchedLines} detectionsState={detectionsState} />;
+    return <LiveDay entries={indexState.entries} frameSource={frameSource} watchedLines={watchedLines} incidents={incidents} detectionsState={detectionsState} />;
   }
   const message =
     indexState.kind === "loading"

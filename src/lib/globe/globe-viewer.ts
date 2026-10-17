@@ -58,10 +58,21 @@ const FOCUS_DISTANCE = 1.3;
 const FOCUS_MOVE_MS = 900;
 // The hatching over sea no feed heard (CSS px): a thin diagonal line every 7 px, in the depth-deep tone.
 const HATCH_SPACING_PX = 7;
+// Incident markers (CSS px), just above the ships; the selected one grows by this factor.
+const MARKER_PX = 16;
+const MARKER_SELECTED_SCALE = 1.375;
+const MARKER_LIFT = 1.0016;
+const MARKER_PICK_RADIUS_PX = 11;
+// Flying from orbit down to a cut is the globe's one long move (docs/UI_DESIGN_SYSTEM.md, Live globe): long enough to
+// follow the ground turning under the camera, on the standard in-out curve.
+const DIVE_MOVE_MS = 1600;
 const HATCH_LINE_PX = 1.2;
 
 /** What a click on the globe landed on. */
-export type GlobePick = { kind: "ship"; mmsi: number } | { kind: "line"; lineId: number } | { kind: "none" };
+export type GlobePick = { kind: "ship"; mmsi: number } | { kind: "line"; lineId: number } | { kind: "incident"; slug: string } | { kind: "none" };
+
+/** A cable cut on file, marked on the globe where its case places the primary cut. */
+export type GlobeMarker = { slug: string; longitude: number; latitude: number };
 
 export type GlobeViewer = {
   /** The two frames to blend between, or null while none is loaded. */
@@ -71,6 +82,14 @@ export type GlobeViewer = {
   setSelectedShip: (mmsi: number | null) => void;
   /** The cables and pipelines to draw (world and watched, src/lib/globe/world-lines.ts); replaces any drawn before. */
   setLines: (lines: readonly GlobeLine[]) => void;
+  /** The incidents to mark (src/lib/globe/incidents.ts), and the one drawn larger as selected. */
+  setIncidents: (markers: readonly GlobeMarker[]) => void;
+  setSelectedIncident: (slug: string | null) => void;
+  /**
+   * Flies the camera down over a place, ending at `distance` from the centre (the closest the globe allows when left
+   * out). Resolves when the camera arrives, or at once when motion is reduced; resolves early if a drag takes over.
+   */
+  flyTo: (target: { longitude: number; latitude: number; distance?: number; durationMs?: number }) => Promise<void>;
   /** Draws one line on a white casing above the rest, or none. */
   setSelectedLine: (lineId: number | null) => void;
   /** Where the feeds heard ships (src/lib/globe/coverage.ts, renderCoverageMask), or null to hatch nothing. */
@@ -173,6 +192,29 @@ const SHIP_FRAGMENT_SHADER = /* glsl */ `
     float alpha = edge * vPresence;
     if (alpha < 0.02) discard;
     gl_FragColor = vec4(uColor, alpha);
+  }
+`;
+
+// The break marker of the design system (Signature element): a white disc with an alarm ring and an alarm centre.
+const MARKER_VERTEX_SHADER = /* glsl */ `
+  attribute float aScale;
+  uniform float uPointSize;
+  void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = uPointSize * aScale;
+  }
+`;
+
+const MARKER_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uDisc;
+  uniform vec3 uAlarm;
+  void main() {
+    float radius = length(gl_PointCoord - 0.5);
+    float disc = 1.0 - smoothstep(0.46, 0.5, radius);
+    if (disc < 0.02) discard;
+    float ring = smoothstep(0.27, 0.31, radius) * (1.0 - smoothstep(0.37, 0.41, radius));
+    float centre = 1.0 - smoothstep(0.11, 0.15, radius);
+    gl_FragColor = vec4(mix(uDisc, uAlarm, max(ring, centre)), disc);
   }
 `;
 
@@ -329,6 +371,37 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   ring.renderOrder = 6;
   scene.add(ring);
 
+  const markerGeometry = new THREE.BufferGeometry();
+  const markerMaterial = new THREE.ShaderMaterial({
+    uniforms: { uPointSize: { value: MARKER_PX }, uDisc: { value: toRawColor(WEBGL_COLORS.casing) }, uAlarm: { value: toRawColor(WEBGL_COLORS.alarm) } },
+    vertexShader: MARKER_VERTEX_SHADER,
+    fragmentShader: MARKER_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: false,
+  });
+  const markerPoints = new THREE.Points(markerGeometry, markerMaterial);
+  markerPoints.frustumCulled = false;
+  // Above the ships and the selection ring: a cut on file is the rarest thing on the globe.
+  markerPoints.renderOrder = 7;
+  scene.add(markerPoints);
+  let markers: readonly GlobeMarker[] = [];
+  let markerPositions = new Float32Array(0);
+  let markerScales = new Float32Array(0);
+  let selectedIncident: string | null = null;
+  function placeMarkers() {
+    markerPositions = new Float32Array(markers.length * 3);
+    markerScales = new Float32Array(markers.length);
+    markers.forEach((marker, index) => {
+      writeUnitVector(marker.longitude, marker.latitude, markerPositions, index * 3);
+      for (let axis = 0; axis < 3; axis += 1) markerPositions[index * 3 + axis] = (markerPositions[index * 3 + axis] ?? 0) * MARKER_LIFT;
+      markerScales[index] = marker.slug === selectedIncident ? MARKER_SELECTED_SCALE : 1;
+    });
+    markerGeometry.setAttribute("position", new THREE.BufferAttribute(markerPositions, 3));
+    markerGeometry.setAttribute("aScale", new THREE.BufferAttribute(markerScales, 1));
+    markerGeometry.setDrawRange(0, markers.length);
+    markDirty();
+  }
+
   let pair: FramePair | null = null;
   let blend = 0;
   let selectedMmsi: number | null = null;
@@ -337,11 +410,40 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     isDirty = true;
   };
   controls.addEventListener("change", markDirty);
-  let cameraMove: { from: THREE.Vector3; to: THREE.Vector3; startedAt: number } | null = null;
+  type CameraMove = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; durationMs: number; ease: (amount: number) => number; onEnd: () => void };
+  let cameraMove: CameraMove | null = null;
   // Grabbing the globe ends a scripted flight.
   const stopCameraMove = () => {
+    cameraMove?.onEnd();
     cameraMove = null;
   };
+  // Ease out cubic for a short hop to a ship, as the seabed's camera moves do.
+  const easeOutCubic = (amount: number) => 1 - (1 - amount) ** 3;
+  // ease-standard, cubic-bezier(0.4, 0, 0.2, 1) (docs/UI_DESIGN_SYSTEM.md, Motion), solved for the curve's x.
+  const easeStandard = (amount: number) => {
+    let low = 0;
+    let high = 1;
+    for (let iteration = 0; iteration < 20; iteration += 1) {
+      const middle = (low + high) / 2;
+      const curveX = 3 * (1 - middle) ** 2 * middle * 0.4 + 3 * (1 - middle) * middle ** 2 * 0.2 + middle ** 3;
+      if (curveX < amount) low = middle;
+      else high = middle;
+    }
+    const share = (low + high) / 2;
+    return 3 * (1 - share) * share ** 2 + share ** 3;
+  };
+  function startCameraMove(destination: THREE.Vector3, durationMs: number, ease: (amount: number) => number): Promise<void> {
+    stopCameraMove();
+    markDirty();
+    if (isCalm) {
+      camera.position.copy(destination);
+      controls.update();
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      cameraMove = { from: camera.position.clone(), to: destination, startedAt: performance.now(), durationMs, ease, onEnd: resolve };
+    });
+  }
   controls.addEventListener("start", stopCameraMove);
 
   /** Index of an MMSI in the current pair (ascending), or -1. */
@@ -457,6 +559,21 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     return nearest;
   }
 
+  /** The nearest visible incident marker to a screen point, within its pick radius. */
+  function pickIncident(pointerX: number, pointerY: number, bounds: DOMRect): string | null {
+    let nearestSlug: string | null = null;
+    let nearestDistance = MARKER_PICK_RADIUS_PX;
+    for (let index = 0; index < markers.length; index += 1) {
+      const point = toScreen(markerPositions[index * 3] ?? 0, markerPositions[index * 3 + 1] ?? 0, markerPositions[index * 3 + 2] ?? 0, bounds, MARKER_LIFT);
+      const distance = Math.hypot(point.x - pointerX, point.y - pointerY);
+      if (point.isFacing && distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestSlug = markers[index]?.slug ?? null;
+      }
+    }
+    return nearestSlug;
+  }
+
   const onPointerUp = (event: PointerEvent) => {
     if (!pressStart || Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) > CLICK_SLOP_PX) {
       pressStart = null;
@@ -466,6 +583,11 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     const bounds = renderer.domElement.getBoundingClientRect();
     const pointerX = event.clientX - bounds.left;
     const pointerY = event.clientY - bounds.top;
+    const incident = pickIncident(pointerX, pointerY, bounds);
+    if (incident !== null) {
+      onPick({ kind: "incident", slug: incident });
+      return;
+    }
     const ship = pickShip(pointerX, pointerY, bounds);
     const line = pickLine(pointerX, pointerY, bounds);
     // A ship right under the pointer wins; then a line under it; then a ship a little farther off.
@@ -482,13 +604,16 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   const moveDirection = new THREE.Vector3();
   function stepCameraMove(now: number): boolean {
     if (!cameraMove) return false;
-    const amount = Math.min(1, (now - cameraMove.startedAt) / FOCUS_MOVE_MS);
-    // Ease out cubic, as the seabed's camera moves do.
-    const eased = 1 - (1 - amount) ** 3;
+    const amount = Math.min(1, Math.max(0, (now - cameraMove.startedAt) / cameraMove.durationMs));
+    const eased = cameraMove.ease(amount);
     const distance = cameraMove.from.length() + (cameraMove.to.length() - cameraMove.from.length()) * eased;
     moveDirection.copy(cameraMove.from).normalize().lerp(cameraMove.to.clone().normalize(), eased).normalize();
     camera.position.copy(moveDirection).multiplyScalar(distance);
-    if (amount >= 1) cameraMove = null;
+    if (amount >= 1) {
+      const finished = cameraMove;
+      cameraMove = null;
+      finished.onEnd();
+    }
     return true;
   }
 
@@ -505,6 +630,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     const pixelRatio = renderer.getPixelRatio();
     const pointPx = Math.max(SHIP_POINT_MIN_PX, Math.min(SHIP_POINT_MAX_PX, SHIP_POINT_PX * ((HOME_DISTANCE - 1) / Math.max(0.02, distance - 1)) ** 0.5));
     shipMaterial.uniforms.uPointSize.value = pointPx * pixelRatio;
+    markerMaterial.uniforms.uPointSize.value = MARKER_PX * pixelRatio;
     ring.material.uniforms.uPointSize.value = SELECTION_RING_PX * pixelRatio;
     coverageUniforms.uHatchSpacing.value = HATCH_SPACING_PX * pixelRatio;
     coverageUniforms.uHatchHalfWidth.value = (HATCH_LINE_PX * pixelRatio) / 2;
@@ -581,14 +707,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         if (shipIndex === -1) return false;
         const shipVector = new THREE.Vector3();
         readShip(shipIndex, shipVector);
-        const destination = shipVector.normalize().multiplyScalar(FOCUS_DISTANCE);
-        if (isCalm) {
-          camera.position.copy(destination);
-          controls.update();
-        } else {
-          cameraMove = { from: camera.position.clone(), to: destination, startedAt: performance.now() };
-        }
-        markDirty();
+        void startCameraMove(shipVector.normalize().multiplyScalar(FOCUS_DISTANCE), FOCUS_MOVE_MS, easeOutCubic);
         return true;
       },
       setRightInset(insetPx) {
@@ -597,8 +716,19 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         rightInsetPx = nextInsetPx;
         resize();
       },
+      setIncidents(nextMarkers) {
+        markers = nextMarkers;
+        placeMarkers();
+      },
+      setSelectedIncident(slug) {
+        selectedIncident = slug;
+        placeMarkers();
+      },
+      flyTo({ longitude, latitude, distance = MIN_DISTANCE, durationMs = DIVE_MOVE_MS }) {
+        return startCameraMove(cameraPositionFor(longitude, latitude, Math.max(MIN_DISTANCE, distance)), durationMs, easeStandard);
+      },
       resetView() {
-        cameraMove = null;
+        stopCameraMove();
         camera.position.copy(cameraPositionFor(HOME_LONGITUDE, HOME_LATITUDE, HOME_DISTANCE));
         controls.target.set(0, 0, 0);
         controls.update();

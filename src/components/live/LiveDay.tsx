@@ -5,12 +5,14 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
 import { LiveGlobeStage, type WorldLinesState } from "@/components/live/LiveGlobeStage";
+import { IncidentCard, IncidentsCard } from "@/components/live/LiveIncidents";
 import { LiveLineCard, type LineScanState } from "@/components/live/LiveLineCard";
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
 import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/globe/coverage";
 import { pairShipFrames } from "@/lib/globe/frame-pairing";
 import type { FrameSource } from "@/lib/globe/frame-source";
 import type { GlobePick, GlobeViewer } from "@/lib/globe/globe-viewer";
+import type { GlobeIncident } from "@/lib/globe/incidents";
 import { addFrameToPassageScan, createPassageScan, summarizePassages, type LinePassage, type PassageScan } from "@/lib/globe/line-passages";
 import { fetchShipDetails, fetchShipDetailsBatch } from "@/lib/globe/live-api";
 import { daySpan, locateMoment } from "@/lib/globe/live-day";
@@ -35,6 +37,8 @@ const DIGITRAFFIC_FLAG = 0x80;
 const DAY_CHECK_CONCURRENCY = 4;
 // A line's passages are summed up at most this often while frames arrive (ms).
 const PASSAGE_PUBLISH_INTERVAL_MS = 250;
+// A row of the incident list flies the camera this far from the centre: about 1,900 km up, the sea around the cut in view.
+const INCIDENT_FOCUS_DISTANCE = 1.3;
 const CREDITS = [
   "Ships: aisstream.io (terrestrial AIS, kept two days) and Fintraffic / digitraffic.fi (CC BY 4.0).",
   "Land: Natural Earth 1:50m, public domain.",
@@ -72,6 +76,7 @@ type LiveDayProps = {
   entries: FrameIndexEntry[];
   frameSource: FrameSource;
   watchedLines: readonly WatchedLine[];
+  incidents: readonly GlobeIncident[];
   detectionsState: DetectionsState;
 };
 
@@ -79,7 +84,7 @@ type LiveDayProps = {
  * One recorded day on the globe (the console shell of the replay: stage, floating rail, dock). Owns the day's clock;
  * as it moves, the frames on either side of the moment are loaded, paired ship by ship and blended on the GPU.
  */
-export function LiveDay({ entries, frameSource, watchedLines, detectionsState }: LiveDayProps) {
+export function LiveDay({ entries, frameSource, watchedLines, incidents, detectionsState }: LiveDayProps) {
   const { startMs, endMs } = daySpan(entries);
   const spanMs = endMs - startMs;
   const [clock] = useState(() => {
@@ -104,6 +109,8 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   const coverageMaskRef = useRef<Uint8Array | null>(null);
   const [coverageFrameCount, setCoverageFrameCount] = useState(0);
   const [globeLines, setGlobeLines] = useState<{ lines: GlobeLine[]; worldState: WorldLinesState }>({ lines: [], worldState: "loading" });
+  const [selectedIncidentSlug, setSelectedIncidentSlug] = useState<string | null>(null);
+  const selectedIncidentRef = useRef<string | null>(null);
   // The clicked cable or pipeline and who passed it in the frames checked so far.
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
   const [lineScan, setLineScan] = useState<LineScanState | null>(null);
@@ -287,8 +294,10 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
       viewer.setSelectedShip(selectedRef.current);
       viewer.setCoverage(coverageMaskRef.current);
       viewer.setSelectedLine(lineScanRef.current?.lineId ?? null);
+      viewer.setIncidents(incidents);
+      viewer.setSelectedIncident(selectedIncidentRef.current);
     },
-    [clock, entries, startMs, spanMs],
+    [clock, entries, incidents, startMs, spanMs],
   );
 
   /** Opens a line's card and checks every frame already decoded for ships that crossed or neared it. */
@@ -355,6 +364,23 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
     [clock, endMs, focusPendingShip, selectShip, spanMs, startMs],
   );
 
+  /** Marks an incident as selected on the globe and in the list, and opens its card. */
+  const selectIncident = useCallback((slug: string | null) => {
+    selectedIncidentRef.current = slug;
+    setSelectedIncidentSlug(slug);
+    viewerRef.current?.setSelectedIncident(slug);
+  }, []);
+
+  /** A row of the incident list: selects it and flies over it, high enough to see the sea around the cut. */
+  const focusIncident = useCallback(
+    (slug: string) => {
+      selectIncident(slug);
+      const incident = incidents.find((candidate) => candidate.slug === slug);
+      if (incident) void viewerRef.current?.flyTo({ longitude: incident.longitude, latitude: incident.latitude, distance: INCIDENT_FOCUS_DISTANCE });
+    },
+    [incidents, selectIncident],
+  );
+
   const handlePick = useCallback(
     (pick: GlobePick) => {
       switch (pick.kind) {
@@ -364,9 +390,13 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
         case "line":
           selectLine(pick.lineId);
           return;
+        case "incident":
+          selectIncident(pick.slug);
+          return;
         case "none":
           selectShip(null);
           selectLine(null);
+          selectIncident(null);
           return;
         default: {
           const unhandled: never = pick;
@@ -374,7 +404,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
         }
       }
     },
-    [selectLine, selectShip],
+    [selectIncident, selectLine, selectShip],
   );
 
   const focusDetection = useCallback(
@@ -388,11 +418,13 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   const shipIndex = moment && selectedMmsi !== null ? findInFrame(moment.frame, selectedMmsi) : -1;
   const selectedRecord = moment && shipIndex !== -1 ? readShipRecord(moment.frame, shipIndex) : null;
   const rightInsetPx = isWide ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
+  const selectedIncident = incidents.find((incident) => incident.slug === selectedIncidentSlug);
   const selectedLine = selectedLineId === null ? undefined : globeLines.lines.find((line) => line.id === selectedLineId);
 
   const railCards = (
     <>
       <MomentCard minuteLabel={minuteLabel} shipCount={moment?.frame.shipCount ?? null} digitrafficCount={moment?.digitrafficCount ?? 0} />
+      {selectedIncident && <IncidentCard incident={selectedIncident} onClose={() => selectIncident(null)} />}
       {selectedMmsi !== null && (
         <ShipCard
           mmsi={selectedMmsi}
@@ -415,6 +447,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
         />
       )}
       <DetectionsCard state={detectionsState} onSelect={focusDetection} />
+      {incidents.length > 0 && <IncidentsCard incidents={incidents} selectedSlug={selectedIncidentSlug} onSelect={focusIncident} />}
     </>
   );
 
