@@ -35,6 +35,7 @@ export default async function HomePage() {
           </div>
           <Link
             href="/live"
+            prefetch={false}
             className="flex items-center gap-3.5 rounded-row bg-card px-5 py-4 shadow-row transition-shadow duration-140 ease-standard hover:shadow-raised lg:mt-auto"
             data-testid="live-link"
           >
