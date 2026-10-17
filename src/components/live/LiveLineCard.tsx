@@ -1,6 +1,8 @@
 "use client";
 
+import { useRef } from "react";
 import { Icon } from "@/components/icons/Icon";
+import { useScrollSelectedIntoView } from "@/components/live/scroll-selected-into-view";
 import { PASSAGE_DISTANCE_KM, type LinePassage } from "@/lib/globe/line-passages";
 import { describeGlobeLine, describeGlobeLineKind, type GlobeLine } from "@/lib/globe/world-lines";
 import { formatUtcClock } from "@/lib/replay/format-utc";
@@ -38,6 +40,8 @@ function describePassage(passage: LinePassage): string {
 
 /** A clicked cable or pipeline: who crossed it, or came within the recorder's distance, in the frames checked so far. */
 export function LiveLineCard({ line, scan, shipNames, selectedMmsi, onCheckDay, onSelectPassage, onClose }: LiveLineCardProps) {
+  const listRef = useRef<HTMLOListElement>(null);
+  useScrollSelectedIntoView(listRef, selectedMmsi);
   const crossedCount = scan.passages.filter((passage) => passage.crossedAtMs !== null).length;
   const nearCount = scan.passages.length - crossedCount;
   const details = [describeGlobeLineKind(line), line.operator].filter((detail): detail is string => detail !== null).join(", ");
@@ -91,7 +95,7 @@ export function LiveLineCard({ line, scan, shipNames, selectedMmsi, onCheckDay, 
       {scan.passages.length === 0 ? (
         <p className="text-small text-muted">No ship crossed it or came within {PASSAGE_DISTANCE_KM} km in the frames checked.</p>
       ) : (
-        <ol className="-mx-2 flex flex-col gap-0.5" data-testid="live-line-passages">
+        <ol ref={listRef} className="-mx-2 flex flex-col gap-0.5" data-testid="live-line-passages">
           {scan.passages.slice(0, MAX_ROWS).map((passage) => {
             const isSelected = passage.mmsi === selectedMmsi;
             return (

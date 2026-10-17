@@ -15,7 +15,7 @@ import type { FrameSource } from "@/lib/globe/frame-source";
 import type { GlobePick, GlobeViewer } from "@/lib/globe/globe-viewer";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { addFrameToPassageScan, createPassageScan, summarizePassages, type LinePassage, type PassageScan } from "@/lib/globe/line-passages";
-import { fetchShipDetails, fetchShipDetailsBatch } from "@/lib/globe/live-api";
+import { fetchShipDetails, fetchShipDetailsBatch, type DetectionSummary } from "@/lib/globe/live-api";
 import { daySpan, locateMoment } from "@/lib/globe/live-day";
 import type { WatchedLine } from "@/lib/globe/watched-line";
 import type { GlobeLine } from "@/lib/globe/world-lines";
@@ -504,12 +504,19 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
     [selectIncident, selectLine, selectShip],
   );
 
+  /** A detection row: moves the day into its window when the window falls inside the day, then flies to the ship. */
   const focusDetection = useCallback(
-    (mmsi: number) => {
-      selectShip(mmsi);
-      viewerRef.current?.focusShip(mmsi);
+    (detection: DetectionSummary) => {
+      selectShip(detection.mmsi);
+      pendingFocusRef.current = detection.mmsi;
+      if (detection.endMs >= startMs && detection.startMs <= endMs) {
+        const atMs = Math.min(endMs, Math.max(startMs, detection.startMs));
+        clock.pause();
+        clock.seek(spanMs > 0 ? (atMs - startMs) / spanMs : 1);
+      }
+      focusPendingShip();
     },
-    [selectShip],
+    [clock, endMs, focusPendingShip, selectShip, spanMs, startMs],
   );
 
   const shipIndex = moment && selectedMmsi !== null ? findInFrame(moment.frame, selectedMmsi) : -1;
@@ -550,7 +557,7 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
           onClose={() => selectLine(null)}
         />
       )}
-      <DetectionsCard state={detectionsState} onSelect={focusDetection} />
+      <DetectionsCard state={detectionsState} selectedMmsi={selectedMmsi} onSelect={focusDetection} />
       {incidents.length > 0 && <IncidentsCard incidents={incidents} selectedSlug={selectedIncidentSlug} onSelect={focusIncident} />}
     </>
   );

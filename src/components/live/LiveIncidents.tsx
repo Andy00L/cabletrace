@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRef } from "react";
+import { useScrollSelectedIntoView } from "@/components/live/scroll-selected-into-view";
 import { Icon } from "@/components/icons/Icon";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { formatUtcClock } from "@/lib/replay/format-utc";
@@ -79,13 +81,15 @@ export function IncidentCard({ incident, onDive, isDiving, onClose }: IncidentCa
 
 /** Every case on file, each row selecting its marker on the globe. */
 export function IncidentsCard({ incidents, selectedSlug, onSelect }: { incidents: readonly GlobeIncident[]; selectedSlug: string | null; onSelect: (slug: string) => void }) {
+  const listRef = useRef<HTMLOListElement>(null);
+  useScrollSelectedIntoView(listRef, selectedSlug);
   return (
     <section className={CARD_CLASS} aria-label="Cable cuts on file" data-testid="live-incidents">
       <div className="flex flex-col gap-0.5">
         <h2 className="text-card-title">Cable cuts on file</h2>
         <p className="text-caption font-normal text-muted">Each case replays a cut ship by ship. The globe marks where it happened.</p>
       </div>
-      <ol className="-mx-2 flex flex-col gap-0.5">
+      <ol ref={listRef} className="-mx-2 flex flex-col gap-0.5">
         {incidents.map((incident) => {
           const isSelected = incident.slug === selectedSlug;
           return (

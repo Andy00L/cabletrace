@@ -1,6 +1,8 @@
 "use client";
 
+import { useRef } from "react";
 import { Icon } from "@/components/icons/Icon";
+import { useScrollSelectedIntoView } from "@/components/live/scroll-selected-into-view";
 import type { DetectionSummary, ShipDetails } from "@/lib/globe/live-api";
 import { describeFlag, readFlagFromMmsi } from "@/lib/globe/ship-identity";
 import { shipClassFromAisType } from "@/lib/live/ship-class";
@@ -185,7 +187,9 @@ export function ShipCard({ mmsi, record, momentMs, detailsState, onFocus, onClos
 }
 
 /** What the anchor-drag detector ranked in the last day, from the Gulf of Finland recorder. */
-export function DetectionsCard({ state, onSelect }: { state: DetectionsState; onSelect: (mmsi: number) => void }) {
+export function DetectionsCard({ state, selectedMmsi, onSelect }: { state: DetectionsState; selectedMmsi: number | null; onSelect: (detection: DetectionSummary) => void }) {
+  const listRef = useRef<HTMLOListElement>(null);
+  useScrollSelectedIntoView(listRef, selectedMmsi);
   return (
     <section className={CARD_CLASS} aria-label="Anchor-drag watch" data-testid="live-detections">
       <div className="flex flex-col gap-0.5">
@@ -196,13 +200,14 @@ export function DetectionsCard({ state, onSelect }: { state: DetectionsState; on
       {state.kind === "failed" && <p className="text-small text-muted">The detector&apos;s results could not be loaded.</p>}
       {state.kind === "loaded" && state.detections.length === 0 && <p className="text-small text-muted">No ship&apos;s track fit an anchor drag in the last day.</p>}
       {state.kind === "loaded" && state.detections.length > 0 && (
-        <ol className="-mx-2 flex flex-col gap-0.5">
+        <ol ref={listRef} className="-mx-2 flex flex-col gap-0.5">
           {state.detections.map((detection) => (
             <li key={detection.id}>
               <button
                 type="button"
-                onClick={() => onSelect(detection.mmsi)}
-                className="flex w-full flex-col gap-1 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page"
+                onClick={() => onSelect(detection)}
+                aria-current={detection.mmsi === selectedMmsi ? "true" : undefined}
+                className={`flex w-full flex-col gap-1 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page ${detection.mmsi === selectedMmsi ? "bg-page" : ""}`}
                 data-testid={`live-detection-${detection.id}`}
               >
                 <span className="flex items-center gap-2">
