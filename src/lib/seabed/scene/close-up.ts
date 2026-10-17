@@ -4,6 +4,7 @@ import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { clampValue, createSeededRandom, interpolate, sampleFractalNoise, smoothStep } from "@/lib/seabed/math";
 import type { Caustics } from "@/lib/seabed/scene/caustics";
+import type { ChainShape } from "@/lib/ships/anchor-chain";
 import { makeLabel, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel, buildStudLinkGeometry } from "@/lib/seabed/scene/models";
 import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
@@ -18,8 +19,12 @@ const PATCH_SIZE_UNITS = 160;
 const PATCH_SEGMENTS = 240;
 const ROCK_COUNT = 280;
 const PLUME_COUNT = 220;
-// Stud links of about 0.5 m, drawn at the anchor's scale, from the anchor up out of the patch.
-const CHAIN_LINKS = 150;
+// Stud links of about 0.5 m, drawn at the anchor's scale (so one every 0.5 units), from the anchor out of the patch.
+const CHAIN_LINKS = 260;
+const CHAIN_LINK_PITCH_UNITS = (0.5 * SCENE_SCALES.closeUpAnchorScale) / METRES_PER_UNIT;
+// Links on the sand sit this far (units) above it so the relief does not swallow them.
+const CHAIN_SAND_CLEARANCE = 0.12;
+const CHAIN_DROP_METRES = 4;
 const LIGHT_SHAFT_COUNT = 7;
 // Where the anchor rests, units past the cable along the track, and how far its pivot sits above the sand.
 // It lies rolled onto one side, as a dragged anchor does: one fluke dug in, the other blade in view.
@@ -57,6 +62,8 @@ type CloseUpOptions = {
   softDot: THREE.Texture;
   caustics: Caustics;
   prefersReducedMotion: boolean;
+  /** The chain's shape at the cut from the anchor model (metres), or null where the model has none. */
+  chainShape: ChainShape | null;
 };
 
 export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
@@ -223,15 +230,27 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   anchor.group.updateMatrixWorld(true);
   const shacklePosition = anchor.shackleLocal.clone().applyMatrix4(anchor.group.matrixWorld);
 
-  const chainCurve = new THREE.QuadraticBezierCurve3(shacklePosition, new THREE.Vector3(ANCHOR_X + 26, anchorGroundY + 2, 1.5), new THREE.Vector3(ANCHOR_X + 62, 52, 4));
+  // The chain toward the ship (+x) with the detector's catenary for the depth at the cut: on the sand first for its
+  // grounded length, following the drawn-in relief, then rising. Without a modelled chain it rises straight ahead.
+  // The first few metres bend down from the shackle (above the sand, the anchor lies on its side) to the ground.
+  const modelledPoints = options.chainShape?.points ?? [{ alongMetres: 0, upMetres: 0 }, { alongMetres: 160, upMetres: 120 }];
+  const chainPoints = modelledPoints.filter((point) => point.alongMetres >= CHAIN_DROP_METRES).map((point) => {
+    const localX = shacklePosition.x + point.alongMetres / METRES_PER_UNIT;
+    const groundY = computeHeight(localX, 0, true) + CHAIN_SAND_CLEARANCE;
+    return new THREE.Vector3(localX, groundY + point.upMetres / METRES_PER_UNIT, 0);
+  });
+  chainPoints.unshift(shacklePosition.clone());
+  const chainCurve = new THREE.CatmullRomCurve3(chainPoints, false, "centripetal");
   const chain = new THREE.InstancedMesh(buildStudLinkGeometry(), anchorMaterial, CHAIN_LINKS);
   const linkMatrix = new THREE.Matrix4();
   const linkQuaternion = new THREE.Quaternion();
   const twistQuaternion = new THREE.Quaternion();
   const linkScale = new THREE.Vector3(ANCHOR_UNITS_PER_METRE, ANCHOR_UNITS_PER_METRE, ANCHOR_UNITS_PER_METRE);
   const upAxis = new THREE.Vector3(0, 1, 0);
+  // Links follow each other at the drawn link pitch from the shackle, as far as the chain reaches.
+  const chainLength = chainCurve.getLength();
   for (let link = 0; link < CHAIN_LINKS; link += 1) {
-    const along = link / (CHAIN_LINKS - 1);
+    const along = Math.min(1, (link * CHAIN_LINK_PITCH_UNITS) / chainLength);
     const tangent = chainCurve.getTangentAt(along);
     linkQuaternion.setFromUnitVectors(upAxis, tangent);
     twistQuaternion.setFromAxisAngle(tangent, link % 2 === 0 ? 0 : Math.PI / 2);

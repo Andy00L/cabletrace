@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplaySceneInput } from "@/lib/replay/replay-scene";
@@ -12,6 +15,7 @@ import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle, thinTubeWithDistance } f
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
 import { buildShip } from "@/lib/ships/build-ship";
+import { estimateCaseShipChain, readChainSpan, shapeCatenary, type ChainShape } from "@/lib/ships/anchor-chain";
 import { createKelvinWake } from "@/lib/ships/kelvin-wake";
 import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
 import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, type ScenePoint } from "@/lib/seabed/terrain";
@@ -40,6 +44,10 @@ const FURROW_SEGMENTS = 800;
 const FURROW_WIDTH_PX = 3;
 // The furrow floats this far above the seabed (km) so ridges between samples do not hide it.
 const FURROW_SEABED_LIFT = 0.09;
+// The anchor chain: points along its drawn catenary, its on-screen width, and the points of the close-up's chain.
+const CHAIN_POINT_COUNT = 48;
+const CHAIN_WIDTH_PX = 1.5;
+const CLOSE_UP_CHAIN_POINT_COUNT = 240;
 const PLUME_PARTICLE_COUNT = 140;
 // Heading is read over this span around the current moment, so a reconstructed corner does not snap the hull.
 const HEADING_SPAN_MS = 2 * 60 * 1000;
@@ -102,6 +110,8 @@ export type OverviewScene = {
   trackDirection: ScenePoint;
   /** Unit direction of the cut cable at the primary cut. */
   cableDirection: ScenePoint;
+  /** The anchor chain's shape when the primary cut happened (metres), or null where the model has none. */
+  primaryCutChain: ChainShape | null;
   /** The vessel's last drawn frame, or null while it is not on the map yet. */
   readVesselFrame: () => VesselFrame | null;
   /**
@@ -519,18 +529,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return position ? toScene(position.longitude, position.latitude) : null;
   }
 
-  // The anchor's furrow along the track, from the start to the end of the drag window.
   const dragWindow = input.dragWindow;
-  let furrow: ProgressLine | null = null;
-  if (dragWindow && dragWindow.endMs > dragWindow.startMs) {
-    const furrowPoints = Array.from({ length: FURROW_SEGMENTS + 1 }, (_slot, index) => sceneAt(dragWindow.startMs + ((dragWindow.endMs - dragWindow.startMs) * index) / FURROW_SEGMENTS))
-      .filter((point): point is ScenePoint => point !== null)
-      .map((point) => new THREE.Vector3(point.x, sampleSeabedHeight(point.x, point.z) + FURROW_SEABED_LIFT, point.z));
-    if (furrowPoints.length >= 2) {
-      furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX });
-      scene.add(furrow.line);
-    }
-  }
 
   // Built at the case ship's real length, then drawn at the scale the disclosure under the view states.
   const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail });
@@ -554,11 +553,47 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   anchor.scale.setScalar(ANCHOR_DRAWN_SCALE * METRES_TO_KM);
   anchor.visible = false;
   scene.add(anchor);
-  const chainGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-  const chain = new THREE.Line(chainGeometry, new THREE.LineBasicMaterial({ color: SCENE_COLORS.anchor, transparent: true, opacity: 0.85 }));
+  const chainGeometry = new LineGeometry();
+  chainGeometry.setPositions(new Float32Array(CHAIN_POINT_COUNT * 3));
+  const chain = new Line2(chainGeometry, new LineMaterial({ color: SCENE_COLORS.anchor, linewidth: CHAIN_WIDTH_PX, worldUnits: false }));
   chain.frustumCulled = false;
   chain.visible = false;
   scene.add(chain);
+
+  // The anchor from physics (src/lib/ships/anchor-chain.ts, the detector's own model): the case ship's chain hangs
+  // from the hawse as a catenary for the depth under it and lies on the ground behind, so the anchor trails the
+  // hawse by the layback along the ground the ship has just covered, as the detector reconstructs it.
+  const chainState = estimateCaseShipChain(input.vessel.kind, input.vessel.lengthMetres);
+  // The real hawse is this far ahead of the track point (the hull's midpoint), in km.
+  const hawseAheadKm = shipModel.hawseLocal.x * METRES_TO_KM;
+  /** Where the anchor lies at a moment and the chain's span there, or null before the first position or in water too deep for the chain. */
+  function locateAnchor(atMs: number): { point: ScenePoint; span: { laybackMetres: number; heightMetres: number } } | null {
+    const shipPoint = sceneAt(atMs);
+    if (!shipPoint) return null;
+    const span = readChainSpan(chainState, sampleElevationMetres(shipPoint.x, shipPoint.z));
+    if (!span) return null;
+    // Behind the first position the ground was never covered: the anchor holds at the track's start.
+    const anchorKm = Math.max(0, trackKmAt(atMs) + hawseAheadKm - span.laybackMetres * METRES_TO_KM);
+    const point = sceneAt(timeAtTrackKm(anchorKm));
+    return point ? { point, span } : null;
+  }
+
+  // The anchor's furrow: where the anchor itself went, from the start to the end of the drag window.
+  let furrow: ProgressLine | null = null;
+  if (dragWindow && dragWindow.endMs > dragWindow.startMs) {
+    const furrowPoints = Array.from({ length: FURROW_SEGMENTS + 1 }, (_slot, index) => locateAnchor(dragWindow.startMs + ((dragWindow.endMs - dragWindow.startMs) * index) / FURROW_SEGMENTS))
+      .flatMap((located) => (located ? [located.point] : []))
+      .map((point) => new THREE.Vector3(point.x, sampleSeabedHeight(point.x, point.z) + FURROW_SEABED_LIFT, point.z));
+    if (furrowPoints.length >= 2) {
+      furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX });
+      scene.add(furrow.line);
+    }
+  }
+  /** The chain's shape at the primary cut, for the close-up (metres from the anchor along the ground, and up). */
+  const primaryCutAnchor = locateAnchor(primaryCut.atMs);
+  const primaryCutChain = primaryCutAnchor
+    ? shapeCatenary({ paidOutMetres: chainState.nominalPaidOutMetres, heightMetres: primaryCutAnchor.span.heightMetres, laybackMetres: primaryCutAnchor.span.laybackMetres, pointCount: CLOSE_UP_CHAIN_POINT_COUNT })
+    : null;
 
   const cutMarkers = input.cuts.map((cut) => {
     const point = toScene(cut.longitude, cut.latitude);
@@ -632,6 +667,24 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   let lastAtMs = Number.NEGATIVE_INFINITY;
   let vesselFrame: VesselFrame | null = null;
   let lastHeading: ScenePoint = { x: 1, z: 0 };
+  const chainPositions = new Float32Array(CHAIN_POINT_COUNT * 3);
+  /**
+   * Draws the chain from the anchor's shackle to the drawn hull's hawse with the catenary's shape: the physical curve
+   * for the real span, stretched onto the drawn one (the hull is drawn 6 times and the water 20 times deeper).
+   */
+  function writeChain(span: { laybackMetres: number; heightMetres: number }) {
+    const shape = shapeCatenary({ paidOutMetres: chainState.nominalPaidOutMetres, heightMetres: span.heightMetres, laybackMetres: span.laybackMetres, pointCount: CHAIN_POINT_COUNT });
+    if (!shape.ok) return;
+    shape.value.points.forEach((point, index) => {
+      const across = span.laybackMetres > 0 ? point.alongMetres / span.laybackMetres : 0;
+      const up = point.upMetres / span.heightMetres;
+      chainPositions[index * 3] = shackleWorld.x + (hawseWorld.x - shackleWorld.x) * across;
+      chainPositions[index * 3 + 1] = shackleWorld.y + (hawseWorld.y - shackleWorld.y) * up;
+      chainPositions[index * 3 + 2] = shackleWorld.z + (hawseWorld.z - shackleWorld.z) * across;
+    });
+    chainGeometry.setPositions(chainPositions);
+  }
+
   // Reused every frame instead of allocating.
   const sternWorld = new THREE.Vector3();
   const hawseWorld = new THREE.Vector3();
@@ -672,19 +725,18 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
     const isDragging = dragWindow !== null && shipPoint !== null && atMs >= dragWindow.startMs && atMs <= dragWindow.endMs;
     if (furrow && dragWindow) furrow.setFraction((atMs - dragWindow.startMs) / (dragWindow.endMs - dragWindow.startMs));
-    anchor.visible = isDragging;
-    chain.visible = isDragging;
-    if (isDragging && shipPoint) {
-      // The anchor drags on the seabed under the vessel, shank pointing up the chain toward the bow.
-      anchor.position.set(shipPoint.x, sampleSeabedHeight(shipPoint.x, shipPoint.z) + 0.02, shipPoint.z);
-      anchor.rotation.set(-0.12, Math.atan2(lastHeading.x, lastHeading.z), 0);
-      anchor.updateMatrixWorld();
+    const located = isDragging ? locateAnchor(atMs) : null;
+    anchor.visible = located !== null;
+    chain.visible = located !== null;
+    if (located) {
+      // The anchor lies where the chain's layback puts it, shank pointing along the chain toward the hawse.
       hawseWorld.copy(shipModel.hawseLocal).applyMatrix4(ship.matrixWorld);
+      const towardHawse = unitDirection(located.point, { x: hawseWorld.x, z: hawseWorld.z }, lastHeading);
+      anchor.position.set(located.point.x, sampleSeabedHeight(located.point.x, located.point.z) + 0.02, located.point.z);
+      anchor.rotation.set(-0.12, Math.atan2(towardHawse.x, towardHawse.z), 0);
+      anchor.updateMatrixWorld();
       shackleWorld.copy(anchorModel.shackleLocal).applyMatrix4(anchor.matrixWorld);
-      const chainPositions = chainGeometry.getAttribute("position");
-      chainPositions.setXYZ(0, hawseWorld.x, hawseWorld.y, hawseWorld.z);
-      chainPositions.setXYZ(1, shackleWorld.x, shackleWorld.y, shackleWorld.z);
-      chainPositions.needsUpdate = true;
+      writeChain(located.span);
     }
 
     for (const cutSwitch of cutSwitches) {
@@ -815,5 +867,5 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return probes;
   }
 
-  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes };
+  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes };
 }

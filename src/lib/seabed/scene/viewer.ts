@@ -200,6 +200,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       softDot,
       caustics: createCaustics(),
       prefersReducedMotion: isCalm,
+      chainShape: overview.primaryCutChain,
     });
     built.setIllustrated(isIllustrated);
     built.controls.addEventListener("change", markDirty);
@@ -454,6 +455,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       const ease = isCalm ? 1 : 1 - Math.exp(-elapsedSeconds * FOLLOW_EASE_PER_SECOND);
       overview.camera.position.lerp(followPosition, ease);
       overview.controls.target.lerp(followTarget, ease);
+      overview.camera.lookAt(overview.controls.target);
       isCameraEasing = overview.camera.position.distanceTo(followPosition) > FOLLOW_SETTLED_KM;
     } else if (cameraMove) {
       const amount = clampValue((now - cameraMove.startedAt) / cameraMove.durationMs, 0, 1);
@@ -463,7 +465,9 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       isCameraEasing = true;
       if (amount >= 1) cameraMove = null;
     }
-    const hasCameraMoved = overview.controls.update();
+    // The follow camera owns the camera in the Vessel view: the orbit controls would pull it out to their minimum
+    // distance (1.5 km), closer than a short hull's follow offset allows, and the two would fight every frame.
+    const hasCameraMoved = vesselFrame ? false : overview.controls.update();
     if (isCalm && !isDirty && !hasTimeChanged && !hasCameraMoved && !isCameraEasing) return;
     // A paused calm scene holds still: silt drifts only while the replay moves.
     overview.update(atMs, isCalm && !hasTimeChanged ? 0 : deltaSeconds, now / 1000);
