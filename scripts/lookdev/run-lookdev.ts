@@ -38,6 +38,12 @@ const MIN_PROBES_PER_TONE = 3;
 const MIN_EXACT_PROBE_SHARE = 0.6;
 // Each tone must be judged on at least this many probes across a full run on each tier.
 const MIN_PROBES_PER_RUN = 20;
+// Level open seabed (the water's colour at that depth) must show its depth token within this much per channel on at
+// least this share of its probes. Allowed for: the sky's Fresnel reflection off the surface (under 1 level looking
+// down at the overview's angle), the ripple detail and the baked occlusion. Measured over all 20 overview frames: a
+// median deviation of 0 or 1 and at least 94.9% within 4; a regraded seabed or a lit material shifts every probe.
+const SEABED_TOLERANCE = 4;
+const MIN_SEABED_CLOSE_SHARE = 0.9;
 // The picture counts as settled when no frame was drawn for this long (a calm scene draws only on change).
 const SETTLE_MS = 800;
 const FRAME_TIMEOUT_MS = 120_000;
@@ -74,8 +80,12 @@ type ShotOutcome = {
   meanDelta: number | null;
   baselineNote: string;
   tones: ToneVerdict[];
+  /** Level open seabed against its depth token, or null on a frame without seabed probes. */
+  seabed: SeabedVerdict | null;
   isPass: boolean;
 };
+
+type SeabedVerdict = { probeCount: number; closeCount: number; medianDeviation: number; isPass: boolean };
 
 type CliOptions = { baseUrl: string; tiers: TierName[]; isTierExplicit: boolean; only: string | null; shouldUpdate: boolean; outDirectory: string; chromiumPath: string | null };
 
@@ -307,7 +317,7 @@ async function captureTurntable(browser: Browser, tier: TierName, pageUrl: strin
     const judged = judgeAgainstBaseline({ tier, name: TURNTABLE_SHOT_NAME, framePng, frame: frame.value, options });
     if (!judged.ok) return judged;
     const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
-    return { ok: true, value: { shot: TURNTABLE_SHOT_NAME, tier, rendererName: rendererKind, renderMs, scrubFrameMs: null, differingShare, meanDelta, baselineNote, tones: [], isPass: isBaselinePass } };
+    return { ok: true, value: { shot: TURNTABLE_SHOT_NAME, tier, rendererName: rendererKind, renderMs, scrubFrameMs: null, differingShare, meanDelta, baselineNote, tones: [], seabed: null, isPass: isBaselinePass } };
   } catch (error) {
     return { ok: false, reason: describeError(error) };
   } finally {
@@ -336,6 +346,7 @@ async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, 
     await page.addStyleTag({ content: CANVAS_ONLY_CSS });
     const canvasPng = await page.locator("canvas[data-renderer]").screenshot({ animations: "disabled" });
     const rawProbes = await page.evaluate(() => document.querySelector("canvas[data-renderer]")?.getAttribute("data-color-probes") ?? "[]");
+    const rawSeabedProbes = await page.evaluate(() => document.querySelector("canvas[data-renderer]")?.getAttribute("data-seabed-probes") ?? "[]");
     await lookStyle.evaluate((element) => element.parentNode?.removeChild(element));
 
     const look = decodePng(lookPng);
@@ -345,6 +356,9 @@ async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, 
     const parsedProbes: unknown = JSON.parse(rawProbes);
     const probes = Array.isArray(parsedProbes) ? parsedProbes.filter(isProbePoint) : [];
     const tones = shot.view === "closeup" ? [] : judgeTones(canvasImage.value, probes, shot.requiredTones);
+    const parsedSeabedProbes: unknown = JSON.parse(rawSeabedProbes);
+    const seabedProbes = Array.isArray(parsedSeabedProbes) ? parsedSeabedProbes.filter(isSeabedProbe) : [];
+    const seabed = shot.view === "closeup" ? null : judgeSeabed(canvasImage.value, seabedProbes);
     if (probes.length > 0) {
       const overlayDirectory = path.join(options.outDirectory, tier);
       mkdirSync(overlayDirectory, { recursive: true });
@@ -357,13 +371,30 @@ async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, 
     const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
     return {
       ok: true,
-      value: { shot: shot.name, tier, rendererName, renderMs, scrubFrameMs, differingShare, meanDelta, baselineNote, tones, isPass: isBaselinePass && tones.every((tone) => tone.isPass) },
+      value: { shot: shot.name, tier, rendererName, renderMs, scrubFrameMs, differingShare, meanDelta, baselineNote, tones, seabed, isPass: isBaselinePass && tones.every((tone) => tone.isPass) && (seabed?.isPass ?? true) },
     };
   } catch (error) {
     return { ok: false, reason: describeError(error) };
   } finally {
     await context.close();
   }
+}
+
+type SeabedProbePoint = { hex: string; x: number; y: number };
+
+function isSeabedProbe(value: unknown): value is SeabedProbePoint {
+  if (typeof value !== "object" || value === null) return false;
+  const hex: unknown = Reflect.get(value, "hex");
+  return typeof hex === "string" && /^#[0-9A-F]{6}$/i.test(hex) && typeof Reflect.get(value, "x") === "number" && typeof Reflect.get(value, "y") === "number";
+}
+
+/** Level open seabed must show its depth token within SEABED_TOLERANCE per channel on MIN_SEABED_CLOSE_SHARE of probes. */
+function judgeSeabed(image: RgbaImage, probes: readonly SeabedProbePoint[]): SeabedVerdict | null {
+  if (probes.length < MIN_PROBES_PER_TONE) return null;
+  const deviations = probes.flatMap((probe) => matchColorNear(image, probe.x, probe.y, parseHexColor(probe.hex), PROBE_RADIUS_PX) ?? []).map((match) => match.deviation);
+  const closeCount = deviations.filter((deviation) => deviation <= SEABED_TOLERANCE).length;
+  const sorted = [...deviations].sort((first, second) => first - second);
+  return { probeCount: deviations.length, closeCount, medianDeviation: sorted[Math.floor(sorted.length / 2)] ?? Number.NaN, isPass: closeCount / Math.max(1, deviations.length) >= MIN_SEABED_CLOSE_SHARE };
 }
 
 /** Tones a tier never judged on at least MIN_PROBES_PER_RUN probes across all its frames, as sentences. */
@@ -389,6 +420,10 @@ function printOutcome(outcome: ShotOutcome) {
   for (const tone of outcome.tones) {
     const worst = tone.worstFound ? `, worst ${tone.worstFound}` : "";
     console.log(`[runLookdev]          ${tone.tone.padEnd(9)} ${TONE_HEX[tone.tone]}  ${tone.exactCount}/${tone.probeCount} exact, median deviation ${tone.medianDeviation}${worst}: ${tone.isPass ? "ok" : tone.reason}`);
+  }
+  if (outcome.seabed) {
+    const { closeCount, probeCount, medianDeviation, isPass } = outcome.seabed;
+    console.log(`[runLookdev]          seabed    tokens   ${closeCount}/${probeCount} within ${SEABED_TOLERANCE}, median deviation ${medianDeviation}: ${isPass ? "ok" : "off its depth tokens"}`);
   }
 }
 

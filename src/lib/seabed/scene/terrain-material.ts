@@ -54,11 +54,17 @@ diffuseColor.rgb = mix(diffuseColor.rgb, shorelineColor, shoreline * 0.6);
 
 // Replaces the Lambert sum: the token times the light here over the light on level ground (both include 1 / pi and
 // the albedo, which cancel), times the baked occlusion. Brighter than level ground is held to 8% over the token so
-// a sunlit slope stays a tint of its band and the light tokens never clip to white.
+// a sunlit slope stays a tint of its band and the light tokens never clip to white. three.js r186 also lights Lambert
+// materials with the scene's environment map (lights_fragment_end adds its irradiance), so the level reference adds
+// what that map gives a level surface; without it level ground came out 4 levels over its token.
 const FRAGMENT_RELIEF_SHADE = /* glsl */ `
 const float MAX_RELIEF_BRIGHTENING = 1.08;
 vec3 receivedLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;
-vec3 levelLight = diffuseColor.rgb * levelIrradiance * RECIPROCAL_PI;
+vec3 levelReference = levelIrradiance;
+#if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
+levelReference += getIBLIrradiance(normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+#endif
+vec3 levelLight = diffuseColor.rgb * levelReference * RECIPROCAL_PI;
 float reliefShade = dot(receivedLight, vec3(0.2126, 0.7152, 0.0722)) / max(dot(levelLight, vec3(0.2126, 0.7152, 0.0722)), 1e-5);
 vec3 outgoingLight = diffuseColor.rgb * min(reliefShade, MAX_RELIEF_BRIGHTENING) * vReliefOcclusion;
 `;

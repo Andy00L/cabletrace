@@ -532,6 +532,15 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       return isInClearPart ? [{ tone: probe.tone, x: Math.round(canvasX * 10) / 10, y: Math.round(canvasY * 10) / 10 }] : [];
     });
     renderer.domElement.dataset.colorProbes = JSON.stringify(probes);
+    const seabedProbes = overview.readSeabedProbes(overview.camera.position).flatMap((probe) => {
+      const screenPoint = projectToClient(probe.position, canvasRect);
+      if (!screenPoint) return [];
+      const canvasX = screenPoint.clientX - canvasRect.left;
+      const canvasY = screenPoint.clientY - canvasRect.top;
+      const isInClearPart = canvasX >= 0 && canvasX <= canvasRect.width - rightInsetPx && canvasY >= 0 && canvasY <= canvasRect.height;
+      return isInClearPart ? [{ hex: probe.expectedHex, x: Math.round(canvasX * 10) / 10, y: Math.round(canvasY * 10) / 10 }] : [];
+    });
+    renderer.domElement.dataset.seabedProbes = JSON.stringify(seabedProbes);
   }
 
   function renderFrame(now: number) {

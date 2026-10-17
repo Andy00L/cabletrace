@@ -121,6 +121,9 @@ export type DataTone = "cable" | "pipeline" | "suspect" | "alarm";
  */
 export type ColorProbe = { tone: DataTone; position: THREE.Vector3; widthKm: number | null };
 
+/** A point of level, open seabed and the depth token it must show there (sRGB hex), for the lookdev seabed check. */
+export type SeabedProbe = { position: THREE.Vector3; expectedHex: string };
+
 export type OverviewScene = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -150,6 +153,8 @@ export type OverviewScene = {
   update: (atMs: number, deltaSeconds: number, nowSeconds: number) => void;
   /** Points on the data lines drawn at the last updated moment, seen from `cameraPosition`, for the lookdev colour check. */
   readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
+  /** Points of level open seabed in sight of `cameraPosition` and their depth tokens, for the lookdev seabed check. */
+  readSeabedProbes: (cameraPosition: THREE.Vector3) => SeabedProbe[];
 };
 
 type OverviewOptions = {
@@ -219,6 +224,28 @@ function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, pr
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+// Level, open seabed for the lookdev seabed check: the normal within 2.6 degrees of vertical, the baked occlusion
+// over 0.98, at least 1 m deep, picked on a sparse lattice of the grid.
+const SEABED_PROBE_LATTICE = 23;
+const SEABED_PROBE_MIN_NORMAL_Y = 0.999;
+const SEABED_PROBE_MIN_OPENNESS = 0.98;
+
+function pickSeabedProbes(terrain: THREE.Mesh): SeabedProbe[] {
+  const positions = terrain.geometry.getAttribute("position");
+  const normals = terrain.geometry.getAttribute("normal");
+  const colors = terrain.geometry.getAttribute("color");
+  const elevations = terrain.geometry.getAttribute("elevation");
+  const openness = terrain.geometry.getAttribute("reliefOcclusion");
+  const probeColor = new THREE.Color();
+  const probes: SeabedProbe[] = [];
+  for (let index = 0; index < positions.count; index += SEABED_PROBE_LATTICE) {
+    if (elevations.getX(index) > -1 || normals.getY(index) < SEABED_PROBE_MIN_NORMAL_Y || openness.getX(index) < SEABED_PROBE_MIN_OPENNESS) continue;
+    probeColor.fromBufferAttribute(colors, index);
+    probes.push({ position: new THREE.Vector3(positions.getX(index), positions.getY(index), positions.getZ(index)), expectedHex: `#${probeColor.getHexString().toUpperCase()}` });
+  }
+  return probes;
 }
 
 // The four cut faces of the block: from the terrain edge down to the base, darker toward the base.
@@ -349,6 +376,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   scene.add(sunLight);
 
   const terrain = buildTerrainMesh(elevations, features, projection, exaggeration, { lighting: { levelIrradiance: measureLevelIrradiance(sunLight, skyLight) }, rippleNormalMap: options.rippleNormalMap });
+  const seabedProbeCandidates = pickSeabedProbes(terrain);
   const water = buildWaterBody(projection, deepestY, options.isHighDetail);
   scene.add(terrain, buildBlockSides(terrain, features, baseY), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
@@ -904,6 +932,10 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return probes.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
   }
 
+  function readSeabedProbes(cameraPosition: THREE.Vector3): SeabedProbe[] {
+    return seabedProbeCandidates.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
+  }
+
   /** Whether the terrain rises above the sight line from the camera to a point (a ridge hides what is behind it). */
   function isBehindRelief(point: THREE.Vector3, cameraPosition: THREE.Vector3): boolean {
     const sightKm = point.distanceTo(cameraPosition);
@@ -921,5 +953,5 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return false;
   }
 
-  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes };
+  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes, readSeabedProbes };
 }
