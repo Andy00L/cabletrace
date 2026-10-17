@@ -213,12 +213,16 @@ Primitives are written in `src/components/ui/` on the tokens above. Behaviour co
 
 ## Site pages
 
-Home, the case list, the live globe and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark, the sections with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Content sits 24 px from the edges up to 1,440 px wide.
+Home, the case list, the live globe, the watchlist and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark, the sections with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Content sits 24 px from the edges up to 1,440 px wide.
 
 | Page | 1024 px and up | Under 1024 px |
 |---|---|---|
 | Home (board 12a) | One screen. Left, 400 px: the title, what CableTrace does, the live recorder card and a link to the recorded day on the globe. Right: the two newest cases as wide cards (sketch beside place, date, title and three facts) sharing the column's height. Between 1,024 and 1,280 px the sketch keeps 16:9 so no cut is cropped. | One column that scrolls; the sketch sits over the text. |
 | Case list (board 12b) | Four tiles to a row, five from 1,280 px (sketch over place, date, title and one line of facts), so two rows of cases fit one screen. | Two to a row from 640 px, one under it. |
+| Watchlist | Two cards side by side: alerts of the last 24 hours (the detector's findings on a watched ship, a watched cable, or a cable cut in a watched case; `alarm` for an alert, `ink` for a watch) and the watched items with a remove button each. Signed out, the page sends the reader to sign in. | The two cards stack. |
+| Sign in, sign up | Clerk's form in the middle of the page, colored from the tokens (`src/app/(account)/layout.tsx`). | Same. |
+
+Accounts (Clerk) exist only for the watchlist. Clerk's script loads on the account pages alone, and its proxy runs only on those paths and `/api/watchlist` (`src/proxy.ts`), so the other pages stay static. A Watch button (bookmark icon) sits in the console's top bar for the case, in a cut card for its cable, and in the vessel card for the ship when its MMSI is published; it does not ask whether the item is already watched, so pages carry no session check. Watched items live in `public.watch_items`, reachable only by the server with the secret key, at most 100 per reader.
 
 ## Live globe
 
