@@ -11,6 +11,11 @@ import { combineGlobeLines, parseWorldLines, type GlobeLine } from "@/lib/globe/
 const LAND_URL = "/globe/land.json";
 const CABLES_URL = "/globe/cables.json";
 
+/** Resolves after the browser has painted the next frame, so work queued behind it never delays what was just shown. */
+function afterNextPaint(): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+}
+
 /** Downloads and parses one of the globe's static files; never throws. */
 async function fetchJson(url: string): Promise<Result<unknown>> {
   try {
@@ -92,6 +97,8 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
       callbacksRef.current.onViewerChange(created.value);
       setStageState({ kind: "ready" });
 
+      // Building the world's lines takes a few hundred ms on a software renderer: the globe shows first.
+      await afterNextPaint();
       const cablesDownloaded = await cablesDownload;
       const worldLines = cablesDownloaded.ok ? parseWorldLines(cablesDownloaded.value) : cablesDownloaded;
       if (isCancelled) return;
