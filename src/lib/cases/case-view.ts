@@ -40,17 +40,54 @@ function toTimelineEvent(event: CaseEvent): TimelineEvent {
   };
 }
 
+/** How a case knows where the vessel was: placed positions, recorded AIS, placed then recorded from a moment, or interleaved. */
+type TrackEvidence = { kind: "reconstructed" } | { kind: "recorded" } | { kind: "handover"; recordedFromMs: number } | { kind: "interleaved" };
+
+function classifyTrackEvidence(cableCase: Pick<CableCase, "track" | "recordedTrack">): TrackEvidence {
+  const firstFix = cableCase.recordedTrack?.fixes[0];
+  if (!firstFix) return { kind: "reconstructed" };
+  if (cableCase.track.length === 0) return { kind: "recorded" };
+  const recordedFromMs = Date.parse(firstFix.atUtc);
+  const isPlacedBeforeRecorded = cableCase.track.every((position) => Date.parse(position.atUtc) < recordedFromMs);
+  return isPlacedBeforeRecorded ? { kind: "handover", recordedFromMs } : { kind: "interleaved" };
+}
+
 /** How the case knows where the vessel was, in one sentence for the ship card. */
 export function describeTrackEvidence(cableCase: Pick<CableCase, "track" | "recordedTrack">): string {
-  const fixes = cableCase.recordedTrack?.fixes ?? [];
-  const firstFix = fixes[0];
-  if (!firstFix) return "Positions here are reconstructed from statements, never recorded.";
-  if (cableCase.track.length === 0) return "Positions here are AIS reports the ship broadcast.";
-  const firstFixMs = Date.parse(firstFix.atUtc);
-  const isPlacedBeforeRecorded = cableCase.track.every((position) => Date.parse(position.atUtc) < firstFixMs);
-  return isPlacedBeforeRecorded
-    ? `Until ${formatUtcClock(firstFixMs)} UTC positions are reconstructed from statements; after that they are AIS reports the ship broadcast.`
-    : "Some positions are reconstructed from statements; the others are AIS reports the ship broadcast.";
+  const evidence = classifyTrackEvidence(cableCase);
+  switch (evidence.kind) {
+    case "reconstructed":
+      return "Positions here are reconstructed from statements, never recorded.";
+    case "recorded":
+      return "Positions here are AIS reports the ship broadcast.";
+    case "handover":
+      return `Until ${formatUtcClock(evidence.recordedFromMs)} UTC positions are reconstructed from statements; after that they are AIS reports the ship broadcast.`;
+    case "interleaved":
+      return "Some positions are reconstructed from statements; the others are AIS reports the ship broadcast.";
+    default: {
+      const unhandled: never = evidence;
+      return unhandled;
+    }
+  }
+}
+
+/** The same in a few words, for the case list. */
+export function describeTrackEvidenceBriefly(cableCase: Pick<CableCase, "track" | "recordedTrack">): string {
+  const evidence = classifyTrackEvidence(cableCase);
+  switch (evidence.kind) {
+    case "reconstructed":
+      return "Reconstructed from statements";
+    case "recorded":
+      return "AIS reports";
+    case "handover":
+      return `Reconstructed, then AIS from ${formatUtcClock(evidence.recordedFromMs)} UTC`;
+    case "interleaved":
+      return "Reconstructed and AIS";
+    default: {
+      const unhandled: never = evidence;
+      return unhandled;
+    }
+  }
 }
 
 /** The replay window's events, in time order. */

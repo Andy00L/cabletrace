@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatPublishedDate, formatSourceNote, toTimelineEvents } from "./case-view";
+import { describeTrackEvidence, describeTrackEvidenceBriefly, formatPublishedDate, formatSourceNote, toTimelineEvents } from "./case-view";
 import type { CableCase } from "./case-file";
 
 describe("formatSourceNote", () => {
@@ -27,5 +27,31 @@ describe("toTimelineEvents", () => {
       ["First", "10:26", true],
       ["Second", "16:44", false],
     ]);
+  });
+});
+
+describe("describeTrackEvidence", () => {
+  const placed: CableCase["track"] = [
+    { atUtc: "2024-11-18T02:04:00Z", longitude: 17, latitude: 55.9, precision: "area", place: "A", placement: "Fixture", citations: [{ sourceId: 1, quote: "q" }] },
+  ];
+  const recordedTrack: CableCase["recordedTrack"] = {
+    selection: "Fixture",
+    citations: [{ sourceId: 2, quote: "q" }],
+    fixes: [{ atUtc: "2024-11-18T06:01:44Z", longitude: 16.3, latitude: 55.8, speedKnots: 7.3 }],
+  };
+
+  test("names a reconstruction, a recording, and the moment one hands over to the other", () => {
+    expect(describeTrackEvidenceBriefly({ track: placed, recordedTrack: null })).toBe("Reconstructed from statements");
+    expect(describeTrackEvidenceBriefly({ track: [], recordedTrack })).toBe("AIS reports");
+    expect(describeTrackEvidenceBriefly({ track: placed, recordedTrack })).toBe("Reconstructed, then AIS from 06:01 UTC");
+    expect(describeTrackEvidence({ track: placed, recordedTrack })).toStartWith("Until 06:01 UTC positions are reconstructed");
+  });
+
+  test("does not claim a handover when placed positions come after the recording starts", () => {
+    const latePlaced: CableCase["track"] = [
+      ...placed,
+      { atUtc: "2024-11-18T09:00:00Z", longitude: 15.8, latitude: 55.7, precision: "area", place: "B", placement: "Fixture", citations: [{ sourceId: 1, quote: "q" }] },
+    ];
+    expect(describeTrackEvidenceBriefly({ track: latePlaced, recordedTrack })).toBe("Reconstructed and AIS");
   });
 });

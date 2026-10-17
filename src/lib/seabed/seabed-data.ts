@@ -87,6 +87,17 @@ export function parseSeabedFeatures(payload: unknown): Result<SeabedFeatures> {
   return { ok: true, value: { region, grid, lines: validLines, places: validPlaces, sources: { depth, land, cables, pipelines } } };
 }
 
+/** Pairs a features file with its terrain file, checking the grid size matches. Shared by the browser and build-time loaders. */
+export function toSeabedData(featuresPayload: unknown, terrain: ArrayBuffer): Result<SeabedData> {
+  const features = parseSeabedFeatures(featuresPayload);
+  if (!features.ok) return features;
+  const expectedBytes = features.value.grid.width * features.value.grid.height * 2;
+  if (terrain.byteLength !== expectedBytes) {
+    return { ok: false, reason: `The depth grid has ${terrain.byteLength} bytes, expected ${expectedBytes}.` };
+  }
+  return { ok: true, value: { features: features.value, elevations: decodeElevations(terrain) } };
+}
+
 /** Fetches public/seabed/<area>-seabed.json and <area>-terrain.bin and checks they belong together. */
 export async function loadSeabedData(area: string): Promise<Result<SeabedData>> {
   try {
@@ -94,14 +105,7 @@ export async function loadSeabedData(area: string): Promise<Result<SeabedData>> 
     if (!featuresResponse.ok || !terrainResponse.ok) {
       return { ok: false, reason: `The seabed files answered ${featuresResponse.status} and ${terrainResponse.status}.` };
     }
-    const features = parseSeabedFeatures(await featuresResponse.json());
-    if (!features.ok) return features;
-    const terrain = await terrainResponse.arrayBuffer();
-    const expectedBytes = features.value.grid.width * features.value.grid.height * 2;
-    if (terrain.byteLength !== expectedBytes) {
-      return { ok: false, reason: `The depth grid has ${terrain.byteLength} bytes, expected ${expectedBytes}.` };
-    }
-    return { ok: true, value: { features: features.value, elevations: decodeElevations(terrain) } };
+    return toSeabedData(await featuresResponse.json(), await terrainResponse.arrayBuffer());
   } catch (error) {
     return { ok: false, reason: `The seabed files could not be reached: ${error instanceof Error ? error.message : String(error)}` };
   }

@@ -20,6 +20,9 @@
   --color-alarm: #D93A26;
   --color-ship: #A8A8A2;
   --color-live: #2E9E5B;
+  /* Map tones (docs/UI_DESIGN_SYSTEM.md, Map): land, and the 30 to 40 m depth band used as the sea in case sketches. */
+  --color-land: #FAFAF8;
+  --color-depth-40: #DAE2E1;
 
   --font-sans: var(--font-tiktok-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
 
