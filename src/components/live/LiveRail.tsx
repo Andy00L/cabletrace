@@ -186,7 +186,7 @@ export function ShipCard({ mmsi, record, momentMs, detailsState, onFocus, onClos
   );
 }
 
-/** What the anchor-drag detector ranked in the last day, from the Gulf of Finland recorder. */
+/** What the anchor-drag detector ranked in the last day, across every region the recorder watches. */
 export function DetectionsCard({ state, selectedMmsi, onSelect }: { state: DetectionsState; selectedMmsi: number | null; onSelect: (detection: DetectionSummary) => void }) {
   const listRef = useRef<HTMLOListElement>(null);
   useScrollSelectedIntoView(listRef, selectedMmsi);
@@ -194,7 +194,7 @@ export function DetectionsCard({ state, selectedMmsi, onSelect }: { state: Detec
     <section className={CARD_CLASS} aria-label="Anchor-drag watch" data-testid="live-detections">
       <div className="flex flex-col gap-0.5">
         <h2 className="text-card-title">Anchor-drag watch</h2>
-        <p className="text-caption font-normal text-muted">Gulf of Finland, last 24 hours. Ranked by evidence, never a verdict.</p>
+        <p className="text-caption font-normal text-muted">Every watched region, last 24 hours. Ranked by evidence, never a verdict.</p>
       </div>
       {state.kind === "loading" && <p className="text-small text-muted">Loading the detector&apos;s results...</p>}
       {state.kind === "failed" && <p className="text-small text-muted">The detector&apos;s results could not be loaded.</p>}
