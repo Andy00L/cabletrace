@@ -107,7 +107,7 @@ function Chart({ kind, series, sample }: { kind: ChartKind; series: CaseSeries; 
       <figcaption className="flex items-baseline gap-2">
         <span className="text-caption">{chart.title}</span>
         <span className="text-caption font-normal text-muted">{chart.unit}</span>
-        <span className="ml-auto text-label tabular-nums">{value === null ? "None" : `${formatValue(kind, value)} ${chart.unit}`}</span>
+        <span className="ml-auto text-label tabular-nums">{value !== null ? `${formatValue(kind, value)} ${chart.unit}` : sample ? "Not mapped" : "No position"}</span>
       </figcaption>
       <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-x-1.5">
         <div className="flex flex-col justify-between text-micro font-normal text-faint tabular-nums" aria-hidden="true">

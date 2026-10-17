@@ -376,7 +376,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
   // Names that give context but carry no case data; a narrow view drops them first (setCompactLabels).
   const contextLabels: THREE.Object3D[] = [];
-  // Each pipeline is named once, where it runs farthest from the track and the cuts, so labels do not pile up.
+  // Each pipeline is named once, where it runs farthest from the track, the cuts and the names already placed, so
+  // labels do not pile up (Nord Stream 1 and 2 run side by side).
   const busyPoints = [...densifyScenePoints(input.track.map((position) => toScene(position.longitude, position.latitude)), LABEL_BUSY_STEP_KM), ...input.cuts.map((cut) => toScene(cut.longitude, cut.latitude))];
   for (const [name, curves] of pipelineCurves) {
     const labelPoint = findQuietLabelPoint(curves, busyPoints);
@@ -385,6 +386,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     label.position.set(labelPoint.x, labelPoint.y + 0.9, labelPoint.z);
     scene.add(label);
     contextLabels.push(label);
+    busyPoints.push({ x: labelPoint.x, z: labelPoint.z });
   }
 
   for (const place of features.places) {

@@ -80,7 +80,8 @@ export const VEZHEN_2025: CableCase = {
       ROUTE_CITATION,
     ],
   },
-  window: { startUtc: "2025-01-26T00:30:00Z", endUtc: "2025-01-26T20:00:00Z" },
+  // The replay opens on the cable crossing: no source places the ship any earlier on 26 January.
+  window: { startUtc: "2025-01-26T00:45:00Z", endUtc: "2025-01-26T20:00:00Z" },
   localTime: { place: "Stockholm", timeZone: "Europe/Stockholm" },
   seabedArea: "gotland-latvia",
   track: [
@@ -112,7 +113,7 @@ export const VEZHEN_2025: CableCase = {
     fixes: VEZHEN_AIS_FIXES,
   },
   dragWindow: {
-    startUtc: "2025-01-26T00:30:00Z",
+    startUtc: "2025-01-26T00:45:00Z",
     endUtc: "2025-01-26T03:45:00Z",
     citations: [LOCK_CITATION, REACHED_CABLE_CITATION, SLOWED_CITATION, RAISED_ANCHOR_CITATION],
   },

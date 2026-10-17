@@ -4,6 +4,7 @@
 // case page the share of the viewport the 3D view covers (the whole view, and the part no panel floats over).
 // Exit codes: 0 every target met, 1 a target missed, 2 the pages could not be measured.
 import { chromium, type Browser } from "playwright";
+import { CABLE_CASES } from "../../src/data/cases";
 import type { Result } from "../../src/lib/result";
 import { resolveChromiumPath } from "./chromium-path";
 
@@ -14,7 +15,7 @@ const VIEWPORTS = [
   { width: 1280, height: 720 },
   { width: 1024, height: 768 },
 ] as const;
-const ROUTES = ["/", "/cases", "/cases/eagle-s-2024", "/cases/yi-peng-3-2024"] as const;
+const ROUTES = ["/", "/cases", ...CABLE_CASES.map((cableCase) => `/cases/${cableCase.slug}`)];
 const STAGE_SHARE_TARGET = 0.65;
 const STAGE_TARGET_VIEWPORT = { width: 1440, height: 900 };
 // One pixel of rounding is not a scrollbar.
