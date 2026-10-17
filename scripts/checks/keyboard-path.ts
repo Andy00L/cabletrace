@@ -51,7 +51,9 @@ async function tabTo(page: Page, target: Locator): Promise<Result<number>> {
 async function activate(page: Page, step: Step): Promise<Result<number>> {
   let pressCount = 0;
   const target = step.locate(page);
-  if ((await target.count()) === 0) {
+  // The folded panel's content is drawn but inert (src/components/ui/BottomSheet.tsx), so Tab skips it.
+  const isOutOfReach = (await target.count()) === 0 || (await target.evaluate((element) => element.closest("[inert]") !== null));
+  if (isOutOfReach) {
     const handle = visibleFirst(page.getByRole("button", { name: "Open case panel" }));
     if ((await handle.count()) === 0) return { ok: false, reason: `${step.label}: not on screen` };
     const handleTabs = await tabTo(page, handle);
@@ -101,7 +103,7 @@ async function checkLayer(page: Page, firstUrl: string, path: LayerPath): Promis
   if (!focusedOpener) {
     const whereFocusIs = await page.evaluate(() => {
       const active = document.activeElement;
-      const label = active === null || active === document.body ? "the page body" : `<${active.tagName.toLowerCase()}> "${(active.getAttribute("aria-label") ?? active.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60)}"`;
+      const label = active === null || active === document.body ? "the page body" : `<${active.tagName.toLowerCase()}${active.hasAttribute("data-testid") ? ` data-testid="${active.getAttribute("data-testid")}"` : ""}> "${(active.getAttribute("aria-label") ?? active.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60)}"${active.closest("[data-testid]") ? ` inside ${active.closest("[data-testid]")?.getAttribute("data-testid")}` : ""}`;
       const isOpenerGone = document.querySelector("[data-keyboard-opener]") === null;
       return `${label}${isOpenerGone ? "; the opener itself was replaced while the layer was open" : ""}`;
     });
