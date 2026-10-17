@@ -41,7 +41,7 @@ as $$
   cable_reach as (
     select cables.id, extensions.st_union(ship_box.box) as reach
     from public.cables
-    join ship_boxes as ship_box on cables.route::extensions.geometry && ship_box.box
+    join ship_boxes as ship_box on cables.route::extensions.geometry operator(extensions.&&) ship_box.box
     group by cables.id
   ),
   candidate_ships as (
