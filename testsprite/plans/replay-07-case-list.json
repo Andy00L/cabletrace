@@ -1,0 +1,29 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Find a case on the case list and open its replay",
+  "description": "Validates the case list: it is reached from the home page, shows every case with its sketch and how its track is known, and opens the replay.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to the home page and click the \"All cases\" link (data-testid all-cases-link) beside \"Case replays\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /cases, the page heading reads \"Cases\", and the list (data-testid case-list) holds the cards case-card-eagle-s-2024 and case-card-yi-peng-3-2024, each with a map image"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the Yi Peng 3 card shows \"Reconstructed, then AIS from 06:01 UTC\" and the Eagle S card shows \"Reconstructed from statements\""
+    },
+    {
+      "type": "action",
+      "description": "Click the Yi Peng 3 card (data-testid case-card-yi-peng-3-2024)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /cases/yi-peng-3-2024 and the page heading reads \"Yi Peng 3 anchor drag\""
+    }
+  ]
+}
