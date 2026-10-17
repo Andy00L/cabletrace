@@ -4,7 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
-import { LiveGlobeStage } from "@/components/live/LiveGlobeStage";
+import { LiveGlobeStage, type WorldLinesState } from "@/components/live/LiveGlobeStage";
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
 import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/globe/coverage";
 import { pairShipFrames } from "@/lib/globe/frame-pairing";
@@ -13,6 +13,7 @@ import type { GlobeViewer } from "@/lib/globe/globe-viewer";
 import { fetchShipDetails } from "@/lib/globe/live-api";
 import { daySpan, locateMoment } from "@/lib/globe/live-day";
 import type { WatchedLine } from "@/lib/globe/watched-line";
+import type { GlobeLine } from "@/lib/globe/world-lines";
 import type { FrameIndexEntry } from "@/lib/live/frame-layout";
 import { readShipRecord, type ShipFrameColumns } from "@/lib/live/snapshot-codec";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
@@ -31,7 +32,8 @@ const DIGITRAFFIC_FLAG = 0x80;
 const CREDITS = [
   "Ships: aisstream.io (terrestrial AIS, kept two days) and Fintraffic / digitraffic.fi (CC BY 4.0).",
   "Land: Natural Earth 1:50m, public domain.",
-  "Cables: OpenStreetMap contributors (ODbL); pipelines: EMODnet Human Activities.",
+  "Cables and pipelines of the world: OpenStreetMap contributors, Open Database License (ODbL). OpenStreetMap maps only part of the routes on the sea floor.",
+  "The lines the replays watch: OpenStreetMap contributors (ODbL), pipelines from EMODnet Human Activities, one cable traced off a published map.",
 ] as const;
 
 type MomentState = { frame: ShipFrameColumns; digitrafficCount: number } | null;
@@ -95,6 +97,8 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
   const [coverage] = useState(createCoverage);
   const coverageMaskRef = useRef<Uint8Array | null>(null);
   const [coverageFrameCount, setCoverageFrameCount] = useState(0);
+  const [globeLines, setGlobeLines] = useState<{ lines: GlobeLine[]; worldState: WorldLinesState }>({ lines: [], worldState: "loading" });
+  const handleLinesChange = useCallback((lines: GlobeLine[], worldState: WorldLinesState) => setGlobeLines({ lines, worldState }), []);
 
   const readMinute = () => formatUtcClock(startMs + clock.getSnapshot().progress * spanMs);
   const minuteLabel = useSyncExternalStore(clock.subscribe, readMinute, readMinute);
@@ -247,7 +251,7 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
         data-frame-count={entries.length}
         data-ship-count={moment?.frame.shipCount ?? 0}
       >
-        <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onShipPick={selectShip} />
+        <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onShipPick={selectShip} onLinesChange={handleLinesChange} />
         <div className="pointer-events-none absolute top-4 left-4 z-(--layer-stage-controls) flex max-w-[calc(100%-32px)] flex-col items-start gap-2">
           <p className="rounded-full bg-card px-4 py-2 text-label shadow-row">A recorded day of ships, not real time</p>
           {frameProblem && (
@@ -281,6 +285,9 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
               </svg>
               No feed hears this sea
             </span>
+            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="text-muted underline decoration-faint underline-offset-4 hover:text-ink">
+              Lines &copy; OpenStreetMap
+            </a>
           </div>
           <Popover.Root>
             <Popover.Trigger
@@ -309,6 +316,11 @@ export function LiveDay({ entries, frameSource, watchedLines, detectionsState }:
                   {coverageFrameCount === 1 ? "frame" : "frames"} loaded so far. The feeds are coastal receivers, so a ship out there goes unseen; the sea
                   is not empty.
                 </p>
+                {globeLines.worldState === "failed" && (
+                  <p className="text-small" role="status">
+                    The world&apos;s cables did not load; only the lines the replays watch are drawn.
+                  </p>
+                )}
                 <ul className="flex flex-col gap-1.5 text-caption font-normal text-muted">
                   {CREDITS.map((credit) => (
                     <li key={credit}>{credit}</li>

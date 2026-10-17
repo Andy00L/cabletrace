@@ -7,11 +7,12 @@ import type { LandPolygons } from "@/lib/globe/land-polygons";
 import { COVERAGE_HEIGHT, COVERAGE_WIDTH } from "@/lib/globe/coverage";
 import { createLandTexture, WORLD_BOX, type LandBox } from "@/lib/globe/land-texture";
 import { writeUnitVector } from "@/lib/globe/sphere";
-import type { WatchedLine } from "@/lib/globe/watched-line";
+import { createGlobeLineLayer, type GlobeLineLayer } from "@/lib/globe/globe-lines";
+import type { GlobeLine } from "@/lib/globe/world-lines";
 import type { Result } from "@/lib/result";
 
 // The /live globe: a unit sphere painted with land, every ship in a frame pair as one GPU point that blends between
-// the pair's two positions, and the cables and pipelines the replays watch. Nothing is drawn unless the time, the
+// the pair's two positions, and the world's cables and pipelines (src/lib/globe/globe-lines.ts). Nothing is drawn unless the time, the
 // camera, the data or the size changed, so an idle globe costs no frames.
 
 /**
@@ -36,7 +37,6 @@ const HOME_DISTANCE = 3.6;
 const MIN_DISTANCE = 1.08;
 const MAX_DISTANCE = 6;
 // Heights above the unit sphere: ships sit above the cables so a ship over a cable stays visible.
-const LINE_LIFT = 1.0006;
 const SHIP_LIFT = 1.0012;
 // Ship dots grow as the camera closes in, from this size at the home distance (CSS px), within these limits.
 const SHIP_POINT_PX = 2.4;
@@ -64,6 +64,8 @@ export type GlobeViewer = {
   /** Where the moment sits between the pair's frames, 0 to 1. */
   setBlend: (blend: number) => void;
   setSelectedShip: (mmsi: number | null) => void;
+  /** The cables and pipelines to draw (world and watched, src/lib/globe/world-lines.ts); replaces any drawn before. */
+  setLines: (lines: readonly GlobeLine[]) => void;
   /** Where the feeds heard ships (src/lib/globe/coverage.ts, renderCoverageMask), or null to hatch nothing. */
   setCoverage: (mask: Uint8Array | null) => void;
   /** Flies the camera over a ship of the current pair; false when the pair does not hold it. */
@@ -77,7 +79,6 @@ export type GlobeViewer = {
 type GlobeViewerOptions = {
   container: HTMLElement;
   land: LandPolygons;
-  watchedLines: readonly WatchedLine[];
   /** Called with the MMSI of a clicked ship, or null when a click lands on no ship. */
   onShipPick: (mmsi: number | null) => void;
   prefersReducedMotion: boolean;
@@ -200,29 +201,9 @@ function cameraPositionFor(longitude: number, latitude: number, distance: number
   return new THREE.Vector3(direction[0], direction[1], direction[2]).multiplyScalar(distance);
 }
 
-function buildLineObjects(watchedLines: readonly WatchedLine[]): THREE.Group {
-  const group = new THREE.Group();
-  const materials = {
-    cable: new THREE.LineBasicMaterial({ color: WEBGL_COLORS.cable }),
-    pipeline: new THREE.LineBasicMaterial({ color: WEBGL_COLORS.pipeline }),
-  };
-  for (const line of watchedLines) {
-    const pointCount = line.points.length / 2;
-    const positions = new Float32Array(pointCount * 3);
-    for (let index = 0; index < pointCount; index += 1) {
-      writeUnitVector(line.points[index * 2] ?? 0, line.points[index * 2 + 1] ?? 0, positions, index * 3);
-    }
-    for (let index = 0; index < positions.length; index += 1) positions[index] = (positions[index] ?? 0) * LINE_LIFT;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    group.add(new THREE.Line(geometry, line.kind === "pipeline" ? materials.pipeline : materials.cable));
-  }
-  return group;
-}
-
 /** Builds the globe inside `container` and starts drawing on demand. Never throws. */
 export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeViewer> {
-  const { container, land, watchedLines, onShipPick, prefersReducedMotion } = options;
+  const { container, land, onShipPick, prefersReducedMotion } = options;
   const rendererKind = detectRendererKind();
   const tier = RENDER_TIERS[rendererKind];
   const isCalm = prefersReducedMotion || rendererKind === "software";
@@ -304,8 +285,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     }),
   );
   scene.add(rim);
-  const lines = buildLineObjects(watchedLines);
-  scene.add(lines);
+  let lineLayer: GlobeLineLayer | null = null;
 
   const shipGeometry = new THREE.BufferGeometry();
   const shipMaterial = new THREE.ShaderMaterial({
@@ -318,6 +298,8 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   const ships = new THREE.Points(shipGeometry, shipMaterial);
   // The blended positions live in the shader, so three.js cannot compute bounds to cull against.
   ships.frustumCulled = false;
+  // Ships draw after the lines' halos and lights, so a ship over a watched cable stays crisp.
+  ships.renderOrder = 5;
   scene.add(ships);
 
   const ringPosition = new Float32Array(3);
@@ -336,7 +318,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   );
   ring.frustumCulled = false;
   ring.visible = false;
-  ring.renderOrder = 2;
+  ring.renderOrder = 6;
   scene.add(ring);
 
   let pair: FramePair | null = null;
@@ -406,6 +388,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     else camera.clearViewOffset();
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
+    lineLayer?.setResolution(width, height);
     markDirty();
   }
   const resizeObserver = new ResizeObserver(resize);
@@ -466,11 +449,13 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     return true;
   }
 
+  // True while a watched cable's light runs on the side facing the camera: the globe then draws every frame.
+  let isSignalRunning = false;
   function renderFrame(now: number) {
     frameHandle = requestAnimationFrame(renderFrame);
     const isFlying = stepCameraMove(now);
     const hasCameraMoved = controls.update() || isFlying;
-    if (!isDirty && !hasCameraMoved) return;
+    if (!isDirty && !hasCameraMoved && !isSignalRunning) return;
     isDirty = false;
     const distance = camera.position.length();
     controls.rotateSpeed = Math.max(0.05, Math.min(1, (distance - 1) * ROTATE_SPEED_PER_UNIT));
@@ -480,6 +465,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     ring.material.uniforms.uPointSize.value = SELECTION_RING_PX * pixelRatio;
     coverageUniforms.uHatchSpacing.value = HATCH_SPACING_PX * pixelRatio;
     coverageUniforms.uHatchHalfWidth.value = (HATCH_LINE_PX * pixelRatio) / 2;
+    isSignalRunning = lineLayer?.update({ nowMs: now, cameraPosition: camera.position, homeDistance: HOME_DISTANCE, isCalm, pixelRatio }) ?? false;
     renderer.render(scene, camera);
   }
   renderer
@@ -519,6 +505,16 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
       setSelectedShip(mmsi) {
         selectedMmsi = mmsi;
         placeRing();
+        markDirty();
+      },
+      setLines(lines) {
+        if (lineLayer) {
+          scene.remove(lineLayer.object);
+          lineLayer.dispose();
+        }
+        lineLayer = createGlobeLineLayer(lines);
+        lineLayer.setResolution(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
+        scene.add(lineLayer.object);
         markDirty();
       },
       setCoverage(mask) {
@@ -577,6 +573,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         landTexture.dispose();
         detailTexture.dispose();
         coverageTexture.dispose();
+        lineLayer?.dispose();
         renderer.dispose();
         renderer.forceContextLoss();
         renderer.domElement.remove();
