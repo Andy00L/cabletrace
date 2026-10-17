@@ -1,0 +1,33 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Check how the reconstruction is sourced",
+  "description": "Validates that the ship card, the placement card and the source list disclose where every reconstructed position comes from.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the ship card (data-testid ship-card) shows IMO 9329760, flag Cook Islands, and the sentence \"Positions here are reconstructed from statements, never recorded.\""
+    },
+    {
+      "type": "action",
+      "description": "Click the link \"How each one is placed\" in the ship card"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the card headed \"How the track is placed\" (data-testid placement-card) is in view and lists three positions at 10:26, 16:44 and 22:28, the first one \"Over Estlink 2, about 55 km south of Loviisa\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the source list (data-testid source-list) shows 18 numbered sources, each with a link that opens in a new tab, including \"Fault detected in Cinia C-Lion1 submarine cable\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the card headed \"Since that night\" lists \"Court of Appeal overturns the dismissal and returns the case\" dated 27 Aug 2026"
+    }
+  ]
+}

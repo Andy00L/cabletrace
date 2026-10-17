@@ -1,0 +1,33 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Jump through the night from the minute-by-minute list",
+  "description": "Validates that picking an event moves the replay to its time, marks that row as current and updates the anchor status.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state ready"
+    },
+    {
+      "type": "action",
+      "description": "In the list headed \"25 December, minute by minute\", click the row \"Cinia detects a fault on C-Lion1\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock reads \"16:44 UTC\", the clicked row has aria-current=\"step\", and the anchor status reads \"Anchor dragging on the seabed\""
+    },
+    {
+      "type": "action",
+      "description": "Click the row \"Police and Border Guard board the tanker from helicopters\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock reads \"22:28 UTC\", the line under it reads \"26 Dec 2024, 00:28 in Helsinki\", and the anchor status reads \"Drag ended at 16:45\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the row \"Police and Border Guard board the tanker from helicopters\" now has aria-current=\"step\" and the C-Lion1 row no longer does"
+    }
+  ]
+}
