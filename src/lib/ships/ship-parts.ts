@@ -68,7 +68,7 @@ export function readDeckHalfWidth(form: HullForm, positionX: number): number {
 }
 
 // Accommodation tiers (m): 2.9 on seagoing ships, 2.5 on small craft under 60 m.
-function readTierHeight(form: HullForm): number {
+export function readTierHeight(form: HullForm): number {
   return form.lengthMetres < 60 ? 2.5 : 2.9;
 }
 

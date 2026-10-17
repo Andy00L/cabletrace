@@ -5,7 +5,7 @@ import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { buildDeck, buildHullShell, buildRailings, buildTransom, createHullForm, type HullForm, type HullPalette } from "@/lib/ships/hull-form";
 import { createHullPlatingTexture } from "@/lib/ships/hull-plating";
 import { createDeckFrame, DECK_BUILDERS } from "@/lib/ships/ship-decks";
-import { addAccommodationBlock, addBox, addForecastleGear, addFunnel, createShipParts, mergeParts, readBridgeFrontX, readDeckHalfWidth, readDeckY, readHawsePoint, type ShipParts } from "@/lib/ships/ship-parts";
+import { addAccommodationBlock, addBox, addForecastleGear, addFunnel, createShipParts, mergeParts, readBridgeFrontX, readDeckHalfWidth, readDeckY, readHawsePoint, readTierHeight, type ShipParts } from "@/lib/ships/ship-parts";
 import { SHIP_SPECS } from "@/lib/ships/ship-specs";
 
 // Builds any ship type at its real length: the hull lofted from the type's spec, plating, the type's deck gear and
@@ -26,6 +26,9 @@ export type ShipModel = {
   form: HullForm;
 };
 
+// From this length up a merchant hull carries its type's full count of accommodation tiers.
+const FULL_TIER_LENGTH_METRES = 160;
+
 type BuildShipOptions = { kind: ShipKind; lengthMetres: number; tone: ShipTone; isDetailed: boolean };
 
 const TONE_TOPSIDES: Record<ShipTone, { topside: string; bootTop: string; bottom: string }> = {
@@ -39,25 +42,29 @@ function addSuperstructure(kind: ShipKind, form: HullForm, parts: ShipParts): { 
   const frontX = readBridgeFrontX(form, spec.superstructure);
   const deckY = readDeckY(form, 0);
   const length = form.lengthMetres;
+  // Merchant hulls under 160 m carry fewer tiers than the type's large ships (an 80 m coaster has two, not four);
+  // small craft keep theirs.
+  const isMerchantLayout = spec.superstructure === "aft" || spec.superstructure === "full-length";
+  const tiers = isMerchantLayout ? Math.max(1, Math.round(spec.superstructureTiers * Math.min(1, Math.max(0.5, length / FULL_TIER_LENGTH_METRES)))) : spec.superstructureTiers;
   switch (spec.superstructure) {
     case "aft":
-      addAccommodationBlock(form, parts, { frontX, lengthAlongShip: 0.075 * length, tiers: spec.superstructureTiers, baseY: deckY, withLifeboat: true, funnelX: frontX - 0.092 * length });
+      addAccommodationBlock(form, parts, { frontX, lengthAlongShip: 0.075 * length, tiers, baseY: deckY, withLifeboat: true, funnelX: frontX - 0.092 * length });
       return { cargoStartX: frontX + 0.012 * length, cargoEndX: 0.8 * form.halfLength - 0.013 * length };
     case "forward":
-      addAccommodationBlock(form, parts, { frontX, lengthAlongShip: 0.2 * length, tiers: spec.superstructureTiers, baseY: deckY, withLifeboat: false, funnelX: frontX - 0.24 * length });
+      addAccommodationBlock(form, parts, { frontX, lengthAlongShip: 0.2 * length, tiers, baseY: deckY, withLifeboat: false, funnelX: frontX - 0.24 * length });
       return { cargoStartX: -0.7 * form.halfLength, cargoEndX: frontX - 0.28 * length };
     case "midship":
-      addAccommodationBlock(form, parts, { frontX, lengthAlongShip: 0.26 * length, tiers: spec.superstructureTiers, baseY: deckY, withLifeboat: false, funnelX: frontX - 0.3 * length });
+      addAccommodationBlock(form, parts, { frontX, lengthAlongShip: 0.26 * length, tiers, baseY: deckY, withLifeboat: false, funnelX: frontX - 0.3 * length });
       return { cargoStartX: -form.halfLength, cargoEndX: frontX - 0.3 * length };
     case "full-length": {
       // Ro-ro: the vehicle decks (deck builder) carry the bridge; passenger: cabin decks over most of the length.
       const isRoRo = kind === "ro-ro";
       const baseY = isRoRo ? deckY + 0.12 * length : deckY;
       const blockLength = isRoRo ? 0.1 * length : 0.72 * length;
-      addAccommodationBlock(form, parts, { frontX, lengthAlongShip: blockLength, tiers: spec.superstructureTiers, baseY, withLifeboat: false, funnelX: null });
-      const topY = baseY + spec.superstructureTiers * (length < 60 ? 2.5 : 2.9);
+      addAccommodationBlock(form, parts, { frontX, lengthAlongShip: blockLength, tiers, baseY, withLifeboat: false, funnelX: null });
+      const topY = baseY + tiers * readTierHeight(form);
       addFunnel(form, parts, isRoRo ? -0.55 * form.halfLength : -0.3 * form.halfLength, isRoRo ? baseY : topY, readDeckHalfWidth(form, 0) * 0.4);
-      if (!isRoRo) addCabinWindows(form, parts, frontX, blockLength, deckY, spec.superstructureTiers);
+      if (!isRoRo) addCabinWindows(form, parts, frontX, blockLength, deckY, tiers);
       return { cargoStartX: -form.halfLength, cargoEndX: frontX };
     }
     default: {
@@ -69,7 +76,7 @@ function addSuperstructure(kind: ShipKind, form: HullForm, parts: ShipParts): { 
 
 /** Window bands along both sides of a passenger ship's cabin decks. */
 function addCabinWindows(form: HullForm, parts: ShipParts, frontX: number, blockLength: number, deckY: number, tiers: number) {
-  const tierHeight = form.lengthMetres < 60 ? 2.5 : 2.9;
+  const tierHeight = readTierHeight(form);
   const halfWidth = readDeckHalfWidth(form, frontX - blockLength / 2) * 0.84;
   for (let tier = 0; tier < tiers; tier += 1) {
     const depthAlongShip = blockLength * (1 - tier * 0.07);
