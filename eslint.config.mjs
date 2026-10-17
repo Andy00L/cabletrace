@@ -16,7 +16,8 @@ const eslintConfig = defineConfig([
     "supabase/**",
     // Vendor file copied from node_modules by scripts/copy-maplibre-worker.ts.
     "public/vendor/**",
-    // Local-only folders (see .gitignore).
+    // Local-only folders (see .gitignore), including agent worktrees under .claude.
+    ".claude/**",
     ".scratch/**",
     "plan/**",
     "ui-design/**",
