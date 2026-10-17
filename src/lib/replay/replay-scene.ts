@@ -19,7 +19,7 @@ export type ReplaySceneInput = {
   dragWindow: { startMs: number; endMs: number } | null;
   /** The first cut is the one the camera frames. */
   cuts: [ReplayCut, ...ReplayCut[]];
-  vessel: { name: string; kind: ShipKind };
+  vessel: { name: string; kind: ShipKind; lengthMetres: number };
 };
 
 export function progressToTimeMs(scene: Pick<ReplaySceneInput, "windowStartMs" | "windowEndMs">, progress: number): number {

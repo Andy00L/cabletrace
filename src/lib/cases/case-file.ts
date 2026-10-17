@@ -81,8 +81,11 @@ export type CableCase = {
   subtitle: string;
   /** Two or three sentences shown above the replay. */
   summary: string;
-  /** `kind` picks the 3D model; `type` is the description shown on the ship card. */
-  vessel: { name: string; kind: ShipKind; flag: string; type: string; imo: string | null; mmsi: string | null; citations: Citation[] };
+  /**
+   * `kind` picks the 3D model; `type` is the description shown on the ship card. `lengthMetres` is the length
+   * overall from the ship's registry entry or AIS dimensions (the same figure `type` states), and sizes its hull.
+   */
+  vessel: { name: string; kind: ShipKind; flag: string; type: string; lengthMetres: number; imo: string | null; mmsi: string | null; citations: Citation[] };
   window: { startUtc: string; endUtc: string };
   /** The local clock shown beside UTC, for the place the incident happened. */
   localTime: { place: string; timeZone: string };
@@ -128,7 +131,7 @@ export function toReplaySceneInput(cableCase: CableCase): ReplaySceneInput {
     track,
     dragWindow: cableCase.dragWindow ? { startMs: toMs(cableCase.dragWindow.startUtc), endMs: toMs(cableCase.dragWindow.endUtc) } : null,
     cuts: [toCut(primaryCut), ...otherCuts.map(toCut)],
-    vessel: { name: cableCase.vessel.name, kind: cableCase.vessel.kind },
+    vessel: { name: cableCase.vessel.name, kind: cableCase.vessel.kind, lengthMetres: cableCase.vessel.lengthMetres },
   };
 }
 

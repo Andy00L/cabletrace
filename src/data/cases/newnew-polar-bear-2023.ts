@@ -73,6 +73,7 @@ export const NEWNEW_POLAR_BEAR_2023: CableCase = {
     kind: "container-ship",
     flag: "Hong Kong",
     type: "Container ship, 169 m",
+    lengthMetres: 169,
     imo: "9313204",
     mmsi: "477893800",
     citations: [
