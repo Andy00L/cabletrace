@@ -174,7 +174,8 @@ function buildLines(payload: unknown): Result<{ lines: BuiltLine[]; osmBase: str
 async function main(): Promise<number> {
   const argument = process.argv[2];
   if (argument === "--query") {
-    console.log(OVERPASS_QUERY);
+    // The bare query on stdout (no log prefix), so a shell can pass it straight to curl.
+    process.stdout.write(`${OVERPASS_QUERY}\n`);
     return 0;
   }
   if (!argument) {

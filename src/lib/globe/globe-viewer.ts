@@ -512,8 +512,8 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   };
   const pickVector = new THREE.Vector3();
   type ScreenPoint = { x: number; y: number; isFacing: boolean };
-  function toScreen(x: number, y: number, z: number, bounds: DOMRect, lift: number): ScreenPoint {
-    pickVector.set(x, y, z);
+  function toScreen(pointX: number, pointY: number, pointZ: number, bounds: DOMRect, lift: number): ScreenPoint {
+    pickVector.set(pointX, pointY, pointZ);
     // A point on the sphere faces the camera when its dot product with the camera position exceeds its own lift.
     const isFacing = pickVector.dot(camera.position) > lift;
     pickVector.project(camera);
