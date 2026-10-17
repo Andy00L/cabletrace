@@ -577,9 +577,10 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   controls.minDistance = 1.5;
   controls.maxDistance = topHeightKm * 1.4;
   controls.maxPolarAngle = Math.PI * 0.46;
-  // The overview frames the whole track (the story at a glance); without one it frames the block.
+  // The overview frames the whole track and every cut (the story at a glance: Svalbard's cut marker sits away from
+  // the trawler's track); without a track it frames the block.
   const trackBounds = new THREE.Box3();
-  trackScene.forEach((point) => trackBounds.expandByPoint(new THREE.Vector3(point.x, OVERVIEW_TARGET_Y, point.z)));
+  [...trackScene, ...input.cuts.map((cut) => toScene(cut.longitude, cut.latitude))].forEach((point) => trackBounds.expandByPoint(new THREE.Vector3(point.x, OVERVIEW_TARGET_Y, point.z)));
   const focusTarget = trackScene.length >= 2 ? trackBounds.getCenter(new THREE.Vector3()) : new THREE.Vector3(0, OVERVIEW_TARGET_Y, 0);
   const focusRadiusKm = trackScene.length >= 2 ? Math.max(OVERVIEW_MIN_RADIUS_KM, trackBounds.getSize(new THREE.Vector3()).length() / 2 + OVERVIEW_PADDING_KM) : blockRadiusKm;
   const presets: OverviewScene["presets"] = {
