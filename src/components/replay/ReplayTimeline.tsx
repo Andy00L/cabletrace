@@ -10,6 +10,15 @@ import { progressToTimeMs, timeMsToProgress, type ReplaySceneInput } from "@/lib
 const MS_PER_MINUTE = 60_000;
 // A cut label closer than this share of the width to an end is aligned to that end instead of centred on its marker.
 const LABEL_EDGE_SHARE = 0.1;
+// Two cuts closer than this share of the width would have overlapping labels (Fitburg's two cables, 6 minutes
+// apart): the earlier label then ends at its marker and the later one starts at its own.
+const LABEL_CLUSTER_SHARE = 0.14;
+const ALIGN_START = "-translate-x-2.5";
+const ALIGN_END = "-translate-x-[calc(100%-10px)]";
+const ALIGN_CENTER = "-translate-x-1/2";
+// Labels of a close pair stand clear of the pair's 20 px markers, 4 px off each outer edge.
+const ALIGN_AFTER_PAIR = "translate-x-3.5";
+const ALIGN_BEFORE_PAIR = "-translate-x-[calc(100%+14px)]";
 // Letting go of the scrubber this close to an event or a cut (share of the track) lands exactly on it, after
 // bencho.dev's time-scrubber (MIT), which settles on the nearest step.
 const SNAP_SHARE = 0.008;
@@ -22,6 +31,18 @@ type ReplayTimelineProps = {
   /** Opens a cut's card from its label under the track. */
   onCutSelect: (cutIndex: number, opener: HTMLElement) => void;
 };
+
+/** Where a cut's label sits relative to its marker, given every cut's position on the track. */
+function alignCutLabel(shares: readonly number[], index: number): string {
+  const share = shares[index] ?? 0;
+  const isNear = (otherIndex: number) => otherIndex !== index && Math.abs((shares[otherIndex] ?? 0) - share) < LABEL_CLUSTER_SHARE;
+  const isAfterCloseCut = shares.some((otherShare, otherIndex) => isNear(otherIndex) && (otherShare < share || (otherShare === share && otherIndex < index)));
+  const isBeforeCloseCut = shares.some((otherShare, otherIndex) => isNear(otherIndex) && (otherShare > share || (otherShare === share && otherIndex > index)));
+  if (isAfterCloseCut) return ALIGN_AFTER_PAIR;
+  if (isBeforeCloseCut && share >= LABEL_EDGE_SHARE) return ALIGN_BEFORE_PAIR;
+  if (share < LABEL_EDGE_SHARE) return ALIGN_START;
+  return share > 1 - LABEL_EDGE_SHARE ? ALIGN_END : ALIGN_CENTER;
+}
 
 function toPercent(share: number): string {
   return `${(Math.min(1, Math.max(0, share)) * 100).toFixed(3)}%`;
@@ -73,7 +94,8 @@ export function ReplayTimeline({ input, events, clock, onCutSelect }: Omit<Repla
   const dragStartShare = input.dragWindow ? timeMsToProgress(input, input.dragWindow.startMs) : 0;
   const dragEndShare = input.dragWindow ? timeMsToProgress(input, input.dragWindow.endMs) : 0;
   const dragPlayedShare = Math.max(0, Math.min(snapshot.progress, dragEndShare) - dragStartShare);
-  const snapShares = [...events.map((event) => timeMsToProgress(input, event.atMs)), ...input.cuts.map((cut) => timeMsToProgress(input, cut.atMs))];
+  const cutShares = input.cuts.map((cut) => timeMsToProgress(input, cut.atMs));
+  const snapShares = [...events.map((event) => timeMsToProgress(input, event.atMs)), ...cutShares];
 
   function snapToNearestMoment() {
     const progress = clock.getSnapshot().progress;
@@ -113,8 +135,8 @@ export function ReplayTimeline({ input, events, clock, onCutSelect }: Omit<Repla
         <span className="absolute top-5 h-1.5 rounded-full bg-alarm" style={{ left: toPercent(dragStartShare), width: toPercent(dragPlayedShare) }} aria-hidden="true" />
       )}
       {input.cuts.map((cut, index) => {
-        const share = timeMsToProgress(input, cut.atMs);
-        const alignment = share < LABEL_EDGE_SHARE ? "-translate-x-2.5" : share > 1 - LABEL_EDGE_SHARE ? "-translate-x-[calc(100%-10px)]" : "-translate-x-1/2";
+        const share = cutShares[index] ?? 0;
+        const alignment = alignCutLabel(cutShares, index);
         return (
           <span key={`${cut.cableName}-${cut.atMs}`}>
             <span className="absolute top-[13px] -ml-2.5 grid size-5 place-items-center rounded-full border-2 border-alarm bg-card" style={{ left: toPercent(share) }} aria-hidden="true">

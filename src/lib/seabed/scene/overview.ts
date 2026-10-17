@@ -376,9 +376,13 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
   // Names that give context but carry no case data; a narrow view drops them first (setCompactLabels).
   const contextLabels: THREE.Object3D[] = [];
-  // Each pipeline is named once, where it runs farthest from the track, the cuts and the names already placed, so
-  // labels do not pile up (Nord Stream 1 and 2 run side by side).
-  const busyPoints = [...densifyScenePoints(input.track.map((position) => toScene(position.longitude, position.latitude)), LABEL_BUSY_STEP_KM), ...input.cuts.map((cut) => toScene(cut.longitude, cut.latitude))];
+  // Each pipeline is named once, where it runs farthest from the track, the cuts, the place names and the names
+  // already placed, so labels do not pile up (Nord Stream 1 and 2 run side by side; Balticconnector lands at Inkoo).
+  const busyPoints = [
+    ...densifyScenePoints(input.track.map((position) => toScene(position.longitude, position.latitude)), LABEL_BUSY_STEP_KM),
+    ...input.cuts.map((cut) => toScene(cut.longitude, cut.latitude)),
+    ...features.places.map((place) => toScene(place.longitude, place.latitude)),
+  ];
   for (const [name, curves] of pipelineCurves) {
     const labelPoint = findQuietLabelPoint(curves, busyPoints);
     if (!labelPoint) continue;
@@ -513,9 +517,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     marker.position.set(point.x, seabedY, point.z);
     marker.visible = false;
     // Cut labels hang below their point and the vessel's label sits above the vessel, so the two never
-    // cover each other when the vessel passes a cut.
-    const nameLabel = makeLabel(cut.label, "cable", "below");
-    const cutLabel = makeLabel(`${cut.label} cut`, "alarm", "below");
+    // cover each other when the vessel passes a cut. A pipeline is holed or torn rather than cut through
+    // (the Balticconnector), so its label says damaged and keeps the pipeline color.
+    const isPipeline = features.lines.some((line) => line.name === cut.cableName && line.kind === "pipeline");
+    const nameLabel = makeLabel(cut.label, isPipeline ? "pipeline" : "cable", "below");
+    const cutLabel = makeLabel(`${cut.label} ${isPipeline ? "damaged" : "cut"}`, "alarm", "below");
     nameLabel.position.set(point.x, 1.6, point.z);
     cutLabel.position.copy(nameLabel.position);
     scene.add(marker, nameLabel, cutLabel);

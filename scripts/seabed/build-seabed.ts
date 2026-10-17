@@ -8,6 +8,7 @@
 //                                    area's region, format text/plain
 //   <map-downloads>/<cablesFile>     Overpass: telecom=line, communication=line and power=cable ways in the box, `out tags geom`
 //   <map-downloads>/<pipelinesFile>  EMODnet Human Activities WFS 2.0.0, typeNames emodnet:pipelines, the box, application/json
+//   (cables no open dataset maps are traced off a published map and kept in the area's tracedLines, below)
 //   <dem-downloads>/<tile>.tif       every tile in demTiles, from
 //     https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_<tile>_DEM/Copernicus_DSM_COG_10_<tile>_DEM.tif
 // Usage: bun scripts/seabed/build-seabed.ts <area> <map-downloads dir> <dem-downloads dir> public/seabed
@@ -31,6 +32,51 @@ type SeabedArea = {
   places: Place[];
   /** EMODnet pipeline name to the name the scene shows; other pipelines are left out. */
   pipelineNames: Record<string, string>;
+  /** Cables no open dataset maps, traced off a published map; each says where in `source`. */
+  tracedLines: TracedLine[];
+  /** The credit line for cable routes: OpenStreetMap, plus the map behind each traced line. */
+  cablesCredit: string;
+};
+
+/** A cable route read off a published map image: the points are the map's line, georeferenced. */
+type TracedLine = { name: string; kind: "power" | "telecom"; source: string; points: Coordinate[] };
+
+const OSM_CABLES_CREDIT = "OpenStreetMap contributors";
+
+// EE-S1 (Arelion, Stavsnäs to Kärdla to Tallinn) is not in OpenStreetMap or any EMODnet cable layer. Its route
+// is read off Yle's map of 20 Oct 2023 (https://yle.fi/a/74-20056160): the red line's centre, every 12 to 24
+// pixels, in the Web Mercator frame fitted to the map's three landing dots (Stavsnäs, Kärdla, Tallinn on
+// Nominatim; residuals 0.5 to 1.3 km). The map draws about 0.73 km per pixel, so the route is good to a few km.
+const EE_S1_TRACED: TracedLine = {
+  name: "EE-S1",
+  kind: "telecom",
+  source: "EE-S1 route read off a Yle map (yle.fi/a/74-20056160)",
+  points: [
+    [19.9498, 59.2639],
+    [20.3444, 59.2605],
+    [20.5811, 59.2437],
+    [20.8179, 59.2134],
+    [21.0546, 59.1966],
+    [21.3703, 59.1595],
+    [21.6859, 59.1427],
+    [22.0016, 59.1055],
+    [22.3173, 59.0549],
+    [22.554, 59.021],
+    [22.725, 58.9987],
+    [22.8697, 59.0481],
+    [23.0275, 59.1271],
+    [23.1854, 59.2121],
+    [23.3432, 59.274],
+    [23.501, 59.321],
+    [23.6589, 59.38],
+    [23.8167, 59.4282],
+    [23.9745, 59.4683],
+    [24.1324, 59.4816],
+    [24.2902, 59.4983],
+    [24.448, 59.4917],
+    [24.6059, 59.4616],
+    [24.7729, 59.4329],
+  ],
 };
 
 const SEABED_AREAS: Record<string, SeabedArea> = {
@@ -52,6 +98,8 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
       { name: "Kunda", longitude: 26.52922, latitude: 59.50554 },
     ],
     pipelineNames: { Balticconnector: "Balticconnector", "NORD STREAM 1": "Nord Stream 1", "NORD STREAM 2": "Nord Stream 2" },
+    tracedLines: [],
+    cablesCredit: OSM_CABLES_CREDIT,
   },
   // The Baltic Proper from Karlskrona to east of Gotland: Öland, southern Gotland and the BCS East-West Interlink
   // out to 20 E. Vertices about 513 m apart east to west and 463 m north to south.
@@ -80,6 +128,54 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
       { name: "Katthammarsvik", longitude: 18.84461, latitude: 57.43319 },
     ],
     pipelineNames: { "NORD STREAM 1": "Nord Stream 1", "NORD STREAM 2": "Nord Stream 2" },
+    tracedLines: [],
+    cablesCredit: OSM_CABLES_CREDIT,
+  },
+  // From west of Hiiumaa to the Russian border in the Gulf of Finland: the Hiiumaa crossing of EE-S1, the
+  // Balticconnector and the Helsinki to Tallinn cables in one block, for tracks that leave gulf-of-finland
+  // (west of 24 E). Vertices about 476 m apart east to west and 463 m north to south.
+  "gulf-of-finland-and-hiiumaa": {
+    region: { west: 20.7, east: 26.6, south: 58.7, north: 60.35 },
+    cellsPerVertex: { longitude: 8, latitude: 4 },
+    depthFile: "wide-depth.txt",
+    cablesFile: "osm-cables-wide.json",
+    pipelinesFile: "pipelines-wide.json",
+    // N58_00_E020_00 is all sea and not published.
+    demTiles: [
+      "N58_00_E021_00",
+      "N58_00_E022_00",
+      "N58_00_E023_00",
+      "N58_00_E024_00",
+      "N58_00_E025_00",
+      "N58_00_E026_00",
+      "N59_00_E020_00",
+      "N59_00_E021_00",
+      "N59_00_E022_00",
+      "N59_00_E023_00",
+      "N59_00_E024_00",
+      "N59_00_E025_00",
+      "N59_00_E026_00",
+      "N60_00_E020_00",
+      "N60_00_E021_00",
+      "N60_00_E022_00",
+      "N60_00_E023_00",
+      "N60_00_E024_00",
+      "N60_00_E025_00",
+      "N60_00_E026_00",
+    ],
+    // OpenStreetMap Nominatim lookups, 17 Oct 2026 (administrative labels; Kärdla is the town).
+    places: [
+      { name: "Helsinki", longitude: 24.94354, latitude: 60.16662 },
+      { name: "Tallinn", longitude: 24.75727, latitude: 59.43724 },
+      { name: "Hanko", longitude: 22.96789, latitude: 59.82478 },
+      { name: "Inkoo", longitude: 24.00421, latitude: 60.04611 },
+      { name: "Paldiski", longitude: 24.08017, latitude: 59.34909 },
+      { name: "Kärdla", longitude: 22.74781, latitude: 58.99884 },
+      { name: "Kunda", longitude: 26.52922, latitude: 59.50554 },
+    ],
+    pipelineNames: { Balticconnector: "Balticconnector", "NORD STREAM 1": "Nord Stream 1", "NORD STREAM 2": "Nord Stream 2" },
+    tracedLines: [EE_S1_TRACED],
+    cablesCredit: `${OSM_CABLES_CREDIT}; ${EE_S1_TRACED.source}`,
   },
   // Karlskrona to east of Fårö: Öland, all of Gotland and the LVRTC Sweden-Latvia cable out to 20.25 E, about
   // 300 by 245 km. Same vertex spacing as baltic-proper (about 510 m east to west, 463 m north to south).
@@ -110,6 +206,8 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
       { name: "Hoburg fyr", longitude: 18.15104, latitude: 56.92173 },
     ],
     pipelineNames: { "NORD STREAM 1": "Nord Stream 1", "NORD STREAM 2": "Nord Stream 2" },
+    tracedLines: [],
+    cablesCredit: OSM_CABLES_CREDIT,
   },
 };
 
@@ -313,6 +411,12 @@ async function collectLines(downloadsDir: string, area: SeabedArea): Promise<Lin
       if (simplified.length >= 2) lines.push({ name, kind: isPower ? "power" : "telecom", points: simplified });
     }
   }
+  for (const traced of area.tracedLines) {
+    for (const run of splitIntoRuns(area.region, traced.points)) {
+      const simplified = simplifyLine(run).map(roundCoordinate);
+      if (simplified.length >= 2) lines.push({ name: traced.name, kind: traced.kind, points: simplified });
+    }
+  }
   const pipelines: { features: PipelineFeature[] } = JSON.parse(await readFile(path.join(downloadsDir, area.pipelinesFile), "utf8"));
   for (const feature of pipelines.features) {
     const displayName = area.pipelineNames[feature.properties.name ?? ""];
@@ -354,7 +458,7 @@ async function main() {
     sources: {
       depth: "EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM 2024)",
       land: "Copernicus DEM GLO-30, produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA",
-      cables: "OpenStreetMap contributors",
+      cables: area.cablesCredit,
       pipelines: "EMODnet Human Activities",
     },
   };

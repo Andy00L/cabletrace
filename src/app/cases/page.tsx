@@ -12,8 +12,8 @@ export const metadata: Metadata = {
   description: INTRO,
 };
 
-// Every case with its sketch, newest incident first, four to a row from 1,024 px so two rows fit one screen
-// (board 12b). The sketches are read from the seabed files at build time.
+// Every case with its sketch, newest incident first, four to a row from 1,024 px and five from 1,280 px so two
+// rows fit one screen (board 12b). The sketches are read from the seabed files at build time.
 export default async function CasesPage() {
   const sketches = await Promise.all(CABLE_CASES.map((cableCase) => loadCaseSketch(toReplaySceneInput(cableCase))));
   return (
@@ -24,7 +24,7 @@ export default async function CasesPage() {
           <h1 className="text-title">Cases</h1>
           <p className="text-body text-muted">{INTRO}</p>
         </div>
-        <div className="grid items-start gap-5 sm:grid-cols-2 lg:grid-cols-4" data-testid="case-list">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5" data-testid="case-list">
           {CABLE_CASES.map((cableCase, index) => (
             <CaseCard key={cableCase.slug} cableCase={cableCase} sketch={sketches[index] ?? null} layout="tile" />
           ))}

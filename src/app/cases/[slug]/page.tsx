@@ -8,6 +8,7 @@ import { toConsoleCase } from "@/lib/cases/case-console";
 import { toReplaySceneInput } from "@/lib/cases/case-file";
 import { loadCaseSeries } from "@/lib/cases/load-case-series";
 import { loadCaseSketch } from "@/lib/cases/load-case-sketch";
+import { loadSeabedSources } from "@/lib/seabed/load-seabed-sources";
 
 // Every case is curated data in the repository, so each page is prerendered at build time.
 export function generateStaticParams() {
@@ -30,7 +31,11 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
   if (!cableCase) notFound();
 
   const input = toReplaySceneInput(cableCase);
-  const [series, sketches] = await Promise.all([loadCaseSeries(input), Promise.all(CABLE_CASES.map((oneCase) => loadCaseSketch(toReplaySceneInput(oneCase))))]);
+  const [series, sketches, seabedSources] = await Promise.all([
+    loadCaseSeries(input),
+    Promise.all(CABLE_CASES.map((oneCase) => loadCaseSketch(toReplaySceneInput(oneCase)))),
+    loadSeabedSources(input.seabedArea),
+  ]);
   const switcherCases = CABLE_CASES.map((oneCase, index) => ({
     slug: oneCase.slug,
     title: oneCase.title,
@@ -42,7 +47,13 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
   return (
     <main>
       <Suspense fallback={<ConsoleSkeleton title={cableCase.title} subtitle={cableCase.subtitle} summary={cableCase.summary} />}>
-        <ReplayConsole input={input} consoleCase={toConsoleCase(cableCase)} series={series} switcherCases={switcherCases} />
+        <ReplayConsole
+          input={input}
+          consoleCase={toConsoleCase(cableCase)}
+          series={series}
+          switcherCases={switcherCases}
+          lineSources={seabedSources ? { cables: seabedSources.cables, pipelines: seabedSources.pipelines } : null}
+        />
       </Suspense>
     </main>
   );

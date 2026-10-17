@@ -1,14 +1,16 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { clampValue, smoothStep } from "@/lib/seabed/math";
+import { clampValue, createSeededRandom, smoothStep } from "@/lib/seabed/math";
 import type { ShipKind } from "@/lib/replay/replay-scene";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 
 // A procedural cargo ship, built in metres with the waterline at y = 0, bow toward +x and starboard toward
 // +z. One hull with the proportions of a 228 m ship (the Eagle S product tanker; the Yi Peng 3 bulk carrier is
-// 224 by 32 m), and two decks: a tanker's pipe rack, manifold cranes and tank domes, or a bulk carrier's
-// hatch covers. The details are the ones visible on any such ship, not a survey of one hull. Monochrome on
-// purpose: the scene's only colors are data colors.
+// 224 by 32 m), and four decks: a tanker's pipe rack, manifold cranes and tank domes, a bulk carrier's hatch
+// covers, a general cargo ship's three holds with side cranes, or a container ship's stacks in bays. The
+// general cargo ship and the container ship of the cases are shorter (132 m and 169 m) but share this hull.
+// The details are the ones visible on any such ship, not a survey of one hull. Monochrome on purpose: the
+// scene's only colors are data colors.
 
 const HALF_LENGTH = 114;
 const HALF_BEAM = 16.1;
@@ -36,6 +38,25 @@ const HATCH_COUNT = 7;
 const HATCH_LENGTH = 15.2;
 const HATCH_WIDTH = 15;
 const COAMING_HEIGHT = 1.9;
+// General cargo ship: three long holds under low folding covers, two cranes on the side deck between them
+// (port aft, starboard forward), each jib stowed fore and aft on a rest post.
+const GENERAL_CARGO_HATCHES: readonly { aftX: number; foreX: number }[] = [
+  { aftX: -75, foreX: -37 },
+  { aftX: -27, foreX: 21 },
+  { aftX: 31, foreX: 74 },
+];
+const CRANE_SIDE_OFFSET = 12.6;
+const CRANE_PEDESTAL_HEIGHT = 9;
+const CRANE_JIB_LENGTH = 26;
+// Container ship: 40 ft bays (12.2 m) with a 1.4 m lashing gap, rows of 2.44 m boxes across, stacks two to
+// four tiers of 2.59 m (ISO 668 container sizes), lower toward the bow so the bridge sees over them.
+const CONTAINER_BAY_LENGTH = 12.2;
+const CONTAINER_BAY_GAP = 1.4;
+const CONTAINER_ROW_PITCH = 2.5;
+const CONTAINER_WIDTH = 2.44;
+const CONTAINER_TIER_HEIGHT = 2.59;
+// Fixed seed so the stack skyline is identical on every load (the Balticconnector damage date).
+const CONTAINER_LAYOUT_SEED = 20231008;
 
 function deckHeightAt(positionX: number): number {
   return DEPTH + FORECASTLE_RISE * smoothStep(0.8 * HALF_LENGTH, 0.86 * HALF_LENGTH, positionX);
@@ -313,6 +334,99 @@ function buildBulkCarrierDeck(parts: PartList, covers: PartList) {
   }
 }
 
+/** A jib of the given length from a pivot, sloping down toward +x or -x by `slope` radians. */
+function addSlopedBeam(parts: PartList, pivot: [number, number, number], length: number, slope: number, direction: 1 | -1, size: number) {
+  const beam = new THREE.BoxGeometry(length, size, size);
+  beam.rotateZ(-direction * slope);
+  beam.translate(pivot[0] + direction * (length / 2) * Math.cos(slope), pivot[1] - (length / 2) * Math.sin(slope), pivot[2]);
+  parts.push(beam.toNonIndexed());
+  beam.dispose();
+}
+
+/**
+ * Three holds under low folding covers (light tone) on their coamings, panel joints across each cover, and two
+ * cranes on the side deck between the holds: pedestal, cab, and a jib stowed along the side deck on a rest post.
+ */
+function buildGeneralCargoDeck(parts: PartList, covers: PartList) {
+  const deckY = DEPTH - DRAFT;
+  const coamingHeight = 1.5;
+  const panelLength = 9;
+  for (const { aftX, foreX } of GENERAL_CARGO_HATCHES) {
+    const length = foreX - aftX;
+    const centerX = (aftX + foreX) / 2;
+    // The forward hold narrows with the bow: keep 4 m of side deck at its forward end.
+    const width = Math.min(20, 2 * (hullHalfBreadth(foreX, DEPTH) - 4));
+    addBox(parts, [length, coamingHeight, width], [centerX, deckY + coamingHeight / 2, 0]);
+    addBox(covers, [length + 0.6, 0.8, width + 0.6], [centerX, deckY + coamingHeight + 0.4, 0]);
+    const panelCount = Math.max(2, Math.round(length / panelLength));
+    for (let joint = 1; joint < panelCount; joint += 1) {
+      addBox(parts, [0.35, 0.25, width + 0.6], [aftX + (length * joint) / panelCount, deckY + coamingHeight + 0.9, 0]);
+    }
+  }
+  const cranePositions: { positionX: number; side: 1 | -1; direction: 1 | -1 }[] = [
+    { positionX: -32, side: -1, direction: 1 },
+    { positionX: 26, side: 1, direction: -1 },
+  ];
+  for (const { positionX, side, direction } of cranePositions) {
+    const sideZ = side * CRANE_SIDE_OFFSET;
+    addCylinder(parts, 1.7, CRANE_PEDESTAL_HEIGHT, [positionX, deckY + CRANE_PEDESTAL_HEIGHT / 2, sideZ], "y", 14);
+    addBox(covers, [5, 4, 4.4], [positionX, deckY + CRANE_PEDESTAL_HEIGHT + 2, sideZ]);
+    const pivot: [number, number, number] = [positionX + direction * 1.8, deckY + CRANE_PEDESTAL_HEIGHT + 1.2, sideZ];
+    const slope = 0.16;
+    addSlopedBeam(parts, pivot, CRANE_JIB_LENGTH, slope, direction, 1.1);
+    // The rest post under the jib's head, and the hook block hanging just inside it.
+    const headX = pivot[0] + direction * CRANE_JIB_LENGTH * Math.cos(slope);
+    const headY = pivot[1] - CRANE_JIB_LENGTH * Math.sin(slope);
+    addBox(parts, [0.5, headY - deckY, 0.5], [headX - direction * 1.2, deckY + (headY - deckY) / 2, sideZ]);
+    addBox(parts, [0.8, 1.1, 0.8], [headX - direction * 0.4, headY - 1.2, sideZ]);
+  }
+}
+
+/**
+ * Container stacks in 40 ft bays, two tones mixed so single boxes read, on hatch covers between lashing
+ * bridges. Rows fill the beam the hull allows at each bay; tiers drop toward the bow.
+ */
+function buildContainerShipDeck(parts: PartList, lightBoxes: PartList) {
+  const deckY = DEPTH - DRAFT;
+  const coamingHeight = 1.2;
+  const nextRandom = createSeededRandom(CONTAINER_LAYOUT_SEED);
+  const cargoStart = ACCOMMODATION_FRONT_X + 3;
+  const cargoEnd = 0.8 * HALF_LENGTH - 4;
+  const bayPitch = CONTAINER_BAY_LENGTH + CONTAINER_BAY_GAP;
+  const bayCount = Math.floor((cargoEnd - cargoStart) / bayPitch);
+  for (let bay = 0; bay < bayCount; bay += 1) {
+    const aftX = cargoStart + bay * bayPitch;
+    const centerX = aftX + CONTAINER_BAY_LENGTH / 2;
+    // The narrowest point of the bay sets how many rows fit, with 1.5 m of side deck left on each side.
+    const usableHalfWidth = Math.min(hullHalfBreadth(aftX, DEPTH), hullHalfBreadth(aftX + CONTAINER_BAY_LENGTH, DEPTH)) - 1.5;
+    const rowCount = Math.max(2, Math.floor((2 * usableHalfWidth) / CONTAINER_ROW_PITCH));
+    const stackWidth = rowCount * CONTAINER_ROW_PITCH;
+    addBox(parts, [CONTAINER_BAY_LENGTH, coamingHeight, stackWidth], [centerX, deckY + coamingHeight / 2, 0]);
+    // Lashing bridge aft of each bay: a walkway frame two tiers high across the stacks.
+    addBox(parts, [0.5, 2 * CONTAINER_TIER_HEIGHT, stackWidth + 0.6], [aftX - CONTAINER_BAY_GAP / 2, deckY + coamingHeight + CONTAINER_TIER_HEIGHT, 0]);
+    const bowAmount = clampValue((centerX - 30) / (cargoEnd - 30), 0, 1);
+    const tallestTiers = bowAmount > 0.55 ? 2 : bowAmount > 0 ? 3 : 4;
+    for (let row = 0; row < rowCount; row += 1) {
+      const rowZ = -stackWidth / 2 + CONTAINER_ROW_PITCH * (row + 0.5);
+      const tiers = Math.max(1, tallestTiers - (nextRandom() < 0.3 ? 1 : 0));
+      for (let tier = 0; tier < tiers; tier += 1) {
+        const target = nextRandom() < 0.4 ? lightBoxes : parts;
+        const tierY = deckY + coamingHeight + CONTAINER_TIER_HEIGHT * (tier + 0.5);
+        // 5 cm shorter than the tier pitch so each box shows a seam above it.
+        addBox(target, [CONTAINER_BAY_LENGTH - 0.2, CONTAINER_TIER_HEIGHT - 0.05, CONTAINER_WIDTH], [centerX, tierY, rowZ]);
+      }
+    }
+  }
+}
+
+/** Every ship kind's deck; the record type makes a new kind fail to compile until it has one. */
+const DECK_BUILDERS: Record<ShipKind, (equipment: PartList, lightParts: PartList) => void> = {
+  tanker: (equipment) => buildTankerDeck(equipment),
+  "bulk-carrier": buildBulkCarrierDeck,
+  "general-cargo": buildGeneralCargoDeck,
+  "container-ship": buildContainerShipDeck,
+};
+
 /** Forecastle gear every ship carries: windlasses, mooring bitts and the foremast. */
 function buildForecastleGear(parts: PartList) {
   const forecastleY = DEPTH + FORECASTLE_RISE - DRAFT;
@@ -348,8 +462,7 @@ export function buildShipModel(kind: ShipKind): ShipModel {
 
   const superstructure = buildSuperstructure();
   const deckEquipment: PartList = [...buildRailings()];
-  if (kind === "tanker") buildTankerDeck(deckEquipment);
-  else buildBulkCarrierDeck(deckEquipment, superstructure.structure);
+  DECK_BUILDERS[kind](deckEquipment, superstructure.structure);
   buildForecastleGear(deckEquipment);
   const meshes = [
     new THREE.Mesh(buildHullShell(), hullMaterial),

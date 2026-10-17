@@ -137,6 +137,7 @@ The 3D seabed is the main replay view (Andy, 2026-10-16): the overview shows the
 - Land heights and the coastline in the 3D seabed: Copernicus DEM GLO-30, produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA.
 - Pipelines: EMODnet Human Activities.
 - Cables: OpenStreetMap contributors (ODbL). The share-alike question is open before they ship.
+- Cables no open dataset maps are traced off a published map, and the replay's credit line names that map (EE-S1 off Yle's map, `scripts/seabed/build-seabed.ts`, `tracedLines`). The line is read from each area's seabed file.
 
 ## Exceptions to the design kit
 
@@ -211,5 +212,5 @@ Home, the case list and the WebGL check share one bar (`src/components/layout/Si
 | Page | 1024 px and up | Under 1024 px |
 |---|---|---|
 | Home (board 12a) | One screen. Left, 400 px: the title, what CableTrace does and the live recorder card. Right: the two newest cases as wide cards (sketch beside place, date, title and three facts) sharing the column's height. Between 1,024 and 1,280 px the sketch keeps 16:9 so no cut is cropped. | One column that scrolls; the sketch sits over the text. |
-| Case list (board 12b) | Four tiles to a row (sketch over place, date, title and one line of facts), so eight cases fit one screen. | Two to a row from 640 px, one under it. |
+| Case list (board 12b) | Four tiles to a row, five from 1,280 px (sketch over place, date, title and one line of facts), so two rows of cases fit one screen. | Two to a row from 640 px, one under it. |
 

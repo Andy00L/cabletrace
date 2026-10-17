@@ -5,7 +5,7 @@
 /** `recordedSpeedKnots` is the speed the vessel broadcast with an AIS position; null for a position placed from statements. */
 export type TimedPosition = { atMs: number; longitude: number; latitude: number; recordedSpeedKnots: number | null };
 /** Which 3D ship draws the vessel: the hull is shared, the deck differs. */
-export type ShipKind = "tanker" | "bulk-carrier";
+export type ShipKind = "tanker" | "bulk-carrier" | "general-cargo" | "container-ship";
 /** `cableName` matches a line name in the seabed file; `label` is what the scene shows. */
 export type ReplayCut = { cableName: string; label: string; atMs: number; longitude: number; latitude: number };
 
