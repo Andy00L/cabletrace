@@ -233,7 +233,7 @@ bun test src
 bun run build
 ```
 
-Success: each exits 0; `bun test src` runs 328 tests.
+Success: each exits 0; `bun test src` runs 332 tests.
 
 Check a case file from the live site (it touches nothing):
 
@@ -292,9 +292,15 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
 
 ## 🏆 TestSprite
 
-The TestSprite suite and its GitHub pull request check go live once TestSprite enables the account for this
-project. Until then, the replay flows written so far are in `testsprite/plans`: 7 plans covering opening a case from
-home, play and pause, jumping from the event list, views and the scale note, sources and placement, the mixed AIS and
+The suite lives in the TestSprite 3.0 portal: 9 test cases that run in TestSprite's cloud browser against a deployed
+build, never localhost. A push trigger watches the `dev` branch. Every push there makes Vercel build the branch's
+preview (https://cabletrace-git-dev-andys-projects-b4ce5499.vercel.app); once Vercel's commit status turns green,
+TestSprite runs the suite against that preview and posts a `TestSprite` check on the commit. Changes reach `main`, and
+production, only through a pull request from `dev`, so every such pull request shows the check of its latest commit
+beside Vercel's.
+
+The flows written before the portal suite are in `testsprite/plans`: 7 plans covering opening a case from home, play
+and pause, jumping from the event list, views and the scale note, sources and placement, the mixed AIS and
 reconstructed track, and the case list. Screens expose stable `data-testid` and `data-state` hooks for them, such as
 `replay-console`, `seabed-view` (loading, ready, failed), `replay-scrubber`, `live-globe` and `download-case-file`.
 
