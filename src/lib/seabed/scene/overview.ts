@@ -676,17 +676,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return marker;
   });
 
-  const plumePositions = new Float32Array(PLUME_PARTICLE_COUNT * 3);
+  const plume = kit.createSoftPoints(PLUME_PARTICLE_COUNT, { map: softDot, color: SCENE_COLORS.plume, size: 0.55, opacity: 0.55 });
+  const plumePositions = plume.positions;
   const plumeAges = new Float32Array(PLUME_PARTICLE_COUNT).fill(2);
   const plumeDrift = Array.from({ length: PLUME_PARTICLE_COUNT }, () => new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.25 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5));
-  const plumeGeometry = new THREE.BufferGeometry();
-  plumeGeometry.setAttribute("position", new THREE.BufferAttribute(plumePositions, 3));
-  const plume = new THREE.Points(
-    plumeGeometry,
-    new THREE.PointsMaterial({ map: softDot, color: SCENE_COLORS.plume, size: 0.55, transparent: true, opacity: 0.55, depthWrite: false, sizeAttenuation: true }),
-  );
-  plume.frustumCulled = false;
-  scene.add(plume);
+  scene.add(plume.object);
 
   const halfFovTangent = Math.tan(((OVERVIEW_FOV_DEGREES / 2) * Math.PI) / 180);
   const topHeightKm = Math.max(projection.depthKm, projection.widthKm / TOP_VIEW_ASPECT) / (2 * halfFovTangent) + 4;
@@ -846,7 +840,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       plumePositions[index * 3 + 1] = (plumePositions[index * 3 + 1] ?? 0) + drift.y * deltaSeconds;
       plumePositions[index * 3 + 2] = (plumePositions[index * 3 + 2] ?? 0) + drift.z * deltaSeconds;
     }
-    plumeGeometry.getAttribute("position").needsUpdate = true;
+    plume.markMoved();
   }
 
   function locateTarget(target: SceneTarget): { position: THREE.Vector3; label: HTMLElement } | null {

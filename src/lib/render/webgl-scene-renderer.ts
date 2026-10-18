@@ -4,7 +4,7 @@ import { Line2 } from "three/addons/lines/Line2.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import type { RendererKind } from "@/lib/diagnostics/webgl-renderer";
 import { createDataColorMaterial } from "@/lib/render/data-colors";
-import { SCENE_EXPOSURE, type SceneMaterialKit, type SceneRenderer } from "@/lib/render/scene-renderer";
+import { SCENE_EXPOSURE, type SceneMaterialKit, type SceneRenderer, type SoftPoints, type SoftPointsOptions } from "@/lib/render/scene-renderer";
 import type { Result } from "@/lib/result";
 import { createCaustics } from "@/lib/seabed/scene/caustics";
 import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
@@ -16,6 +16,24 @@ import { createKelvinWakeGlslMaterial } from "@/lib/ships/kelvin-wake";
 
 /** What a tier may spend on each frame (viewer.ts, RENDER_TIERS). */
 export type DrawingBudget = { antialias: boolean; shadows: boolean; maxPixelRatio: number };
+
+/** Soft particles as WebGL points: one vertex each, sized in world units and smaller with distance. */
+function createSoftPointCloud(count: number, { map, color, size, opacity }: SoftPointsOptions): SoftPoints {
+  const positions = new Float32Array(count * 3);
+  const positionAttribute = new THREE.BufferAttribute(positions, 3);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", positionAttribute);
+  const points = new THREE.Points(geometry, new THREE.PointsMaterial({ map, color, size, transparent: true, opacity, depthWrite: false, sizeAttenuation: true }));
+  // The particles move every frame; their bounds would have to follow.
+  points.frustumCulled = false;
+  return {
+    object: points,
+    positions,
+    markMoved() {
+      positionAttribute.needsUpdate = true;
+    },
+  };
+}
 
 /** The scene's custom materials as GLSL patches on three.js's built-in materials. */
 export function createWebGlKit(renderer: THREE.WebGLRenderer): SceneMaterialKit {
@@ -34,6 +52,7 @@ export function createWebGlKit(renderer: THREE.WebGLRenderer): SceneMaterialKit 
       new Line2(geometry, new LineMaterial({ color, linewidth: widthPx, vertexColors: hasVertexColors, opacity, worldUnits: false })),
     createKelvinWakeMaterial: createKelvinWakeGlslMaterial,
     createCaustics,
+    createSoftPoints: createSoftPointCloud,
   };
 }
 

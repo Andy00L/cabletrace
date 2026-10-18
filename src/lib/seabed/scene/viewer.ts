@@ -242,7 +242,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       cableLabel: input.cuts[0].label,
       environment: overview.scene.environment,
       softDot,
-      caustics: renderer.kit.createCaustics(),
+      kit: renderer.kit,
       prefersReducedMotion: isCalm,
       chainShape: overview.primaryCutChain,
     });

@@ -38,6 +38,15 @@ export type Caustics = {
   createMaterial: (parameters: THREE.MeshStandardMaterialParameters, strength: number) => THREE.Material;
 };
 
+/** Soft round particles (sediment) of one world size, smaller with distance, see-through and never writing depth. */
+export type SoftPointsOptions = { map: THREE.Texture; color: string; size: number; opacity: number };
+
+/**
+ * A cloud of soft particles: the caller writes each particle's position (x, y, z) into `positions`, then calls
+ * `markMoved` so the next frame draws them there.
+ */
+export type SoftPoints = { object: THREE.Object3D; positions: Float32Array; markMoved: () => void };
+
 export type SceneMaterialKit = {
   /** The studio room's reflections (three.js RoomEnvironment, prefiltered) for the scene's metal and glass. */
   createEnvironment: () => THREE.Texture;
@@ -53,6 +62,11 @@ export type SceneMaterialKit = {
   createScreenLine: (geometry: LineGeometry, options: ScreenLineOptions) => THREE.Mesh;
   createKelvinWakeMaterial: (shape: KelvinWakeShape) => KelvinWakeMaterial;
   createCaustics: () => Caustics;
+  /**
+   * `count` soft particles. WebGL draws them as points; WebGPU draws every point 1 px wide whatever its size, so its
+   * kit draws them as instanced sprites of the same size.
+   */
+  createSoftPoints: (count: number, options: SoftPointsOptions) => SoftPoints;
 };
 
 /** The drawing backend of the 3D replay: one canvas, one renderer, the kit that matches it. */
