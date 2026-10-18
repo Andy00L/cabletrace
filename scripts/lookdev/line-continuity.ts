@@ -22,7 +22,8 @@ import { TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
 
 const VIEWPORT = { width: 1440, height: 900 };
 const FRAME_TIMEOUT_MS = 120_000;
-// A pixel of the path holds the line when a pixel within this radius is within this deviation of the exact colour.
+// A pixel of the path holds the line when a pixel within this radius (of the drawn frame: the software tier draws at
+// 0.75 and is scaled up, so 2 page px there) is within this deviation of the exact colour.
 const MATCH_RADIUS_PX = 1;
 const MATCH_TOLERANCE = 2;
 // The judge: no gap longer than this many px.
@@ -119,7 +120,8 @@ async function captureCanvas(page: Page): Promise<RgbaImage | null> {
 }
 
 /** Walks each trace one pixel at a time and measures, per tone, the longest run of pixels that miss the exact colour. */
-function measureContinuity(image: RgbaImage, traces: LineTraces["traces"], marked: RgbaImage, cornerRadiusPx: number): ToneContinuity[] {
+function measureContinuity(image: RgbaImage, traces: LineTraces["traces"], marked: RgbaImage, frame: { cornerRadiusPx: number; matchRadiusPx: number }): ToneContinuity[] {
+  const { cornerRadiusPx, matchRadiusPx } = frame;
   const byTone = new Map<DataTone, ToneContinuity>();
   // The stage's rounded corners clip the canvas: a point there shows the page, not the scene.
   const isInsideCorners = (pointX: number, pointY: number) => {
@@ -156,7 +158,7 @@ function measureContinuity(image: RgbaImage, traces: LineTraces["traces"], marke
       for (let step = 0; step < steps; step += 1) {
         const pixelX = start[0] + ((end[0] - start[0]) * step) / steps;
         const pixelY = start[1] + ((end[1] - start[1]) * step) / steps;
-        const match = matchColorNear(image, pixelX, pixelY, expected, MATCH_RADIUS_PX);
+        const match = matchColorNear(image, pixelX, pixelY, expected, matchRadiusPx);
         verdict.checkedPx += 1;
         if (match && match.deviation <= MATCH_TOLERANCE) {
           closeGap();
@@ -164,7 +166,7 @@ function measureContinuity(image: RgbaImage, traces: LineTraces["traces"], marke
         }
         // Where another data line crosses over this one, the pixel holds that line's exact colour: the data is still
         // drawn there, so it is not a gap (and not counted as the line either).
-        if (otherTones.some((other) => (matchColorNear(image, pixelX, pixelY, other, MATCH_RADIUS_PX)?.deviation ?? Number.POSITIVE_INFINITY) <= MATCH_TOLERANCE)) {
+        if (otherTones.some((other) => (matchColorNear(image, pixelX, pixelY, other, matchRadiusPx)?.deviation ?? Number.POSITIVE_INFINITY) <= MATCH_TOLERANCE)) {
           verdict.checkedPx -= 1;
           continue;
         }
@@ -256,7 +258,14 @@ async function checkShot(page: Page, baseUrl: string, shot: LookdevShot, query: 
     }
     return largest;
   });
-  const tones = measureContinuity(frame, lineTraces.traces, marked, cornerRadiusPx);
+  // A canvas drawn at fewer device pixels than CSS pixels (the software tier's 0.75) is scaled up in steps, so the
+  // radius grows by the same factor: 1 px of the drawn frame.
+  const drawnScale = await page.evaluate(() => {
+    const canvas = document.querySelector("canvas[data-renderer]");
+    return canvas instanceof HTMLCanvasElement && canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1;
+  });
+  const matchRadiusPx = Math.ceil(MATCH_RADIUS_PX / Math.min(1, drawnScale));
+  const tones = measureContinuity(frame, lineTraces.traces, marked, { cornerRadiusPx, matchRadiusPx });
   writeFileSync(path.join(outDirectory, `${shot.name}-continuity.png`), encodePng(marked));
   let anchorContrast: number | null = null;
   let anchorPixels = 0;
