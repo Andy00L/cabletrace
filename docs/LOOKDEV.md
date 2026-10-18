@@ -180,6 +180,11 @@ from WSL, so Playwright cannot drive it. `scripts/lookdev/webgpu-capture.ts` dri
   third that times the scrub (one-minute steps on the scrubber, input event to the next drawn frame, real time).
 - Chrome always runs with `--headless=new` and a profile in `.scratch/lookdev-webgpu-profile`; a run that hangs is
   stopped after 150 s, and only Chrome processes started with that profile are stopped.
+- Chrome runs with `--disable-extensions`, and its `TEMP` and `TMP` point at `.scratch/lookdev-webgpu-temp` (passed
+  through `WSLENV`, emptied before each run). Without them, the runs of 17 and 18 Oct 2026 left about 1,400 extension
+  downloads of 6 to 27 MB in Windows `%TEMP%`: programs installed on Windows (Acrobat, NordVPN) register extensions
+  Chrome adds to every profile, and each run quit at its screenshot before the install finished, so the next run
+  downloaded them again. A full WebGPU run with both (24 frames, all matching their baselines) left nothing there.
 
 ## Results
 
