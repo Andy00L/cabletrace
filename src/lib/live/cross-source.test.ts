@@ -20,7 +20,7 @@ describe("deadReckon", () => {
 });
 
 describe("compareFeeds", () => {
-  test("counts shared, aisstream-only and matched ships inside the box", () => {
+  test("counts shared, aisstream-only and matched moving ships inside the box", () => {
     const sample = compareFeeds({
       regionId: "gulf-of-finland",
       box: GULF,
@@ -31,12 +31,16 @@ describe("compareFeeds", () => {
         ship({ mmsi: 3, source: "aisstream" }),
         // Outside the box.
         ship({ mmsi: 4, source: "aisstream", longitude: 3 }),
+        // Moored: not compared, so its absence from Digitraffic counts against nothing.
+        ship({ mmsi: 6, source: "aisstream", speedKnots: 0.2 }),
       ],
       digitraffic: [
         ship({ mmsi: 1, source: "digitraffic" }),
         ship({ mmsi: 3, source: "digitraffic", reportedAtMs: WINDOW_START_MS + 330_000 }),
         // Reported before the window: in the snapshot, not counted as heard in the window.
         ship({ mmsi: 5, source: "digitraffic", reportedAtMs: WINDOW_START_MS - 60_000 }),
+        // Moored: not counted as a moving Digitraffic ship.
+        ship({ mmsi: 7, source: "digitraffic", speedKnots: 0 }),
       ],
       windowStartMs: WINDOW_START_MS,
       sampledAtMs: WINDOW_START_MS + 110_000,
@@ -79,7 +83,7 @@ describe("judgeSamples", () => {
     expect(judgeSamples([sample({})]).verdict).toBe("agree");
     const missing = judgeSamples([sample({ sharedShips: 20, aisstreamOnlyShips: 20 })]);
     expect(missing.verdict).toBe("disagree");
-    expect(missing.reasons).toEqual(["Digitraffic holds 50% of the ships aisstream hears, under 90%"]);
+    expect(missing.reasons).toEqual(["Digitraffic holds 50% of the moving ships aisstream hears, under 90%"]);
     expect(judgeSamples([sample({ withinToleranceShare: 0.5 })]).reasons).toEqual(["50% of matched positions within 250 m, under 95%"]);
     expect(judgeSamples([sample({ matchedPairs: 5 })]).verdict).toBe("no-data");
     expect(judgeSamples([]).verdict).toBe("no-data");

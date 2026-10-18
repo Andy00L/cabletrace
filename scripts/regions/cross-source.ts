@@ -2,7 +2,8 @@
 // Gulf of Finland? Every frame collector run compares the aisstream capture behind its frame with the Digitraffic
 // snapshot it fetched for the same frame and stores one sample (src/lib/live/cross-source.ts,
 // public.cross_source_samples). This script judges the samples of the last hours against the stated tolerances:
-//   ships   at least 90% of the ships aisstream hears in the Gulf are in Digitraffic's 30-minute snapshot
+//   ships   at least 90% of the moving ships (1 knot or more) aisstream hears in the Gulf are in Digitraffic's
+//           30-minute snapshot
 //   places  at least 95% of matched reports (stamped at most 2 minutes apart) lie within 250 m of each other after
 //           dead reckoning, over at least 20 matched pairs
 // Usage: bun scripts/regions/cross-source.ts [hours, default 24] [region id, default every region compared]

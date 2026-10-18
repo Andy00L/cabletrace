@@ -200,8 +200,8 @@ own view of the Gulf never reaches Storage.
 
 `scripts/regions/cross-source.ts` judges the samples of the last hours. Tolerances:
 
-- ships: at least 90% of the ships aisstream hears in the Gulf are in Digitraffic's snapshot (Digitraffic's receivers
-  see about 7 times more ships there);
+- ships: at least 90% of the moving ships (1 knot or more) aisstream hears in the Gulf are in Digitraffic's snapshot
+  (Digitraffic's receivers see about 7 times more ships there);
 - places: at least 95% of matched pairs within 250 m (both feeds relay the same transponder; 2 minutes of dead
   reckoning at 20 knots with a 5 degree course error drift about 110 m);
 - at least 20 matched pairs, or no verdict.
@@ -212,8 +212,9 @@ an alert line read from that cached health answer (`src/lib/health/cross-source-
 `src/lib/health/feed-check-report.ts`). The first day disagreed: on 17 Oct 2026, 26 samples gave 80%
 of aisstream's Gulf ships in Digitraffic against the 90% target, while 99.9% of 692 matched positions agreed within
 250 m. In the newest frame, 11 of the 14 ships only aisstream heard sat at 0 knots in Helsinki and Turku harbours,
-which points to the two feeds' scope (moored or small craft), not to bad positions; the target stays until that is
-confirmed.
+which points to the two feeds' scope (moored or small craft), not to bad positions. Since 18 Oct 2026 (Andy's call)
+only moving ships are compared and the 90% target stays: the anchor-drag watch only ever needs ships under way.
+Samples written before the change age out of the 6-hour status window within 6 hours.
 
 The table has no public policy (`20261019060000_close_public_reads.sql`). `public.cross_source_samples_since(hours)`,
 a security definer function capped at 7 days and 1,008 rows (about 150 KB), is callable by the service role only
