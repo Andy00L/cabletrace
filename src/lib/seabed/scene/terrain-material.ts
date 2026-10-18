@@ -95,6 +95,11 @@ vec3 outgoingLight = diffuseColor.rgb * min(reliefShade, MAX_RELIEF_BRIGHTENING)
 export type TerrainLighting = {
   /** Irradiance a level surface receives from the lights (sun times the cosine of its elevation, plus the sky). */
   levelIrradiance: THREE.Color;
+  /**
+   * The scene's environment map and intensity. The GLSL material gets them from three.js's own lighting; the WebGPU
+   * tier's TSL Lambert material takes no environment light, so its port adds this term itself.
+   */
+  environment: { texture: THREE.Texture | null; intensity: number };
 };
 
 /** What a level surface receives from a directional sun and a hemisphere sky (three.js light units, linear). */

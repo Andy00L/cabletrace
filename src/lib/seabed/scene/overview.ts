@@ -372,7 +372,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   sunLight.shadow.radius = SUN_SHADOW_SOFTNESS_TEXELS;
   scene.add(sunLight);
 
-  const terrain = buildTerrainMesh(elevations, features, projection, exaggeration, { lighting: { levelIrradiance: measureLevelIrradiance(sunLight, skyLight) }, rippleNormalMap: options.rippleNormalMap, kit });
+  const terrain = buildTerrainMesh(elevations, features, projection, exaggeration, {
+    lighting: { levelIrradiance: measureLevelIrradiance(sunLight, skyLight), environment: { texture: scene.environment, intensity: scene.environmentIntensity } },
+    rippleNormalMap: options.rippleNormalMap,
+    kit,
+  });
   const seabedProbeCandidates = pickSeabedProbes(terrain);
   const water = buildWaterBody({ projection, deepestY, hasWaves: options.isHighDetail, sun: sunLight, kit });
   scene.add(terrain, buildBlockSides(terrain, features, baseY), water.group);
