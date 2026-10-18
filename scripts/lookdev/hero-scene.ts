@@ -8,6 +8,7 @@ import { DEPTH_TOKEN_RAMP, SCENE_COLORS } from "../../src/lib/seabed/scene/scene
 import { SCENE_SCALES } from "../../src/lib/seabed/scene-scales";
 import { buildWaterBody, createUniformDepthMap, readWaterLook, SKY_HDRI_URL } from "../../src/lib/seabed/scene/water-surface";
 import { createWake } from "../../src/lib/seabed/scene/wake";
+import type { ShipKind } from "../../src/lib/replay/replay-scene";
 import { buildShip } from "../../src/lib/ships/build-ship";
 import { addShipDetail } from "../../src/lib/ships/ship-detail";
 import { createKelvinWake } from "../../src/lib/ships/kelvin-wake";
@@ -43,11 +44,43 @@ function readSeabedHex(depthMetres: number): string {
   return band ? band[1] : SCENE_COLORS.water;
 }
 
+type ShipUnderWay = { kind: ShipKind; lengthMetres: number; name: string; atKm: { x: number; z: number } };
+
+// The frame-time bench's two other ships, abeam of Eagle S on parallel tracks (km), so three hulls and their wakes
+// share the frame as they would where traffic crowds a strait.
+const BENCH_SHIPS: readonly ShipUnderWay[] = [
+  { kind: "container-ship", lengthMetres: 169, name: "Newnew Polar Bear", atKm: { x: -2.6, z: -1.2 } },
+  { kind: "bulk-carrier", lengthMetres: 224, name: "Yi Peng 3", atKm: { x: -5.5, z: -3.4 } },
+];
+
+/** Adds one ship under way: its hull with both levels of detail, its Kelvin wake on the GPU tiers and its foam trail. */
+function addShipUnderWay(scene: THREE.Scene, kit: SceneMaterialKit, ship: ShipUnderWay, options: { isDetailed: boolean; skyMap: THREE.Texture | null; waterHex: string }) {
+  const model = buildShip({ kind: ship.kind, lengthMetres: ship.lengthMetres, tone: "suspect", isDetailed: options.isDetailed, sky: options.skyMap });
+  addShipDetail(model, ship.name);
+  model.group.scale.setScalar(DRAWN_SCALE);
+  model.group.position.set(ship.atKm.x, 0, ship.atKm.z);
+  scene.add(model.group);
+  if (options.isDetailed) {
+    const kelvinWake = createKelvinWake(model.form, kit, options.waterHex);
+    kelvinWake.setSpeed(HERO_SPEED_METRES_PER_SECOND);
+    model.group.add(kelvinWake.mesh);
+  }
+  const trail = createWake();
+  const sternKm = ship.atKm.x - model.form.halfLength * DRAWN_SCALE;
+  const stepKm = HERO_SPEED_METRES_PER_SECOND * WAKE_STEP_SECONDS * METRES_TO_KM;
+  trail.update(
+    Array.from({ length: WAKE_SAMPLES + 1 }, (_slot, index) => ({ x: sternKm - index * stepKm, z: ship.atKm.z })),
+    model.form.halfBeam * DRAWN_SCALE,
+  );
+  scene.add(trail.mesh);
+}
+
 /**
- * The hero scene and its camera; `isDetailed` adds the GPU tiers' detail (plating relief, waves, the Kelvin wake).
- * `ready` settles once every texture the scene loads has arrived.
+ * The hero scene and its camera; `isDetailed` adds the GPU tiers' detail (plating relief, waves, the Kelvin wake),
+ * `hasBenchShips` the two other ships of the frame-time bench. `ready` settles once every texture the scene loads has
+ * arrived; `setWaveTime` moves the sea (seconds).
  */
-export function buildHeroScene(kit: SceneMaterialKit, isDetailed: boolean): { scene: THREE.Scene; camera: THREE.PerspectiveCamera; ready: Promise<void> } {
+export function buildHeroScene(kit: SceneMaterialKit, isDetailed: boolean, hasBenchShips = false): { scene: THREE.Scene; camera: THREE.PerspectiveCamera; ready: Promise<void>; setWaveTime: (seconds: number) => void } {
   const scene = new THREE.Scene();
   scene.environment = kit.createEnvironment();
   scene.environmentIntensity = 0.38;
@@ -94,26 +127,12 @@ export function buildHeroScene(kit: SceneMaterialKit, isDetailed: boolean): { sc
   water.setWaveTime(0);
   scene.add(water.group);
 
-  const ship = buildShip({ kind: "tanker", lengthMetres: HERO_LENGTH_METRES, tone: "suspect", isDetailed, sky: skyMap });
-  addShipDetail(ship, "Eagle S");
-  ship.group.scale.setScalar(DRAWN_SCALE);
-  scene.add(ship.group);
-  if (isDetailed) {
-    const kelvinWake = createKelvinWake(ship.form, kit, readWaterLook(window.location.search).column);
-    kelvinWake.setSpeed(HERO_SPEED_METRES_PER_SECOND);
-    ship.group.add(kelvinWake.mesh);
-  }
-  const trail = createWake();
-  const sternKm = -ship.form.halfLength * DRAWN_SCALE;
-  const stepKm = HERO_SPEED_METRES_PER_SECOND * WAKE_STEP_SECONDS * METRES_TO_KM;
-  trail.update(
-    Array.from({ length: WAKE_SAMPLES + 1 }, (_slot, index) => ({ x: sternKm - index * stepKm, z: 0 })),
-    ship.form.halfBeam * DRAWN_SCALE,
-  );
-  scene.add(trail.mesh);
+  const shipOptions = { isDetailed, skyMap, waterHex: readWaterLook(window.location.search).column };
+  addShipUnderWay(scene, kit, { kind: "tanker", lengthMetres: HERO_LENGTH_METRES, name: "Eagle S", atKm: { x: 0, z: 0 } }, shipOptions);
+  if (hasBenchShips) BENCH_SHIPS.forEach((ship) => addShipUnderWay(scene, kit, ship, shipOptions));
 
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV_DEGREES, HERO_FRAME.widthPx / HERO_FRAME.heightPx, 0.005, SEA_SIZE_KM);
   camera.position.set(CAMERA_AHEAD_LENGTHS * drawnLengthKm, CAMERA_UP_LENGTHS * drawnLengthKm, CAMERA_OUT_LENGTHS * drawnLengthKm);
   camera.lookAt(AIM_AHEAD_LENGTHS * drawnLengthKm, AIM_UP_LENGTHS * drawnLengthKm, 0);
-  return { scene, camera, ready };
+  return { scene, camera, ready, setWaveTime: water.setWaveTime };
 }

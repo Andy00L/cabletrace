@@ -2,6 +2,7 @@
 // The page is bundled with Bun.build and served through Playwright routes, with the app's public/ folder behind it so
 // the scene loads its textures from the same paths as the replay.
 // Usage: bun scripts/lookdev/hero.ts [--tier software|hardware|all] [--out <dir>] [--chromium /path/to/chrome]
+//        [--query "?water=b" | "?bench"]   (the second water look; or time 300 frames of three ships and their wakes)
 // Writes <out>/<tier>/eagle-s-2024-hero.png (default out: .scratch/lookdev). Exit codes: 0 drawn, 2 not drawn.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -35,7 +36,8 @@ async function serveFromDisk(route: Route, pageDirectory: string) {
   await route.fulfill({ status: 200, body: readFileSync(found), contentType: CONTENT_TYPES[path.extname(found)] ?? "application/octet-stream" });
 }
 
-async function captureHero(tier: PlaywrightTierName, chromiumPath: string, pageDirectory: string, outDirectory: string): Promise<Result<string>> {
+/** `query`: the page's query string, "?water=b" for the second water look, "?bench" to time three ships' frames. */
+async function captureHero(tier: PlaywrightTierName, chromiumPath: string, pageDirectory: string, outDirectory: string, options: { query: string; name: string }): Promise<Result<string>> {
   const launch = TIER_LAUNCH[tier];
   const browser = await chromium.launch({ executablePath: chromiumPath, args: launch.args, env: { ...process.env, ...launch.env } });
   try {
@@ -46,7 +48,7 @@ async function captureHero(tier: PlaywrightTierName, chromiumPath: string, pageD
       if (message.type() === "error") console.error(`[captureHero] page: ${message.text()}`);
     });
     const startedAt = performance.now();
-    await page.goto(`${PAGE_ORIGIN}/index.html`, { waitUntil: "load", timeout: FRAME_TIMEOUT_MS });
+    await page.goto(`${PAGE_ORIGIN}/index.html${options.query}`, { waitUntil: "load", timeout: FRAME_TIMEOUT_MS });
     await page.waitForSelector("body[data-state]", { state: "attached", timeout: FRAME_TIMEOUT_MS });
     const pageState = await page.evaluate(() => document.body.dataset.state ?? "");
     if (pageState !== "ready") return { ok: false, reason: "the hero page failed to draw (see its console)" };
@@ -55,9 +57,11 @@ async function captureHero(tier: PlaywrightTierName, chromiumPath: string, pageD
     const framePng = await page.locator("canvas[data-renderer]").screenshot({ animations: "disabled" });
     const tierOut = path.join(outDirectory, tier);
     mkdirSync(tierOut, { recursive: true });
-    const framePath = path.join(tierOut, `${HERO_SHOT_NAME}.png`);
+    const framePath = path.join(tierOut, `${options.name}.png`);
     writeFileSync(framePath, framePng);
-    console.log(`[captureHero] ${tier} ${HERO_SHOT_NAME} drawn in ${Math.round(performance.now() - startedAt)} ms: ${framePath}`);
+    console.log(`[captureHero] ${tier} ${options.name} drawn in ${Math.round(performance.now() - startedAt)} ms: ${framePath}`);
+    const bench = await page.evaluate(() => document.body.dataset.bench ?? "");
+    if (bench) console.log(`[captureHero] ${tier} frame bench (three ships and their wakes, 1440 x 900): ${bench}`);
     return { ok: true, value: framePath };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
@@ -87,7 +91,9 @@ async function main(): Promise<number> {
   }
   let hasFailure = false;
   for (const tier of tiers) {
-    const captured = await captureHero(tier, chromiumPath.value, path.dirname(pagePath.value), outDirectory);
+    const query = readFlagValue(argumentList, "--query") ?? "";
+    const name = query.includes("bench") ? `${HERO_SHOT_NAME}-bench` : query.includes("water=b") ? `${HERO_SHOT_NAME}-water-b` : HERO_SHOT_NAME;
+    const captured = await captureHero(tier, chromiumPath.value, path.dirname(pagePath.value), outDirectory, { query, name });
     if (!captured.ok) {
       console.error(`[captureHero] ${tier}: ${captured.reason}`);
       hasFailure = true;
