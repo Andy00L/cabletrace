@@ -93,10 +93,12 @@ describe("parseAisstreamMessage", () => {
       },
       status: { navigationStatus: 5, turnRate: null },
       staticData: null,
+      transponderClass: "A",
     });
     const classB = parseAisstreamMessage(CLASS_B_POSITION);
     expect(classB.kind === "position" && classB.report).toMatchObject({ mmsi: 244000202, speedKnots: 2.5, courseDegrees: 147.9, headingDegrees: null });
     expect(classB.kind === "position" && classB.status).toEqual({ navigationStatus: null, turnRate: null });
+    expect(classB.kind === "position" && classB.transponderClass).toBe("B");
   });
 
   test("keeps the rate of turn code and drops its not-available value", () => {
@@ -111,6 +113,7 @@ describe("parseAisstreamMessage", () => {
     expect(extended.kind).toBe("position");
     if (extended.kind !== "position") return;
     expect(extended.staticData).toMatchObject({ mmsi: 525000303, name: "KM SAMPLE TIGA", shipType: 30, lengthMetres: null, beamMetres: null });
+    expect(extended.transponderClass).toBe("B");
   });
 
   test("reads class A static data, treating zero IMO as absent", () => {

@@ -1,7 +1,8 @@
 // Cross-source check (ambition-pass 4.1, the live layer's outside judge): where two independent feeds cover the same
 // water, they must agree on which ships are there and where. The frame collector compares, on every run, the
 // aisstream reports it heard with the Digitraffic snapshot it fetched for the same frame, inside each region recorded
-// from Digitraffic (the Gulf of Finland), and stores one sample per region (public.cross_source_samples).
+// from Digitraffic (the Gulf of Finland), and stores one sample per region (public.cross_source_samples). Only ships
+// Digitraffic publishes are compared: moving, class A, not fishing (the constants below).
 // scripts/regions/cross-source.ts judges the stored samples against the tolerances below.
 //
 // Import rule exception (see snapshot-codec.ts): the geodesy helpers come through the "@/" alias, which the
@@ -20,8 +21,14 @@ export const POSITION_TOLERANCE_METRES = 250;
 // Verdict thresholds over a span of samples.
 export const POSITION_AGREEMENT_MIN_SHARE = 0.95;
 // Digitraffic's receivers cover the Gulf about 7 times more densely than aisstream's (DIGITRAFFIC_BOX in
-// ship-merge.ts), so nearly every moving ship aisstream hears there must also be in Digitraffic's 30-minute snapshot.
+// ship-merge.ts), so nearly every comparable ship aisstream hears there must also be in Digitraffic's 30-minute
+// snapshot.
 export const SHIP_AGREEMENT_MIN_SHARE = 0.9;
+// Digitraffic publishes class A position messages only and filters out every fishing vessel, AIS type 30
+// (https://digitraffic.fi/en/marine-traffic/ais, read 18 Oct 2026), so aisstream's class B ships and fishing vessels
+// are left out of the comparison. In a 100 s sample of the Gulf on 18 Oct 2026, Digitraffic held 13 of the 14 moving
+// class A ships aisstream heard and none of the 10 moving class B ones; class B craft were most of the gap the moving
+// ships filter below left.
 // Only ships moving at least this fast are compared (Andy, 18 Oct 2026). On the first day, 80% of the ships aisstream
 // heard in the Gulf were in Digitraffic, and most of the rest sat at 0 knots in Helsinki and Turku harbours: the feeds
 // differ on moored craft, which the anchor-drag watch never needs. A ship at its berth or anchor reports 0 to 0.5 knots
@@ -39,13 +46,13 @@ export type CrossSourceSample = {
   regionId: string;
   sampledAtMs: number;
   windowSeconds: number;
-  /** Moving ships (MOVING_MIN_KNOTS) aisstream reported inside the box during the listening window. */
+  /** Comparable ships (moving, class A, not fishing) aisstream reported inside the box during the listening window. */
   aisstreamShips: number;
   /** Moving ships Digitraffic reported inside the box during the same window. */
   digitrafficShips: number;
-  /** aisstream's moving ships that Digitraffic's snapshot (its last 30 minutes) also holds, at any speed. */
+  /** aisstream's comparable ships that Digitraffic's snapshot (its last 30 minutes) also holds, at any speed. */
   sharedShips: number;
-  /** aisstream's moving ships missing from Digitraffic's snapshot: blind spots, outages or identity mismatches. */
+  /** aisstream's comparable ships missing from Digitraffic's snapshot: blind spots, outages or identity mismatches. */
   aisstreamOnlyShips: number;
   /** Shared ships whose two reports are at most MATCH_WINDOW_MS apart. */
   matchedPairs: number;
@@ -79,8 +86,10 @@ export function deadReckon(report: ShipRecord, atMs: number): { longitude: numbe
 type CompareInput = {
   regionId: string;
   box: Box;
-  /** The latest aisstream report per ship heard during the window. */
+  /** The latest aisstream report per ship heard during the window, with the ship's class where it is known. */
   aisstream: readonly ShipRecord[];
+  /** The ships aisstream heard through class A position reports during the window (TransponderClass in ais-reports.ts). */
+  classAMmsis: ReadonlySet<number>;
   /** Digitraffic's latest report per ship over its snapshot (the collector asks for the last 30 minutes). */
   digitraffic: readonly ShipRecord[];
   windowStartMs: number;
@@ -92,11 +101,13 @@ function isMoving(ship: ShipRecord): boolean {
 }
 
 /**
- * One sample: counts and position offsets of the two feeds' moving ships inside one box. A ship counts as shared when
- * Digitraffic holds it at any speed, so a ship that just stopped is not lost between the two reports.
+ * One sample: counts and position offsets of the two feeds' ships inside one box, aisstream's limited to the ships
+ * Digitraffic publishes (moving, class A, not fishing). A ship counts as shared when Digitraffic holds it at any
+ * speed, so a ship that just stopped is not lost between the two reports.
  */
-export function compareFeeds({ regionId, box, aisstream, digitraffic, windowStartMs, sampledAtMs }: CompareInput): CrossSourceSample {
-  const aisstreamInBox = aisstream.filter((ship) => ship.source === "aisstream" && isMoving(ship) && isInside(box, ship) && ship.reportedAtMs >= windowStartMs);
+export function compareFeeds({ regionId, box, aisstream, classAMmsis, digitraffic, windowStartMs, sampledAtMs }: CompareInput): CrossSourceSample {
+  const isComparable = (ship: ShipRecord) => isMoving(ship) && classAMmsis.has(ship.mmsi) && ship.shipClass !== "fishing";
+  const aisstreamInBox = aisstream.filter((ship) => ship.source === "aisstream" && isComparable(ship) && isInside(box, ship) && ship.reportedAtMs >= windowStartMs);
   const digitrafficByMmsi = new Map(digitraffic.filter((ship) => ship.source === "digitraffic").map((ship) => [ship.mmsi, ship]));
   const digitrafficInWindow = [...digitrafficByMmsi.values()].filter((ship) => isMoving(ship) && isInside(box, ship) && ship.reportedAtMs >= windowStartMs);
   const offsets: number[] = [];
@@ -197,7 +208,7 @@ export type CrossSourceVerdict = {
 };
 
 /**
- * Judges a span of samples: the feeds agree when at least SHIP_AGREEMENT_MIN_SHARE of aisstream's moving ships are in
+ * Judges a span of samples: the feeds agree when at least SHIP_AGREEMENT_MIN_SHARE of aisstream's comparable ships are in
  * Digitraffic too and at least POSITION_AGREEMENT_MIN_SHARE of matched pairs sit within POSITION_TOLERANCE_METRES.
  * Shares are pooled over all samples (a sample with more ships weighs more), so a quiet hour does not swing the verdict.
  */
@@ -214,7 +225,7 @@ export function judgeSamples(samples: readonly CrossSourceSample[]): CrossSource
   }
   const reasons: string[] = [];
   if (shipAgreementShare < SHIP_AGREEMENT_MIN_SHARE) {
-    reasons.push(`Digitraffic holds ${Math.round(shipAgreementShare * 100)}% of the moving ships aisstream hears, under ${SHIP_AGREEMENT_MIN_SHARE * 100}%`);
+    reasons.push(`Digitraffic holds ${Math.round(shipAgreementShare * 100)}% of the moving class A ships aisstream hears, under ${SHIP_AGREEMENT_MIN_SHARE * 100}%`);
   }
   if (positionAgreementShare < POSITION_AGREEMENT_MIN_SHARE) {
     reasons.push(`${Math.round(positionAgreementShare * 100)}% of matched positions within ${POSITION_TOLERANCE_METRES} m, under ${POSITION_AGREEMENT_MIN_SHARE * 100}%`);

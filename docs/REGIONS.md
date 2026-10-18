@@ -200,8 +200,8 @@ own view of the Gulf never reaches Storage.
 
 `scripts/regions/cross-source.ts` judges the samples of the last hours. Tolerances:
 
-- ships: at least 90% of the moving ships (1 knot or more) aisstream hears in the Gulf are in Digitraffic's snapshot
-  (Digitraffic's receivers see about 7 times more ships there);
+- ships: at least 90% of the ships aisstream hears in the Gulf that Digitraffic publishes (moving at 1 knot or more,
+  class A, not fishing) are in Digitraffic's snapshot (Digitraffic's receivers see about 7 times more ships there);
 - places: at least 95% of matched pairs within 250 m (both feeds relay the same transponder; 2 minutes of dead
   reckoning at 20 knots with a 5 degree course error drift about 110 m);
 - at least 20 matched pairs, or no verdict.
@@ -214,7 +214,16 @@ of aisstream's Gulf ships in Digitraffic against the 90% target, while 99.9% of 
 250 m. In the newest frame, 11 of the 14 ships only aisstream heard sat at 0 knots in Helsinki and Turku harbours,
 which points to the two feeds' scope (moored or small craft), not to bad positions. Since 18 Oct 2026 (Andy's call)
 only moving ships are compared and the 90% target stays: the anchor-drag watch only ever needs ships under way.
-Samples written before the change age out of the 6-hour status window within 6 hours.
+
+The first moving-only sample still disagreed (6 of 13). Over the 6 hours of frames before it, the 32 moving ships
+heard only by aisstream in the Gulf were Finnish (28), Estonian (3) and Lithuanian (1) craft near Helsinki, Porvoo
+and Tallinn, and Digitraffic had no metadata for any of the 5 looked up. Digitraffic publishes class A position
+messages only and filters out every fishing vessel, AIS type 30 (https://digitraffic.fi/en/marine-traffic/ais, read
+18 Oct 2026). A 100 s listen of the Gulf the same day split the moving ships by the message that carried them:
+Digitraffic held 13 of 14 class A ships and 0 of 10 class B ones. Since then the comparison counts only what
+Digitraffic publishes: aisstream's moving ships heard through class A position reports (messages 1 to 3), fishing
+vessels left out (the ship's class from the frame). Samples written before each change age out of the 6-hour status
+window within 6 hours.
 
 The table has no public policy (`20261019060000_close_public_reads.sql`). `public.cross_source_samples_since(hours)`,
 a security definer function capped at 7 days and 1,008 rows (about 150 KB), is callable by the service role only
