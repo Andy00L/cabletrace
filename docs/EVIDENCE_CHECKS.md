@@ -130,28 +130,33 @@ message itself (`ummapi.nordpoolgroup.com`, archived as `20261017160918`, which 
 `"eventStart":"2024-12-25T10:26:00.0000000Z"`), because the old archive was a 2017 capture of the site's home page.
 The other 7 became the unarchivable list.
 
-### Evidence within two interactions (`evidence-reach.ts`, exit 1)
+### Evidence within two interactions (`evidence-reach.ts`, exit 0 after the fixes)
 
-Local build, six of the eight cases: the run was stopped during the seventh case to hand back.
+Local production build of main `c9b9024`, all 10 cases, `--workers 2`, 18 Oct 2026: 976 of 976 items reachable in
+two interactions or fewer.
 
-| Case | Reachable | First screen, one, two interactions | Not reachable in two |
+| Case | Reachable | After one interaction, after two | Paths tried |
 | --- | --- | --- | --- |
-| Hai Hong Gong 66 | 44 of 45 | 0, 36, 8 | the measured close-up scale sentence |
-| Fitburg | 128 of 157 | 0, 74, 54 | 28 links, archived links, quotes and translations of 8 sources, the measured scale sentence |
-| Minlianyu 60138 | 52 of 53 | 0, 48, 4 | the measured scale sentence |
-| Hong Tai 58 | 57 of 76 | 0, 36, 21 | 18 items of 4 sources, the measured scale sentence |
-| Vezhen | 101 of 135 | 0, 71, 30 | 33 items of 6 sources, the measured scale sentence |
-| Eagle S | 86 of 110 | 0, 57, 29 | 23 items of 7 sources, the measured scale sentence |
-| Yi Peng 3, Newnew Polar Bear | not run | | |
+| Hai Hong Gong 66 | 44 of 44 | 35, 9 | 239 |
+| Fitburg | 156 of 156 | 77, 79 | 425 |
+| Minlianyu 60138 | 52 of 52 | 47, 5 | 262 |
+| Hong Tai 58 | 75 of 75 | 35, 40 | 277 |
+| Vezhen | 134 of 134 | 74, 60 | 313 |
+| Eagle S | 110 of 110 | 58, 52 | 350 |
+| Yi Peng 3 | 86 of 86 | 53, 33 | 301 |
+| Rubymar | 96 of 96 | 57, 39 | 330 |
+| Newnew Polar Bear | 130 of 130 | 45, 85 | 259 |
+| Svalbard | 93 of 93 | 50, 43 | 247 |
 
-Two patterns explain every miss:
+The first run (six cases, before the fixes) missed 85 items, in three patterns, each now fixed:
 
-- A source whose number appears only inside a layer that itself takes two interactions (the aftermath dialog for
-  court rulings, charges and recovery; a placement card or a cut card opened from the Evidence lists), or only in
-  the drag window, has its title two interactions away (Evidence, All sources) but its links and quotes three:
-  Evidence, What followed (or the row), then its source number; or Evidence, All sources, then its row. 18 of the 25
-  sources behind these misses are cited only by aftermath steps.
-- The measured close-up sentence needs the close-up, Measured, then the scale button.
+- A source cited only inside a layer that itself takes two interactions (mostly What followed: court rulings, charges
+  and recovery) had its links and quotes three away. The sources sheet now keeps each source's links visible under
+  its row, and each step of What followed shows its quotes.
+- The drag window's own quotes (Eagle S source 10) showed only inside a folded sources row. The anchor status pill
+  now opens onto "How the drag is known" with them.
+- The measured close-up sentence needed the close-up, Measured, then the scale button. At the cut, the scale popover
+  now gives both sentences.
 
 ### Keyboard path (`keyboard-path.ts`, exit 0 after the fix)
 

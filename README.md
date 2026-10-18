@@ -201,7 +201,7 @@ Evidence:
 - **Nothing is buried, and the keyboard works.** `bun run check:evidence` searches every path of up to two clicks or
   keys for each source, quote, translation, placement note and credit; `bun run check:keyboard` opens and closes every
   layer with Tab, Enter and Esc. Their first runs caught quotes three clicks deep and three dialogs that dropped
-  focus on close; both are fixed (`docs/EVIDENCE_CHECKS.md`). `bun run check:links` reopens 89 shared links across
+  focus on close; both are fixed, and all 976 items of the ten cases are now within two (`docs/EVIDENCE_CHECKS.md`). `bun run check:links` reopens 89 shared links across
   the ten cases at the right minute, view and card.
 
 ## 🧪 Reproduce it
