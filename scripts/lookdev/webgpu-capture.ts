@@ -154,8 +154,10 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
   };
   // The ship turntable page draws once and marks its body; the harness screenshots the body, as on the WebGL tiers.
   const runTurntable = async () => {
-    await waitUntil(() => document.body.dataset.state !== undefined, "the turntable");
-    if (document.body.dataset.state !== "ready") throw new Error("the turntable page failed to draw (see its console)");
+    // The agent runs in <head>, before <body> exists: the body is looked up, never assumed.
+    const readPageState = () => document.querySelector("body")?.dataset.state;
+    await waitUntil(() => readPageState() !== undefined, "the turntable");
+    if (readPageState() !== "ready") throw new Error("the turntable page failed to draw (see its console)");
     for (let frame = 0; frame < 3; frame += 1) await nextFrame();
     const canvas = readCanvas();
     const adapterName = await readAdapterName();
