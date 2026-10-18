@@ -2,6 +2,7 @@ import { cameraPosition, cameraViewMatrix, clamp, cos, equirectUV, exp, float, f
 import { Color, MeshBasicNodeMaterial, Vector3, type Node } from "three/webgpu";
 import type { WaterSurfaceMaterial } from "@/lib/render/scene-renderer";
 import { decodeSrgb, encodeSrgb } from "@/lib/render/webgpu/srgb-nodes";
+import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { DEPTH_MAP_MAX_METRES, METRES_PER_KM, readGerstnerTerms, SKY_MEAN_LUMINANCE, SKY_STRUCTURE_WEIGHT, WATER_ABSORPTION, WATER_BASE_REFLECTANCE, WAVE_DETAIL_FADE, type WaterSurfaceOptions } from "@/lib/seabed/scene/water-surface";
 
 // The water surface for the WebGPU tier: the TSL port of src/lib/seabed/scene/water-surface.ts, from the same numbers:
@@ -90,12 +91,14 @@ export function createWaterSurfaceNodeMaterial(options: WaterSurfaceOptions): Wa
   const depthUv = positionWorld.xz.sub(vec2(depthMap.minX, depthMap.minZ)).div(vec2(depthMap.sizeX, depthMap.sizeZ));
   const depthMetres = texture(depthMap.texture, depthUv).r.mul(DEPTH_MAP_MAX_METRES);
   const pathFactor = float(1).add(float(1).div(max(facing, float(WATER_ABSORPTION.minFacing))));
+  // 1 for a camera close to the water (the sea's look), 0 from the map's height (the approved map look, tokens intact).
   const gate = float(1).sub(smoothstep(float(WATER_ABSORPTION.fadeHeightKm[0]), float(WATER_ABSORPTION.fadeHeightKm[1]), cameraPosition.y));
   const absorbed = gate.mul(float(1).sub(exp(depthMetres.mul(pathFactor).mul(-WATER_ABSORPTION.perMetre))));
   const transmitted = float(1).sub(reflectance);
   const columnColor = uniform(readLinearVector(look.column));
   // Weighted as encoded values, as the WebGL surface weighs them over its sRGB canvas.
-  const premultiplied = encodeSrgb(skyReflection).mul(reflectance).add(readSunGlint(viewNormal, sunViewDirection, sunIrradiance)).add(encodeSrgb(columnColor).mul(absorbed.mul(transmitted)));
+  const mapSkyColor = uniform(readLinearVector(SCENE_COLORS.waterSky));
+  const premultiplied = mix(mapSkyColor, encodeSrgb(skyReflection), gate).mul(reflectance).add(readSunGlint(viewNormal, sunViewDirection, sunIrradiance)).add(encodeSrgb(columnColor).mul(absorbed.mul(transmitted)));
   // The WebGL surface writes this sum into its sRGB canvas as it is, unencoded (water-surface.ts); the tier encodes
   // every material's output, so the sum is decoded first and lands on the same values.
   material.outputNode = vec4(decodeSrgb(premultiplied), reflectance.add(absorbed.mul(transmitted)));

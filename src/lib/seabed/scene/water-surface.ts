@@ -163,6 +163,7 @@ vec3 readGerstnerNormal(vec2 pointMetres) {
 const BODY_GLSL = /* glsl */ `
 varying vec3 vWaterWorld;
 uniform vec3 waterSkyColor;
+uniform vec3 waterMapSkyColor;
 uniform vec3 waterColumnColor;
 uniform sampler2D waterDepthMap;
 uniform vec4 waterDepthExtent;
@@ -180,13 +181,16 @@ vec3 readSkyReflection(vec3 direction) {
   return waterSkyColor;
 #endif
 }
+// 1 for a camera close to the water (the sea's look), 0 from the map's height (the approved map look, tokens intact).
+float readCloseness() {
+  return 1.0 - smoothstep(${WATER_ABSORPTION.fadeHeightKm[0].toFixed(1)}, ${WATER_ABSORPTION.fadeHeightKm[1].toFixed(1)}, cameraPosition.y);
+}
 // Share of the seabed's light the water replaces with its own colour on the way to the eye.
 float readAbsorbed(vec3 worldPoint, float facing) {
   vec2 depthUv = (worldPoint.xz - waterDepthExtent.xy) / waterDepthExtent.zw;
   float depthMetres = texture2D(waterDepthMap, depthUv).r * ${DEPTH_MAP_MAX_METRES.toFixed(1)};
   float pathFactor = 1.0 + 1.0 / max(facing, ${WATER_ABSORPTION.minFacing.toFixed(2)});
-  float gate = 1.0 - smoothstep(${WATER_ABSORPTION.fadeHeightKm[0].toFixed(1)}, ${WATER_ABSORPTION.fadeHeightKm[1].toFixed(1)}, cameraPosition.y);
-  return gate * (1.0 - exp(-${WATER_ABSORPTION.perMetre.toFixed(4)} * depthMetres * pathFactor));
+  return readCloseness() * (1.0 - exp(-${WATER_ABSORPTION.perMetre.toFixed(4)} * depthMetres * pathFactor));
 }
 `;
 
@@ -203,6 +207,7 @@ export function createWaterSurfaceGlslMaterial(options: WaterSurfaceOptions): Wa
   surfaceMaterial.onBeforeCompile = (shader) => {
     shader.uniforms.waveTimeSeconds = waveTime;
     shader.uniforms.waterSkyColor = { value: new THREE.Color(look.sky) };
+    shader.uniforms.waterMapSkyColor = { value: new THREE.Color(SCENE_COLORS.waterSky) };
     shader.uniforms.waterColumnColor = { value: new THREE.Color(look.column) };
     shader.uniforms.waterDepthMap = { value: depthMap.texture };
     shader.uniforms.waterDepthExtent = { value: new THREE.Vector4(depthMap.minX, depthMap.minZ, depthMap.sizeX, depthMap.sizeZ) };
@@ -227,7 +232,9 @@ export function createWaterSurfaceGlslMaterial(options: WaterSurfaceOptions): Wa
 float facing = clamp(dot(waterWorldNormal, waterToEye), 0.0, 1.0);
 float reflectance = ${WATER_BASE_REFLECTANCE.toFixed(3)} + ${(1 - WATER_BASE_REFLECTANCE).toFixed(3)} * pow(1.0 - facing, 5.0);
 float absorbed = readAbsorbed(vWaterWorld, facing);
-vec3 skyReflection = sRGBTransferOETF(vec4(readSkyReflection(reflect(-waterToEye, waterWorldNormal)), 1.0)).rgb;
+// From the map's height the reflection is the approved map look's (its sky colour written as it was); close to the
+// water, the look's sky with the HDRI's clouds.
+vec3 skyReflection = mix(waterMapSkyColor, sRGBTransferOETF(vec4(readSkyReflection(reflect(-waterToEye, waterWorldNormal)), 1.0)).rgb, readCloseness());
 vec3 columnEncoded = sRGBTransferOETF(vec4(waterColumnColor, 1.0)).rgb;
 gl_FragColor = vec4(skyReflection * reflectance + reflectedLight.directSpecular + columnEncoded * absorbed * (1.0 - reflectance), reflectance + absorbed * (1.0 - reflectance));`,
       );
