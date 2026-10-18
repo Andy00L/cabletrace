@@ -1,20 +1,18 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
-import { LineMaterial } from "three/addons/lines/LineMaterial.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
 import { createDataColorMaterial, drawAfterWater } from "@/lib/render/data-colors";
+import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
 import { DEPTH_TOKEN_RAMP, LAND_TOKEN_RAMP, SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { bakeReliefOcclusion } from "@/lib/seabed/scene/relief-occlusion";
-import { createTerrainMaterial, measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
+import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
 import { buildWaterBody } from "@/lib/seabed/scene/water-surface";
-import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle, thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
+import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
 import { buildShip } from "@/lib/ships/build-ship";
@@ -158,7 +156,8 @@ export type OverviewScene = {
 };
 
 type OverviewOptions = {
-  renderer: THREE.WebGLRenderer;
+  /** The renderer's materials for custom shading (src/lib/render/scene-renderer.ts): GLSL on WebGL, TSL on WebGPU. */
+  kit: SceneMaterialKit;
   domElement: HTMLElement;
   features: SeabedFeatures;
   elevations: Float32Array;
@@ -167,7 +166,7 @@ type OverviewOptions = {
   input: ReplaySceneInput;
   softDot: THREE.Texture;
   prefersReducedMotion: boolean;
-  /** The GPU tier: finer detail (hull plating relief, waves, ripples) that a CPU renderer would pay for every frame. */
+  /** The GPU tiers (WebGL hardware, WebGPU): finer detail (hull plating relief, waves, ripples) a CPU renderer would pay for every frame. */
   isHighDetail: boolean;
   /** The sand-ripple detail normal map (GPU tier), or null. */
   rippleNormalMap: THREE.Texture | null;
@@ -193,10 +192,10 @@ function sampleRamp(ramp: { value: number; color: THREE.Color }[], value: number
 // (illustrative texture, not survey data; mipmaps fade it to nothing in the overview).
 const RIPPLE_TILE_KM = 0.12;
 
-type TerrainLook = { lighting: TerrainLighting; rippleNormalMap: THREE.Texture | null };
+type TerrainLook = { lighting: TerrainLighting; rippleNormalMap: THREE.Texture | null; kit: SceneMaterialKit };
 
 function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection, exaggeration: SceneExaggeration, look: TerrainLook): THREE.Mesh {
-  const { lighting, rippleNormalMap } = look;
+  const { lighting, rippleNormalMap, kit } = look;
   const { width: columns, height: rows } = features.grid;
   const geometry = new THREE.PlaneGeometry(projection.widthKm, projection.depthKm, columns - 1, rows - 1);
   geometry.rotateX(-Math.PI / 2);
@@ -220,7 +219,7 @@ function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, pr
   geometry.setAttribute("reliefOcclusion", new THREE.BufferAttribute(bakeReliefOcclusion(sceneHeights, columns, rows, projection.widthKm / (columns - 1), projection.depthKm / (rows - 1)), 1));
   geometry.computeVertexNormals();
   if (rippleNormalMap) rippleNormalMap.repeat.set(projection.widthKm / RIPPLE_TILE_KM, projection.depthKm / RIPPLE_TILE_KM);
-  const mesh = new THREE.Mesh(geometry, createTerrainMaterial(lighting, rippleNormalMap));
+  const mesh = new THREE.Mesh(geometry, kit.createTerrainMaterial(lighting, rippleNormalMap));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -347,7 +346,7 @@ function unitDirection(from: ScenePoint, to: ScenePoint, fallback: ScenePoint): 
 }
 
 export function buildOverview(options: OverviewOptions): OverviewScene {
-  const { renderer, features, elevations, projection, sampleElevationMetres, input, softDot, prefersReducedMotion } = options;
+  const { kit, features, elevations, projection, sampleElevationMetres, input, softDot, prefersReducedMotion } = options;
   // Deep areas are drawn less exaggerated than the shallow Baltic (scene-scales.ts); the page states the same factors.
   const exaggeration = chooseSceneExaggeration(features.elevationRange);
   const sampleSeabedHeight = (sceneX: number, sceneZ: number) => elevationToSceneY(sampleElevationMetres(sceneX, sceneZ), exaggeration);
@@ -357,9 +356,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const toScene = (longitude: number, latitude: number) => projection.toScene(longitude, latitude);
 
   const scene = new THREE.Scene();
-  const environmentGenerator = new THREE.PMREMGenerator(renderer);
-  scene.environment = environmentGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-  environmentGenerator.dispose();
+  scene.environment = kit.createEnvironment();
   scene.environmentIntensity = 0.38;
   const skyLight = new THREE.HemisphereLight(SCENE_COLORS.skyLight, SCENE_COLORS.groundLight, 0.95);
   scene.add(skyLight);
@@ -375,9 +372,13 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   sunLight.shadow.radius = SUN_SHADOW_SOFTNESS_TEXELS;
   scene.add(sunLight);
 
-  const terrain = buildTerrainMesh(elevations, features, projection, exaggeration, { lighting: { levelIrradiance: measureLevelIrradiance(sunLight, skyLight) }, rippleNormalMap: options.rippleNormalMap });
+  const terrain = buildTerrainMesh(elevations, features, projection, exaggeration, {
+    lighting: { levelIrradiance: measureLevelIrradiance(sunLight, skyLight), environment: { texture: scene.environment, intensity: scene.environmentIntensity } },
+    rippleNormalMap: options.rippleNormalMap,
+    kit,
+  });
   const seabedProbeCandidates = pickSeabedProbes(terrain);
-  const water = buildWaterBody(projection, deepestY, options.isHighDetail);
+  const water = buildWaterBody({ projection, deepestY, hasWaves: options.isHighDetail, sun: sunLight, kit });
   scene.add(terrain, buildBlockSides(terrain, features, baseY), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
   ground.rotation.x = -Math.PI / 2;
@@ -394,18 +395,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   };
   const fullWidthDistanceKm = FULL_WIDTH_DISTANCE_KM * tubeScale;
   // One material per tube radius: each narrows with camera distance from its own radius (tube-thinning.ts).
-  const createCableMaterial = (radiusKm: number) =>
-    thinTubeWithDistance(
-      createDataColorMaterial(WEBGL_COLORS.cable),
-      radiusKm,
-      fullWidthDistanceKm,
-    );
+  const createCableMaterial = (radiusKm: number) => kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.cable, radiusKm, fullWidthDistanceKm });
   const cableMaterials = { power: createCableMaterial(tubeRadii.power), telecom: createCableMaterial(tubeRadii.telecom) };
-  const pipelineMaterial = thinTubeWithDistance(
-    createDataColorMaterial(WEBGL_COLORS.pipeline),
-    tubeRadii.pipeline,
-    fullWidthDistanceKm,
-  );
+  const pipelineMaterial = kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.pipeline, radiusKm: tubeRadii.pipeline, fullWidthDistanceKm });
 
   const primaryCut = input.cuts[0];
   const primaryCutScene = toScene(primaryCut.longitude, primaryCut.latitude);
@@ -453,11 +445,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
         // The signature "signal": a faint halo and a light that runs along the cable under watch.
         const halo = new THREE.Mesh(
           new THREE.TubeGeometry(intact.curve, Math.max(12, run.length * 2), tubeRadii.signalHalo, 8, false),
-          thinTubeWithDistance(
-            createDataColorMaterial(WEBGL_COLORS.cable, { opacity: 0.12, depthWrite: false }),
-            tubeRadii.signalHalo,
-            fullWidthDistanceKm,
-          ),
+          kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.cable, radiusKm: tubeRadii.signalHalo, fullWidthDistanceKm, opacity: 0.12, depthWrite: false }),
         );
         drawAfterWater(halo);
         scene.add(halo);
@@ -538,7 +526,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       return isDragging ? WEBGL_COLORS.alarm : WEBGL_COLORS.ink;
     });
     const trackPoints = path.getSpacedPoints(TRACK_SEGMENTS);
-    pastTrack = createProgressLine({ points: trackPoints, color: trackColors, widthPx: TRACK_WIDTH_PX });
+    pastTrack = createProgressLine({ points: trackPoints, color: trackColors, widthPx: TRACK_WIDTH_PX, kit });
     scene.add(drawAfterWater(pastTrack.line));
     trackProbePoints = trackPoints.map((position, index) => ({
       position,
@@ -604,7 +592,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   contactShadow.renderOrder = 2.6;
   ship.add(contactShadow);
   // The GPU tier draws the bow wave and the Kelvin wake on a patch that sails with the hull.
-  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form) : null;
+  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form, kit) : null;
   if (kelvinWake) ship.add(kelvinWake.mesh);
   const wake = createWake();
   scene.add(wake.mesh);
@@ -615,7 +603,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   scene.add(anchor);
   const chainGeometry = new LineGeometry();
   chainGeometry.setPositions(new Float32Array(CHAIN_POINT_COUNT * 3));
-  const chain = new Line2(chainGeometry, new LineMaterial({ color: SCENE_COLORS.anchor, linewidth: CHAIN_WIDTH_PX, worldUnits: false }));
+  const chain = kit.createScreenLine(chainGeometry, { color: SCENE_COLORS.anchor, widthPx: CHAIN_WIDTH_PX, hasVertexColors: false, opacity: 1 });
   chain.frustumCulled = false;
   chain.visible = false;
   scene.add(chain);
@@ -645,7 +633,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       .flatMap((located) => (located ? [located.point] : []))
       .map((point) => new THREE.Vector3(point.x, sampleSeabedHeight(point.x, point.z) + FURROW_SEABED_LIFT, point.z));
     if (furrowPoints.length >= 2) {
-      furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX });
+      furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX, kit });
       scene.add(drawAfterWater(furrow.line));
     }
   }
@@ -688,17 +676,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return marker;
   });
 
-  const plumePositions = new Float32Array(PLUME_PARTICLE_COUNT * 3);
+  const plume = kit.createSoftPoints(PLUME_PARTICLE_COUNT, { map: softDot, color: SCENE_COLORS.plume, size: 0.55, opacity: 0.55 });
+  const plumePositions = plume.positions;
   const plumeAges = new Float32Array(PLUME_PARTICLE_COUNT).fill(2);
   const plumeDrift = Array.from({ length: PLUME_PARTICLE_COUNT }, () => new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.25 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5));
-  const plumeGeometry = new THREE.BufferGeometry();
-  plumeGeometry.setAttribute("position", new THREE.BufferAttribute(plumePositions, 3));
-  const plume = new THREE.Points(
-    plumeGeometry,
-    new THREE.PointsMaterial({ map: softDot, color: SCENE_COLORS.plume, size: 0.55, transparent: true, opacity: 0.55, depthWrite: false, sizeAttenuation: true }),
-  );
-  plume.frustumCulled = false;
-  scene.add(plume);
+  scene.add(plume.object);
 
   const halfFovTangent = Math.tan(((OVERVIEW_FOV_DEGREES / 2) * Math.PI) / 180);
   const topHeightKm = Math.max(projection.depthKm, projection.widthKm / TOP_VIEW_ASPECT) / (2 * halfFovTangent) + 4;
@@ -858,7 +840,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       plumePositions[index * 3 + 1] = (plumePositions[index * 3 + 1] ?? 0) + drift.y * deltaSeconds;
       plumePositions[index * 3 + 2] = (plumePositions[index * 3 + 2] ?? 0) + drift.z * deltaSeconds;
     }
-    plumeGeometry.getAttribute("position").needsUpdate = true;
+    plume.markMoved();
   }
 
   function locateTarget(target: SceneTarget): { position: THREE.Vector3; label: HTMLElement } | null {
@@ -912,7 +894,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       }
     }
     // The track up to the vessel, leaving out the stretch under the hull and the wake (the last minutes sailed).
-    const revealedCount = pastTrack ? pastTrack.line.geometry.instanceCount + 1 : 0;
+    const revealedCount = pastTrack ? pastTrack.readRevealedPointCount() : 0;
     const coveredFromMs = lastAtMs - WAKE_STEP_MS * WAKE_SAMPLE_COUNT;
     const drawnTrack = trackProbePoints.slice(0, revealedCount).filter((point) => point.atMs < coveredFromMs);
     for (const tone of ["suspect", "alarm"] as const) {

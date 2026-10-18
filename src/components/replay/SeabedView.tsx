@@ -38,7 +38,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
     onTargetPickRef.current = onTargetPick;
   }, [onViewerChange, onTargetPick]);
 
-  // Syncs with three.js, a WebGL scene React does not own: built on mount (and on retry), disposed on unmount.
+  // Syncs with three.js, a WebGL or WebGPU scene React does not own: built on mount (and on retry), disposed on unmount.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -53,7 +53,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
         setViewerState({ kind: "failed", reason: "The seabed data could not be loaded." });
         return;
       }
-      const created = viewerModule.createSeabedViewer({
+      const created = await viewerModule.createSeabedViewer({
         container: host,
         data: loaded.value,
         input,
@@ -61,6 +61,11 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
         prefersReducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
         onTargetPick: (target) => onTargetPickRef.current(target),
       });
+      // The viewer picks its renderer tier asynchronously; an unmount meanwhile frees what it built.
+      if (isCancelled) {
+        if (created.ok) created.value.dispose();
+        return;
+      }
       if (!created.ok) {
         console.error(`[SeabedView] ${created.reason}`);
         setViewerState({ kind: "failed", reason: "This browser cannot draw the 3D view (WebGL is off or unavailable)." });

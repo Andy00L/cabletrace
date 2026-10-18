@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { clampValue, createSeededRandom, interpolate, sampleFractalNoise, smoothStep } from "@/lib/seabed/math";
-import type { Caustics } from "@/lib/seabed/scene/caustics";
+import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
 import type { ChainShape } from "@/lib/ships/anchor-chain";
 import { makeLabel, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel, buildStudLinkGeometry } from "@/lib/seabed/scene/models";
@@ -60,14 +60,17 @@ type CloseUpOptions = {
   /** Reflections for the steel (the overview's room environment); without one, metal renders near black. */
   environment: THREE.Texture | null;
   softDot: THREE.Texture;
-  caustics: Caustics;
+  /** The renderer's materials for custom shading and particles (src/lib/render/scene-renderer.ts). */
+  kit: SceneMaterialKit;
   prefersReducedMotion: boolean;
   /** The chain's shape at the cut from the anchor model (metres), or null where the model has none. */
   chainShape: ChainShape | null;
 };
 
 export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
-  const { sampleElevationMetres, cutScene, trackDirection, cableDirection, caustics, prefersReducedMotion } = options;
+  const { sampleElevationMetres, cutScene, trackDirection, cableDirection, kit, prefersReducedMotion } = options;
+  // One caustic clock for this close-up's seabed and rocks.
+  const caustics = kit.createCaustics();
   const scene = new THREE.Scene();
   const fogColor = new THREE.Color(SCENE_COLORS.closeUpFog);
   scene.background = fogColor;
@@ -144,7 +147,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
     }
     geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geometry.computeVertexNormals();
-    const material = caustics.apply(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }), isIllustrated ? 0.45 : 0.2);
+    const material = caustics.createMaterial({ vertexColors: true, roughness: 1, metalness: 0 }, isIllustrated ? 0.45 : 0.2);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.receiveShadow = true;
     return mesh;
@@ -276,7 +279,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
     rockPositions.setXYZ(index, pointX * bulge, pointY * bulge * 0.62, pointZ * bulge);
   }
   rockGeometry.computeVertexNormals();
-  const rocks = new THREE.InstancedMesh(rockGeometry, caustics.apply(new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 }), 0.18), ROCK_COUNT);
+  const rocks = new THREE.InstancedMesh(rockGeometry, caustics.createMaterial({ roughness: 0.9, metalness: 0 }, 0.18), ROCK_COUNT);
   const rockColor = new THREE.Color();
   const rockMatrix = new THREE.Matrix4();
   const rockRotation = new THREE.Quaternion();
@@ -301,16 +304,10 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   rocks.receiveShadow = true;
   illustratedGroup.add(rocks);
 
-  const plumePositions = new Float32Array(PLUME_COUNT * 3);
+  const plume = kit.createSoftPoints(PLUME_COUNT, { map: options.softDot, color: SCENE_COLORS.closeUpPlume, size: 2.4, opacity: 0.3 });
+  const plumePositions = plume.positions;
   const plumeSeeds = Array.from({ length: PLUME_COUNT }, () => ({ along: random(), across: (random() - 0.5) * 6, rise: random(), drift: 0.4 + random() * 0.8 }));
-  const plumeGeometry = new THREE.BufferGeometry();
-  plumeGeometry.setAttribute("position", new THREE.BufferAttribute(plumePositions, 3));
-  const plume = new THREE.Points(
-    plumeGeometry,
-    new THREE.PointsMaterial({ map: options.softDot, color: SCENE_COLORS.closeUpPlume, size: 2.4, transparent: true, opacity: 0.3, depthWrite: false, sizeAttenuation: true }),
-  );
-  plume.frustumCulled = false;
-  illustratedGroup.add(plume);
+  illustratedGroup.add(plume.object);
 
   const rayTexture = createRayTexture();
   const lightShafts = Array.from({ length: LIGHT_SHAFT_COUNT }, (_slot, index) => {
@@ -361,7 +358,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   setIllustrated(true);
 
   function update(nowSeconds: number, deltaSeconds: number) {
-    caustics.uniform.value = prefersReducedMotion ? 2 : nowSeconds;
+    caustics.setTime(prefersReducedMotion ? 2 : nowSeconds);
     for (const shaft of lightShafts) {
       shaft.mesh.rotation.set(0, Math.atan2(camera.position.x - shaft.mesh.position.x, camera.position.z - shaft.mesh.position.z), shaft.tilt);
       const shaftMaterial = shaft.mesh.material;
@@ -375,7 +372,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
       plumePositions[index * 3 + 1] = ground + 0.4 + seed.rise * 5 * (0.4 + seed.along);
       plumePositions[index * 3 + 2] = seed.across + seed.rise * 6 * seed.drift;
     });
-    plumeGeometry.getAttribute("position").needsUpdate = true;
+    plume.markMoved();
   }
 
   return { scene, camera, controls, update, setIllustrated, resetCamera };
