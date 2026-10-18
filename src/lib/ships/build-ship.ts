@@ -58,7 +58,7 @@ function addSuperstructure(kind: ShipKind, form: HullForm, parts: ShipParts): { 
       const houseLength = superstructure.lengthShare * length;
       // The funnel stands over the engine room, about 9% of the length from the stern on Eagle S.
       const funnelX = frontX - houseLength + 0.045 * length;
-      const house = addAccommodationBlock(form, parts, { frontX, lengthAlongShip: houseLength, tiers, baseY: deckY, withLifeboat: true, funnel: { x: funnelX, riseAboveBridge: 0.03 * length }, hasPoop: true });
+      const house = addAccommodationBlock(form, parts, { frontX, lengthAlongShip: houseLength, tiers, baseY: deckY, withLifeboat: true, funnel: { x: funnelX, riseAboveBridge: 0.02 * length }, hasPoop: true });
       return { cargoStartX: frontX + 0.012 * length, cargoEndX: 0.8 * form.halfLength - 0.013 * length, house };
     }
     case "forward": {

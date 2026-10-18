@@ -174,6 +174,8 @@ type OverviewOptions = {
   waterLook: WaterLook;
   /** The CC0 sky HDRI (linear equirectangular) for the water's reflection and the ships' light (GPU tiers), or null. */
   skyMap: THREE.Texture | null;
+  /** Called with work that finishes after the first frame (the ship's detail level), so the canvas can say it is pending. */
+  trackPendingAsset: (pending: Promise<unknown>) => void;
 };
 
 function buildRamp(stops: readonly [number, string][]) {
@@ -590,6 +592,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   ship.add(shipLabel.object);
   ship.visible = false;
   scene.add(ship);
+  // The detail level streams in after the first frame: its code loads with a dynamic import (ship-detail.ts).
+  options.trackPendingAsset(
+    import("@/lib/ships/ship-detail")
+      .then(({ addShipDetail }) => addShipDetail(shipModel, input.vessel.name))
+      .catch((error: unknown) => console.error(`[buildOverview] the ship's detail level did not load: ${error instanceof Error ? error.message : String(error)}`)),
+  );
   // A soft contact shadow on the water around the hull (ambient occlusion where hull meets sea), so the ship sits in
   // the water instead of hovering over a sea that is mostly transparent from above.
   const contactShadow = new THREE.Mesh(

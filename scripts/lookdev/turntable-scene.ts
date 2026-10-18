@@ -6,6 +6,7 @@ import type { SceneMaterialKit } from "../../src/lib/render/scene-renderer";
 import type { ShipKind } from "../../src/lib/replay/replay-scene";
 import { SCENE_COLORS } from "../../src/lib/seabed/scene/scene-colors";
 import { buildShip } from "../../src/lib/ships/build-ship";
+import { addShipDetail } from "../../src/lib/ships/ship-detail";
 import { createKelvinWake } from "../../src/lib/ships/kelvin-wake";
 
 // Typical lengths (m): the case ships where a case has the kind, common sizes otherwise.
@@ -45,6 +46,7 @@ export function buildTurntableCell(kind: ShipKind, kit: SceneMaterialKit, enviro
   Object.assign(sun.shadow.camera, { left: -lengthMetres, right: lengthMetres, top: lengthMetres, bottom: -lengthMetres, near: 1, far: lengthMetres * 5 });
   scene.add(sun);
   const ship = buildShip({ kind, lengthMetres, tone: "suspect", isDetailed });
+  addShipDetail(ship, null);
   scene.add(ship.group);
   if (isDetailed) {
     const wake = createKelvinWake(ship.form, kit, SCENE_COLORS.water);

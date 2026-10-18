@@ -278,6 +278,11 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     rippleNormalMap,
     waterLook: readWaterLook(window.location.search),
     skyMap,
+    trackPendingAsset(pending) {
+      pendingAssetCount += 1;
+      canvas.dataset.pendingAssets = String(pendingAssetCount);
+      void pending.finally(settleAsset);
+    },
   });
 
   // Set whenever the picture must be redrawn even though the replay moment did not change.

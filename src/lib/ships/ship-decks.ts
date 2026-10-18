@@ -81,17 +81,19 @@ function buildTankerDeck(frame: DeckFrame, parts: ShipParts) {
     for (const side of [-1, 1]) addBox(parts.equipment, [0.9, 0.9, 0.9], [pipeX, deckY + 1.6, side * (readDeckHalfWidth(form, pipeX) - 3)]);
   }
   for (const side of [-1, 1]) addBox(parts.equipment, [11 * along, 0.4, 2.2], [manifoldX, deckY + 0.2, side * (readDeckHalfWidth(form, manifoldX) - 1.6)]);
-  // The hose crane: a pedestal aft of the manifold, its jib level about 9.5 m over the deck reaching forward, a brace
-  // from the pedestal, and the manifold control house under it.
-  const pedestalX = readXFromBow(form, 0.49);
-  const jibTipX = readXFromBow(form, 0.4);
+  // The hose crane, as the photograph shows it: a pedestal at 43% of the length from the stem, its jib level about 9.5 m
+  // over the deck from 40% aft to 51.5%, a strut from the jib's aft end down to the deck, and the manifold control
+  // house beside the pedestal.
+  const pedestalX = readXFromBow(form, 0.43);
+  const jibForeX = readXFromBow(form, 0.4);
+  const jibAftX = readXFromBow(form, 0.515);
   const jibY = deckY + 9.6 * along;
   addCylinder(parts.structure, 0.7 * along + 0.1, jibY - deckY, [pedestalX, deckY + (jibY - deckY) / 2, 0], "y", 12);
   addBox(parts.structure, [2.6 * along, 2.2 * along, 2.4 * along], [pedestalX, jibY - 0.4, 0]);
-  addBox(parts.structure, [jibTipX - pedestalX + 2, 0.9 * along, 0.8 * along], [(pedestalX + jibTipX) / 2 + 1, jibY + 0.3, 0]);
-  addPipe(parts.structure, [new THREE.Vector3(pedestalX + 0.6, jibY - 3.5 * along, 0), new THREE.Vector3(pedestalX + 0.45 * (jibTipX - pedestalX), jibY, 0)], 0.25 * along + 0.05, 6);
-  addBox(parts.structure, [1.0 * along, 1.6 * along, 1.0 * along], [jibTipX, jibY - 0.6 * along, 0]);
-  addBox(parts.structure, [5.5 * along, 3.2 * along, 4.4 * across], [readXFromBow(form, 0.455), deckY + 1.6 * along, 5.5 * across]);
+  addBox(parts.structure, [jibForeX - jibAftX, 0.9 * along, 0.8 * along], [(jibForeX + jibAftX) / 2, jibY + 0.3, 0]);
+  addPipe(parts.structure, [new THREE.Vector3(jibAftX + 0.5, jibY, 0), new THREE.Vector3(readXFromBow(form, 0.49), deckY + 2.5 * along, 0)], 0.3 * along + 0.05, 6);
+  addBox(parts.structure, [1.0 * along, 1.6 * along, 1.0 * along], [jibAftX + 0.5, jibY - 0.6 * along, 0]);
+  addBox(parts.structure, [5.5 * along, 3.2 * along, 4.4 * across], [readXFromBow(form, 0.445), deckY + 1.6 * along, 5.5 * across]);
   // Kingposts with deck lights.
   for (const share of [0.275, 0.54, 0.705]) {
     const postX = readXFromBow(form, share);

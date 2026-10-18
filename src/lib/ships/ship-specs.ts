@@ -54,7 +54,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     bulbToBeam: 0.096,
     bowEntranceShare: 0.45,
     sternRunShare: 0.55,
-    stemRakeToDepth: 0.32,
+    stemRakeToDepth: 0.3,
     forecastleRiseToDepth: 0.05,
     sheerForwardToDepth: 0.02,
     sheerAftToDepth: 0.01,

@@ -201,10 +201,14 @@ export function addAccommodationBlock(form: HullForm, parts: ShipParts, options:
   const bridge = { frontX: bridgeFrontX, lengthAlong: bridgeDepth, width: bridgeWidth, floorY, roofY: floorY + bridgeHeight, wingHalfSpan };
   // The radar mast on the bridge roof: a tapered post, its platform and yard.
   const mastHeight = Math.max(4, 0.04 * form.lengthMetres);
-  const mastX = bridgeFrontX - 0.62 * bridgeDepth;
+  const mastX = bridgeFrontX - 0.85 * bridgeDepth;
   const mastBaseY = bridge.roofY + 0.35;
-  addCylinder(parts.equipment, 0.45, mastHeight, [mastX, mastBaseY + mastHeight / 2, 0], "y", 8, 0.22);
-  addBox(parts.equipment, [1.6, 0.18, 2.4], [mastX, mastBaseY + mastHeight * 0.55, 0]);
+  // A tapered tower, wide at the foot, with a platform for each scanner (Eagle S's photograph shows a tower about 3 m
+  // across at the foot carrying two platforms).
+  const mastFootRadius = Math.max(0.45, 0.0065 * form.lengthMetres);
+  addCylinder(parts.equipment, mastFootRadius, mastHeight, [mastX, mastBaseY + mastHeight / 2, 0], "y", 8, mastFootRadius * 0.35);
+  addBox(parts.equipment, [mastFootRadius * 3.2, 0.25, mastFootRadius * 4], [mastX, mastBaseY + mastHeight * 0.38, 0]);
+  addBox(parts.equipment, [mastFootRadius * 2.4, 0.2, mastFootRadius * 3], [mastX, mastBaseY + mastHeight * 0.62, 0]);
   addBox(parts.equipment, [0.3, 0.3, Math.min(7, bridgeWidth * 0.3)], [mastX, mastBaseY + mastHeight * 0.85, 0]);
   const funnel = options.funnel ? addFunnel(form, parts, { x: options.funnel.x, baseY: options.baseY, topY: bridge.roofY + options.funnel.riseAboveBridge, width: width * 0.36 }) : null;
   return { levels, bridge, mast: { x: mastX, baseY: mastBaseY, topY: mastBaseY + mastHeight }, funnel, withLifeboats: options.withLifeboat };
@@ -217,9 +221,9 @@ export function addAccommodationBlock(form: HullForm, parts: ShipParts, options:
 export function addFunnel(form: HullForm, parts: ShipParts, options: { x: number; baseY: number; topY: number; width: number }): FunnelLayout {
   const { x, baseY, topY, width } = options;
   const scale = Math.min(1, form.lengthMetres / 228);
-  const lengthAlong = Math.max(2.5, 0.028 * form.lengthMetres);
+  const lengthAlong = Math.max(2.5, 0.034 * form.lengthMetres);
   const casingTopY = baseY + (topY - baseY) * 0.55;
-  addBox(parts.structure, [lengthAlong * 1.5, casingTopY - baseY, width * 1.25], [x, (baseY + casingTopY) / 2, 0]);
+  addBox(parts.structure, [lengthAlong * 1.1, casingTopY - baseY, width * 1.25], [x, (baseY + casingTopY) / 2, 0]);
   const stackHeight = topY - casingTopY;
   const rake = new THREE.Euler(0, 0, 0.06);
   addRoundedBox(parts.funnel, [lengthAlong, stackHeight, width], [x - 0.2, casingTopY + stackHeight / 2, 0], Math.min(1.2, width * 0.2), rake);
@@ -266,7 +270,8 @@ export function addForecastleGear(form: HullForm, parts: ShipParts) {
     }
   }
   // The foremast: a tall post on the forecastle with a yard and the masthead light.
-  const foremastX = form.halfLength - 0.045 * form.lengthMetres;
+  // On Eagle S it stands 5.5% of the length aft of the stem's top.
+  const foremastX = form.bowX - 0.055 * form.lengthMetres;
   const foremastHeight = Math.max(4, 0.052 * form.lengthMetres);
   addCylinder(parts.equipment, 0.42 * scale + 0.08, foremastHeight, [foremastX, readDeckY(form, foremastX) + foremastHeight / 2, 0], "y", 8, 0.2 * scale + 0.06);
   addBox(parts.equipment, [0.25, 0.25, 3.2 * scale], [foremastX, readDeckY(form, foremastX) + foremastHeight * 0.8, 0]);

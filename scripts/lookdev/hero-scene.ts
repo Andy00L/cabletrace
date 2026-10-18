@@ -9,6 +9,7 @@ import { SCENE_SCALES } from "../../src/lib/seabed/scene-scales";
 import { buildWaterBody, createUniformDepthMap, readWaterLook, SKY_HDRI_URL } from "../../src/lib/seabed/scene/water-surface";
 import { createWake } from "../../src/lib/seabed/scene/wake";
 import { buildShip } from "../../src/lib/ships/build-ship";
+import { addShipDetail } from "../../src/lib/ships/ship-detail";
 import { createKelvinWake } from "../../src/lib/ships/kelvin-wake";
 
 // Eagle S: 228.6 m, a crude tanker (src/data/cases/eagle-s-2024.ts), under way at 7 knots (3.6 m/s), the pace the
@@ -94,6 +95,7 @@ export function buildHeroScene(kit: SceneMaterialKit, isDetailed: boolean): { sc
   scene.add(water.group);
 
   const ship = buildShip({ kind: "tanker", lengthMetres: HERO_LENGTH_METRES, tone: "suspect", isDetailed, sky: skyMap });
+  addShipDetail(ship, "Eagle S");
   ship.group.scale.setScalar(DRAWN_SCALE);
   scene.add(ship.group);
   if (isDetailed) {

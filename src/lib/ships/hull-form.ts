@@ -59,8 +59,9 @@ export function createHullForm(spec: ShipSpec, lengthMetres: number, draughtMetr
   const stemRake = spec.stemRakeToDepth * depth;
   const bulbRadius = spec.bulbToBeam * halfBeam * 2;
   const bulbHalfLength = 2.4 * bulbRadius;
-  // The stem rakes up to the forecastle top; the bulb noses out ahead of the stem's foot.
-  const rakeOverhang = stemRake * ((depth + forecastleRise) / depth);
+  // The stem rakes up to the forecastle top (readStemX: nearly upright under the water, raked above it); the bulb noses
+  // out ahead of the stem's foot.
+  const rakeOverhang = stemRake * (1 + forecastleRise / Math.max(1, depth - draught));
   const bulbOverhang = bulbRadius > 0 ? 0.6 * bulbHalfLength : 0;
   const forwardOverhang = Math.max(rakeOverhang, bulbOverhang);
   const halfLength = (lengthMetres - forwardOverhang) / 2;
@@ -95,11 +96,37 @@ export function readDeckHeight(form: HullForm, positionX: number): number {
   return form.depth + forwardSheer + aftSheer + form.forecastleRise * smoothStep(form.forecastleStartX - 0.03 * form.halfLength, form.forecastleStartX, positionX);
 }
 
+// Share of the stem's rake taken below the waterline: the stem stands almost upright over the bulb and rakes forward
+// above the water (Eagle S's photograph: 3% of the length between the waterline and the forecastle top).
+const STEM_RAKE_BELOW_WATER_SHARE = 0.15;
+
+/** Where the stem stands at a height above the keel (m, hull x): nearly upright under the water, raked above it. */
+export function readStemX(form: HullForm, heightAboveKeel: number): number {
+  const rakeBelow = STEM_RAKE_BELOW_WATER_SHARE * form.stemRake;
+  if (heightAboveKeel <= form.draught) return form.halfLength + (rakeBelow * Math.max(0, heightAboveKeel)) / form.draught;
+  return form.halfLength + rakeBelow + ((form.stemRake - rakeBelow) * (heightAboveKeel - form.draught)) / Math.max(1, form.depth - form.draught);
+}
+
+/** The lowest height above the keel where the hull stands at a station forward of the stem's foot: the stem, or the bulb's underside. */
+function readForefootHeight(form: HullForm, positionX: number): number {
+  const rakeBelow = STEM_RAKE_BELOW_WATER_SHARE * form.stemRake;
+  const aboveWater = (form.stemRake - rakeBelow) / Math.max(1, form.depth - form.draught);
+  const ahead = positionX - form.halfLength;
+  const stemHeight = ahead <= rakeBelow ? (ahead / Math.max(rakeBelow, 1e-3)) * form.draught : form.draught + (ahead - rakeBelow) / Math.max(aboveWater, 1e-3);
+  const { bulb } = form;
+  if (!bulb) return stemHeight;
+  const along = (positionX - bulb.centerX) / bulb.halfLength;
+  if (Math.abs(along) >= 1) return stemHeight;
+  return Math.min(stemHeight, bulb.centerY - bulb.radius * 0.95 * Math.sqrt(1 - along * along));
+}
+
 /**
  * Height of the keel line above the moulded base at a station: 0 along the flat bottom, rising aft under the run to the
- * transom's lower edge above the waterline (the counter), so the stern reads as a stern and not as a box's end.
+ * transom's lower edge above the waterline (the counter), so the stern reads as a stern and not as a box's end, and
+ * rising forward of the stem's foot along the stem (or under the bulb), so the bow rakes.
  */
 export function readKeelHeight(form: HullForm, positionX: number): number {
+  if (positionX > form.halfLength) return Math.max(0, readForefootHeight(form, positionX));
   const riseStartX = -form.halfLength + KEEL_RISE_SHARE * form.halfLength * 2;
   if (positionX >= riseStartX) return 0;
   // Under the run the keel rises to about half the draught at the rudder post (the propeller's aperture), then the
@@ -112,10 +139,9 @@ export function readKeelHeight(form: HullForm, positionX: number): number {
 /** Half-breadth of the hull at a station and a height above the keel (both metres). */
 export function readHalfBreadth(form: HullForm, positionX: number, heightAboveKeel: number): number {
   const { depth, draught, halfLength, bowStartX, sternStartX, bilgeRadius, bulb } = form;
-  const heightFraction = clampValue(heightAboveKeel / depth, 0, 1.4);
   let fullness = 1;
   if (positionX > bowStartX) {
-    const stemX = halfLength + form.stemRake * heightFraction;
+    const stemX = readStemX(form, heightAboveKeel);
     const amount = clampValue((positionX - bowStartX) / (stemX - bowStartX), 0, 1);
     // Flared above the waterline, finer below it.
     const exponent = 2 + 0.8 * clampValue((heightAboveKeel - draught) / Math.max(depth - draught, 1), -1, 1);
