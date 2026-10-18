@@ -1,7 +1,7 @@
 // The lookdev harness: renders fixed frames of every case's 3D replay on each renderer tier, compares them with the
 // approved baselines and checks that the data colours reach the screen exactly. docs/LOOKDEV.md explains how to run it.
-// Usage: bun scripts/lookdev/run-lookdev.ts <baseUrl> [--tier software|hardware|all] [--only <text>] [--update]
-//        [--out <dir>] [--chromium /path/to/chrome]
+// Usage: bun scripts/lookdev/run-lookdev.ts <baseUrl> [--tier software|hardware|webgpu|all] [--only <text>] [--update]
+//        [--out <dir>] [--chromium /path/to/chrome] [--windows-chrome /mnt/c/.../chrome.exe] [--webgpu-proxy-port 3329]
 // Exit codes: 0 every frame matches and every data colour is exact, 1 a regression (or a missing baseline),
 // 2 the frames could not be rendered (server down, browser or tier unavailable when asked for by name).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -16,9 +16,11 @@ import { resolveChromiumPath } from "../perf/chromium-path";
 import { compareImages, downscaleImage, formatHexColor, matchColorNear, parseHexColor, type RgbColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
 import { listLookdevShots, type LookdevShot } from "./shots";
-import { buildTurntablePage } from "./turntable";
+import { buildTurntablePage, buildWebGpuTurntablePage } from "./turntable";
+import { canRunWindowsChrome, captureWithWindowsChrome, cropToBox, DEFAULT_PROXY_PORT, DEFAULT_WINDOWS_CHROME, startLookdevProxy, TURNTABLE_PATH, type AgentConfig, type CaptureMode, type WindowsCapture } from "./webgpu-capture";
 
-type TierName = "software" | "hardware";
+type TierName = "software" | "hardware" | "webgpu";
+type PlaywrightTierName = Exclude<TierName, "webgpu">;
 
 // The console's desktop layout at device pixel ratio 1, the size docs/PERFORMANCE.md measures.
 const VIEWPORT = { width: 1440, height: 900 };
@@ -62,7 +64,7 @@ const TONE_HEX: Record<DataTone, string> = { cable: WEBGL_COLORS.cable, pipeline
 // Hardware: ANGLE on OpenGL; on WSL2 Mesa's d3d12 driver reaches the Windows GPU through /dev/dxg. On a laptop with
 // two adapters the integrated one lost its contexts and failed to link three.js shaders, so the driver is pointed at
 // the adapter named in LOOKDEV_GPU_ADAPTER (default NVIDIA; Mesa matches part of the name).
-const TIER_LAUNCH: Record<TierName, { args: string[]; env: Record<string, string> }> = {
+const TIER_LAUNCH: Record<PlaywrightTierName, { args: string[]; env: Record<string, string> }> = {
   software: { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"], env: {} },
   hardware: {
     args: ["--use-angle=gl", "--ignore-gpu-blocklist", "--enable-gpu", "--enable-unsafe-webgpu", "--enable-features=Vulkan"],
@@ -91,7 +93,18 @@ type ShotOutcome = {
 
 type SeabedVerdict = { probeCount: number; closeCount: number; medianDeviation: number; isPass: boolean };
 
-type CliOptions = { baseUrl: string; tiers: TierName[]; isTierExplicit: boolean; only: string | null; shouldUpdate: boolean; outDirectory: string; chromiumPath: string | null };
+type CliOptions = {
+  baseUrl: string;
+  tiers: TierName[];
+  isTierExplicit: boolean;
+  only: string | null;
+  shouldUpdate: boolean;
+  outDirectory: string;
+  chromiumPath: string | null;
+  /** The WebGPU tier's browser: Windows Chrome, reached from WSL (webgpu-capture.ts), and the port of its proxy. */
+  windowsChromePath: string;
+  webGpuProxyPort: number;
+};
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -106,17 +119,19 @@ function parseCliOptions(argumentList: string[]): Result<CliOptions> {
   const baseUrl = argumentList.find((argument) => !argument.startsWith("--") && URL.canParse(argument));
   if (!baseUrl) return { ok: false, reason: "pass the base URL, for example http://localhost:3106" };
   const tierFlag = readFlagValue(argumentList, "--tier") ?? "all";
-  if (tierFlag !== "all" && tierFlag !== "software" && tierFlag !== "hardware") return { ok: false, reason: `--tier must be software, hardware or all, got ${tierFlag}` };
+  if (tierFlag !== "all" && tierFlag !== "software" && tierFlag !== "hardware" && tierFlag !== "webgpu") return { ok: false, reason: `--tier must be software, hardware, webgpu or all, got ${tierFlag}` };
   return {
     ok: true,
     value: {
       baseUrl: baseUrl.replace(/\/$/, ""),
-      tiers: tierFlag === "all" ? ["software", "hardware"] : [tierFlag],
+      tiers: tierFlag === "all" ? ["software", "hardware", "webgpu"] : [tierFlag],
       isTierExplicit: tierFlag !== "all",
       only: readFlagValue(argumentList, "--only"),
       shouldUpdate: argumentList.includes("--update"),
       outDirectory: readFlagValue(argumentList, "--out") ?? path.join(".scratch", "lookdev"),
       chromiumPath: readFlagValue(argumentList, "--chromium") ?? process.env.PERF_CHROMIUM_PATH ?? null,
+      windowsChromePath: readFlagValue(argumentList, "--windows-chrome") ?? DEFAULT_WINDOWS_CHROME,
+      webGpuProxyPort: Number(readFlagValue(argumentList, "--webgpu-proxy-port") ?? DEFAULT_PROXY_PORT),
     },
   };
 }
@@ -303,7 +318,7 @@ function judgeAgainstBaseline(input: { tier: TierName; name: string; framePng: U
 }
 
 /** The ship turntable (every hull kind side by side), judged on its look only. */
-async function captureTurntable(browser: Browser, tier: TierName, pageUrl: string, options: CliOptions): Promise<Result<ShotOutcome>> {
+async function captureTurntable(browser: Browser, tier: PlaywrightTierName, pageUrl: string, options: CliOptions): Promise<Result<ShotOutcome>> {
   const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
   const page = await context.newPage();
   try {
@@ -329,7 +344,42 @@ async function captureTurntable(browser: Browser, tier: TierName, pageUrl: strin
   }
 }
 
-async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, options: CliOptions): Promise<Result<ShotOutcome>> {
+type CapturedFrames = {
+  tier: TierName;
+  shot: LookdevShot;
+  rendererName: string;
+  renderMs: number;
+  scrubFrameMs: number | null;
+  /** The 3D view with its labels (the look), and the bare canvas the colour probes are read on. */
+  lookPng: Uint8Array;
+  look: RgbaImage;
+  canvasImage: RgbaImage;
+  rawProbes: unknown;
+  rawSeabedProbes: unknown;
+};
+
+/** Judges one shot's frames, however they were captured: the look against its baseline, the data colours, the seabed. */
+function judgeCapturedFrames(frames: CapturedFrames, options: CliOptions): Result<ShotOutcome> {
+  const { tier, shot, rendererName, renderMs, scrubFrameMs, lookPng, look, canvasImage, rawProbes, rawSeabedProbes } = frames;
+  const probes = Array.isArray(rawProbes) ? rawProbes.filter(isProbePoint) : [];
+  const tones = shot.view === "closeup" ? [] : judgeTones(canvasImage, probes, shot.requiredTones);
+  const seabedProbes = Array.isArray(rawSeabedProbes) ? rawSeabedProbes.filter(isSeabedProbe) : [];
+  const seabed = SEABED_JUDGED_VIEWS.includes(shot.view) ? judgeSeabed(canvasImage, seabedProbes) : null;
+  if (probes.length > 0) {
+    const overlayDirectory = path.join(options.outDirectory, tier);
+    mkdirSync(overlayDirectory, { recursive: true });
+    writeFileSync(path.join(overlayDirectory, `${shot.name}.probes.png`), encodePng(drawProbeOverlay(canvasImage, probes)));
+  }
+  const judged = judgeAgainstBaseline({ tier, name: shot.name, framePng: lookPng, frame: look, options });
+  if (!judged.ok) return judged;
+  const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
+  return {
+    ok: true,
+    value: { shot: shot.name, tier, rendererName, renderMs, scrubFrameMs, differingShare, meanDelta, baselineNote, tones, seabed, isPass: isBaselinePass && tones.every((tone) => tone.isPass) && (seabed?.isPass ?? true) },
+  };
+}
+
+async function captureShot(browser: Browser, tier: PlaywrightTierName, shot: LookdevShot, options: CliOptions): Promise<Result<ShotOutcome>> {
   const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: "reduce" });
   await context.addInitScript(markLookdevCanvas);
   const page = await context.newPage();
@@ -357,31 +407,73 @@ async function captureShot(browser: Browser, tier: TierName, shot: LookdevShot, 
     const canvasImage = decodePng(canvasPng);
     if (!look.ok) return { ok: false, reason: `frame: ${look.reason}` };
     if (!canvasImage.ok) return { ok: false, reason: `canvas frame: ${canvasImage.reason}` };
+    // Judged before the scrub timing, which moves the replay away from the shot's moment.
     const parsedProbes: unknown = JSON.parse(rawProbes);
-    const probes = Array.isArray(parsedProbes) ? parsedProbes.filter(isProbePoint) : [];
-    const tones = shot.view === "closeup" ? [] : judgeTones(canvasImage.value, probes, shot.requiredTones);
     const parsedSeabedProbes: unknown = JSON.parse(rawSeabedProbes);
-    const seabedProbes = Array.isArray(parsedSeabedProbes) ? parsedSeabedProbes.filter(isSeabedProbe) : [];
-    const seabed = SEABED_JUDGED_VIEWS.includes(shot.view) ? judgeSeabed(canvasImage.value, seabedProbes) : null;
-    if (probes.length > 0) {
-      const overlayDirectory = path.join(options.outDirectory, tier);
-      mkdirSync(overlayDirectory, { recursive: true });
-      writeFileSync(path.join(overlayDirectory, `${shot.name}.probes.png`), encodePng(drawProbeOverlay(canvasImage.value, probes)));
-    }
-
-    const judged = judgeAgainstBaseline({ tier, name: shot.name, framePng: lookPng, frame: look.value, options });
-    if (!judged.ok) return judged;
+    const frames = { tier, shot, rendererName, renderMs, lookPng, look: look.value, canvasImage: canvasImage.value, rawProbes: parsedProbes, rawSeabedProbes: parsedSeabedProbes };
+    const judgedWithoutTiming = judgeCapturedFrames({ ...frames, scrubFrameMs: null }, options);
+    if (!judgedWithoutTiming.ok) return judgedWithoutTiming;
     const scrubFrameMs = shot.view === "overview" ? await measureScrubFrameMs(page) : null;
-    const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
-    return {
-      ok: true,
-      value: { shot: shot.name, tier, rendererName, renderMs, scrubFrameMs, differingShare, meanDelta, baselineNote, tones, seabed, isPass: isBaselinePass && tones.every((tone) => tone.isPass) && (seabed?.isPass ?? true) },
-    };
+    return { ok: true, value: { ...judgedWithoutTiming.value, scrubFrameMs } };
   } catch (error) {
     return { ok: false, reason: describeError(error) };
   } finally {
     await context.close();
   }
+}
+
+type WebGpuSession = { chromePath: string; proxyOrigin: string; setAgentConfig: (config: AgentConfig) => void; releaseAll: () => void };
+
+/** One Windows Chrome run of a shot in a mode, its renderer checked: the agent's report and the screenshot. */
+async function runWebGpuCapture(session: WebGpuSession, shot: LookdevShot, mode: CaptureMode, options: CliOptions): Promise<Result<WindowsCapture>> {
+  session.setAgentConfig({ mode, view: shot.view, atMs: shot.atMs, settleMs: SETTLE_MS, timeoutMs: FRAME_TIMEOUT_MS, scrubSteps: SCRUB_STEPS, lookCss: LOOK_ONLY_CSS, canvasCss: CANVAS_ONLY_CSS, viewportWidth: VIEWPORT.width, viewportHeight: VIEWPORT.height });
+  const captured = await captureWithWindowsChrome({
+    chromePath: session.chromePath,
+    pageUrl: buildShotUrl(session.proxyOrigin, shot),
+    screenshotPath: path.join(options.outDirectory, "webgpu", "screens", `${shot.name}.${mode}.png`),
+    releaseAll: session.releaseAll,
+    viewport: VIEWPORT,
+  });
+  if (!captured.ok) return captured;
+  const { report } = captured.value;
+  if (report.renderer !== "webgpu") return { ok: false, reason: `asked for the webgpu tier, the page drew on ${report.renderer}` };
+  if (report.devicePixelRatio !== 1) return { ok: false, reason: `Chrome drew at device pixel ratio ${report.devicePixelRatio}, the baselines are at 1` };
+  const isAtViewport = report.viewportWidth === VIEWPORT.width && report.viewportHeight === VIEWPORT.height;
+  if (mode !== "timing" && !isAtViewport) return { ok: false, reason: `the agent reported at ${report.viewportWidth} x ${report.viewportHeight}, not the screenshot's ${VIEWPORT.width} x ${VIEWPORT.height}` };
+  return captured;
+}
+
+/**
+ * A shot on the WebGPU tier: one Chrome run for the look (labels shown), one for the bare canvas and its colour
+ * probes, and on overview shots one more that times the scrub, so no run's frame is disturbed by another's needs.
+ */
+async function captureWebGpuShot(session: WebGpuSession, shot: LookdevShot, options: CliOptions): Promise<Result<ShotOutcome>> {
+  const lookRun = await runWebGpuCapture(session, shot, "look", options);
+  if (!lookRun.ok) return lookRun;
+  const canvasRun = await runWebGpuCapture(session, shot, "canvas", options);
+  if (!canvasRun.ok) return canvasRun;
+  const { viewRect } = lookRun.value.report;
+  const { canvasRect } = canvasRun.value.report;
+  if (!viewRect || !canvasRect) return { ok: false, reason: "the agent found no 3D view or canvas box" };
+  const look = cropToBox(lookRun.value.screenshot, viewRect);
+  const canvasImage = cropToBox(canvasRun.value.screenshot, canvasRect);
+  const timingRun = shot.view === "overview" ? await runWebGpuCapture(session, shot, "timing", options) : null;
+  if (timingRun && !timingRun.ok) return timingRun;
+  return judgeCapturedFrames(
+    {
+      tier: "webgpu",
+      shot,
+      rendererName: lookRun.value.report.adapterName,
+      renderMs: lookRun.value.report.readyMs,
+      scrubFrameMs: timingRun?.value.report.scrubFrameMs ?? null,
+      lookPng: encodePng(look),
+      look,
+      canvasImage,
+      rawProbes: canvasRun.value.report.colorProbes,
+      rawSeabedProbes: canvasRun.value.report.seabedProbes,
+    },
+    options,
+  );
 }
 
 type SeabedProbePoint = { hex: string; x: number; y: number };
@@ -431,6 +523,76 @@ function printOutcome(outcome: ShotOutcome) {
   }
 }
 
+/**
+ * Every shot (and the turntable) on the WebGPU tier through Windows Chrome. In a default run a machine without
+ * Windows Chrome or a GPU adapter reports the tier as skipped, as the hardware tier does without a GPU.
+ */
+async function runWebGpuTier(shots: readonly LookdevShot[], isTurntableIncluded: boolean, options: CliOptions): Promise<{ outcomes: ShotOutcome[]; hasRenderFailure: boolean }> {
+  const outcomes: ShotOutcome[] = [];
+  const available = canRunWindowsChrome(options.windowsChromePath);
+  if (!available.ok) {
+    console[options.isTierExplicit ? "error" : "log"](`[runLookdev] webgpu: ${options.isTierExplicit ? "cannot run" : "skipped"}: ${available.reason}`);
+    return { outcomes, hasRenderFailure: options.isTierExplicit };
+  }
+  const turntableDirectory = isTurntableIncluded ? await buildWebGpuTurntablePage(options.outDirectory) : null;
+  if (turntableDirectory && !turntableDirectory.ok) {
+    console.error(`[runLookdev] the WebGPU ship turntable did not bundle: ${turntableDirectory.reason}`);
+    return { outcomes, hasRenderFailure: true };
+  }
+  const proxy = startLookdevProxy(options.baseUrl, turntableDirectory?.ok ? turntableDirectory.value : null, options.webGpuProxyPort);
+  const session: WebGpuSession = { chromePath: available.value, proxyOrigin: `http://localhost:${proxy.port}`, setAgentConfig: proxy.setAgentConfig, releaseAll: proxy.releaseAll };
+  let hasRenderFailure = false;
+  try {
+    for (const shot of shots) {
+      const captured = await captureWebGpuShot(session, shot, options);
+      if (!captured.ok) {
+        const isSkippable = !options.isTierExplicit && captured.reason.includes("drew on");
+        console[isSkippable ? "log" : "error"](`[runLookdev] webgpu ${shot.name}: ${isSkippable ? "skipped, no WebGPU adapter reached" : "could not render"}: ${captured.reason}`);
+        if (isSkippable) return { outcomes, hasRenderFailure };
+        hasRenderFailure = true;
+        continue;
+      }
+      outcomes.push(captured.value);
+      printOutcome(captured.value);
+    }
+    if (turntableDirectory?.ok) {
+      const captured = await captureWebGpuTurntable(session, options);
+      if (captured.ok) {
+        outcomes.push(captured.value);
+        printOutcome(captured.value);
+      } else {
+        console.error(`[runLookdev] webgpu ${TURNTABLE_SHOT_NAME}: could not render: ${captured.reason}`);
+        hasRenderFailure = true;
+      }
+    }
+  } finally {
+    proxy.releaseAll();
+    proxy.stop();
+  }
+  return { outcomes, hasRenderFailure };
+}
+
+/** The ship turntable on the WebGPU tier (turntable-webgpu-page.ts), judged on its look only. */
+async function captureWebGpuTurntable(session: WebGpuSession, options: CliOptions): Promise<Result<ShotOutcome>> {
+  session.setAgentConfig({ mode: "turntable", view: "", atMs: 0, settleMs: SETTLE_MS, timeoutMs: FRAME_TIMEOUT_MS, scrubSteps: 0, lookCss: "", canvasCss: "", viewportWidth: VIEWPORT.width, viewportHeight: VIEWPORT.height });
+  const captured = await captureWithWindowsChrome({
+    chromePath: session.chromePath,
+    pageUrl: `${session.proxyOrigin}${TURNTABLE_PATH}index.html`,
+    screenshotPath: path.join(options.outDirectory, "webgpu", "screens", `${TURNTABLE_SHOT_NAME}.png`),
+    releaseAll: session.releaseAll,
+    viewport: VIEWPORT,
+  });
+  if (!captured.ok) return captured;
+  const { report, screenshot } = captured.value;
+  if (report.renderer !== "webgpu") return { ok: false, reason: `asked for the webgpu tier, the page drew on ${report.renderer}` };
+  if (!report.viewRect) return { ok: false, reason: "the agent found no page body" };
+  const frame = cropToBox(screenshot, report.viewRect);
+  const judged = judgeAgainstBaseline({ tier: "webgpu", name: TURNTABLE_SHOT_NAME, framePng: encodePng(frame), frame, options });
+  if (!judged.ok) return judged;
+  const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
+  return { ok: true, value: { shot: TURNTABLE_SHOT_NAME, tier: "webgpu", rendererName: report.adapterName, renderMs: report.readyMs, scrubFrameMs: null, differingShare, meanDelta, baselineNote, tones: [], seabed: null, isPass: isBaselinePass } };
+}
+
 async function main(): Promise<number> {
   const parsed = parseCliOptions(process.argv.slice(2));
   if (!parsed.ok) {
@@ -453,6 +615,12 @@ async function main(): Promise<number> {
   const outcomes: ShotOutcome[] = [];
   let hasRenderFailure = false;
   for (const tier of options.tiers) {
+    if (tier === "webgpu") {
+      const webGpuRun = await runWebGpuTier(shots, isTurntableIncluded, options);
+      outcomes.push(...webGpuRun.outcomes);
+      hasRenderFailure ||= webGpuRun.hasRenderFailure;
+      continue;
+    }
     const launch = TIER_LAUNCH[tier];
     let browser: Browser;
     try {
