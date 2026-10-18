@@ -11,6 +11,7 @@ import { makeLabel, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel, buildStudLinkGeometry, createAnchorSteelMaterial } from "@/lib/seabed/scene/models";
 import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
+import { createCableServingTexture } from "@/lib/seabed/scene/seabed-lines";
 import { createRayTexture } from "@/lib/seabed/scene/textures";
 import type { ScenePoint } from "@/lib/seabed/terrain";
 
@@ -133,39 +134,6 @@ function readCutState(seconds: number): CutState {
   // Silt rises behind the dragging anchor, billows when the cable parts and settles over two minutes.
   const siltRise = seconds < beats.enter ? 0 : seconds < beats.part ? 0.6 + 0.4 * easeInOut((seconds - beats.catch) / (beats.part - beats.catch)) : Math.max(0, 1 - (seconds - beats.part) / (beats.siltSettled - beats.part));
   return { anchorX, bight, isParted, endGap, endBend, siltRise };
-}
-
-/** The cable's outer serving: black polypropylene yarn wound helically over the armour, as on armoured subsea cable. */
-function createCableServingTexture(): THREE.CanvasTexture | null {
-  if (typeof document === "undefined") return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 64;
-  const context = canvas.getContext("2d");
-  if (!context) return null;
-  context.fillStyle = "#24262A";
-  context.fillRect(0, 0, 128, 64);
-  // Yarn strands at the armour's lay angle, each with a lit edge and a shadowed one.
-  for (let offset = -64; offset < 192; offset += 8) {
-    context.strokeStyle = "#3B3F46";
-    context.lineWidth = 3;
-    context.beginPath();
-    context.moveTo(offset, 0);
-    context.lineTo(offset + 64, 64);
-    context.stroke();
-    context.strokeStyle = "#17181B";
-    context.lineWidth = 1;
-    context.beginPath();
-    context.moveTo(offset + 3, 0);
-    context.lineTo(offset + 67, 64);
-    context.stroke();
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.anisotropy = 4;
-  return texture;
 }
 
 export function buildCloseUp(options: CloseUpOptions): CloseUpScene {

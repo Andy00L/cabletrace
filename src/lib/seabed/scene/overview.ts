@@ -13,8 +13,9 @@ import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
 import { DEPTH_TOKEN_RAMP, LAND_TOKEN_RAMP, SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { bakeReliefOcclusion } from "@/lib/seabed/scene/relief-occlusion";
 import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
-import { buildWaterBody, createWaterDepthMap, type WaterLook } from "@/lib/seabed/scene/water-surface";
-import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
+import { createPhysicalLine, createSeabedLineMaterials, type PhysicalLine } from "@/lib/seabed/scene/seabed-lines";
+import { buildWaterBody, createWaterDepthMap, WATER_ABSORPTION, type WaterLook } from "@/lib/seabed/scene/water-surface";
+import { FULL_WIDTH_DISTANCE_KM, MIN_WIDTH_SHARE, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
 import { buildShip } from "@/lib/ships/build-ship";
@@ -132,6 +133,9 @@ export type DataTone = "cable" | "pipeline" | "suspect" | "alarm";
  * the line's drawn width there in km, or null for a line drawn a fixed number of pixels wide.
  */
 export type ColorProbe = { tone: DataTone; position: THREE.Vector3; widthKm: number | null };
+
+/** A cable or pipeline: its map tube, its physical twin, and whether the replay shows it at the drawn moment. */
+type DataLine = { tone: DataTone; radius: number; tube: { mesh: THREE.Mesh; curve: THREE.CatmullRomCurve3; restingPoints: THREE.Vector3[] }; physical: PhysicalLine; isShown: boolean };
 
 /** A point of level, open seabed and the depth token it must show there (sRGB hex), for the lookdev seabed check. */
 export type SeabedProbe = { position: THREE.Vector3; expectedHex: string };
@@ -319,11 +323,13 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
     const restingHeight = Math.max(sum / count, (rawHeights[index] ?? 0) - 0.04);
     return new THREE.Vector3(point.x, restingHeight + radius + 0.04, point.z);
   });
+  // Where the line rests on the seabed (for its physical twin, seabed-lines.ts).
+  const restingPoints = vectors.map((vector) => new THREE.Vector3(vector.x, vector.y - radius - 0.04, vector.z));
   const curve = new THREE.CatmullRomCurve3(vectors, false, "centripetal");
   // Data tubes are drawn unlit and after the water (src/lib/render/data-colors.ts), so they show their exact colour.
   const mesh = drawAfterWater(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(12, vectors.length * 2), radius, 8, false), material));
   mesh.castShadow = true;
-  return { mesh, curve };
+  return { mesh, curve, restingPoints };
 }
 
 function nearestIndex(points: readonly ScenePoint[], target: ScenePoint): { index: number; distanceKm: number } {
@@ -429,27 +435,34 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   let cableDirection: ScenePoint = { x: 1, z: 0 };
   let signalCurve: THREE.CatmullRomCurve3 | null = null;
   let signalStopCurve: THREE.CatmullRomCurve3 | null = null;
-  // Each cut cable swaps its intact tube for two pieces once its cut time has passed.
-  const cutSwitches: { cut: ReplayCut; intact: THREE.Object3D[]; pieces: THREE.Object3D[] }[] = [];
   const pipelineCurves = new Map<string, THREE.CatmullRomCurve3[]>();
-  // Every data tube, for the lookdev colour probes.
-  const dataTubes: { tone: DataTone; radius: number; tube: ReturnType<typeof createSeabedTube> }[] = [];
+  // Every data line: its map tube, its physical twin for the close views, and whether the replay shows it now (a cut
+  // cable's pieces only once it is cut). Read by the colour probes too.
+  const lineMaterials = createSeabedLineMaterials();
+  const dataTubes: DataLine[] = [];
+  function addDataLine(tone: DataTone, radius: number, tube: ReturnType<typeof createSeabedTube>, isShown: boolean): DataLine {
+    const physical = createPhysicalLine({ restingPoints: tube.restingPoints, radiusKm: radius * MIN_WIDTH_SHARE, kind: tone === "pipeline" ? "pipeline" : "cable", hex: tone === "pipeline" ? WEBGL_COLORS.pipeline : WEBGL_COLORS.cable, materials: lineMaterials, kit });
+    scene.add(tube.mesh, physical.group);
+    const dataLine: DataLine = { tone, radius, tube, physical, isShown };
+    dataTubes.push(dataLine);
+    return dataLine;
+  }
+  // Each cut cable swaps its intact line for two pieces once its cut time has passed.
+  const cutSwitches: { cut: ReplayCut; intact: DataLine; halo: THREE.Object3D | null; pieces: DataLine[] }[] = [];
 
   for (const line of features.lines) {
     const scenePoints = densifyScenePoints(line.points.map(([longitude, latitude]) => toScene(longitude, latitude)), LINE_STEP_KM);
     for (const run of clipToBlock(scenePoints, projection)) {
       if (line.kind === "pipeline") {
         const pipeline = createSeabedTube(run, tubeRadii.pipeline, pipelineMaterial, sampleSeabedHeight);
-        scene.add(pipeline.mesh);
-        dataTubes.push({ tone: "pipeline", radius: tubeRadii.pipeline, tube: pipeline });
+        addDataLine("pipeline", tubeRadii.pipeline, pipeline, true);
         pipelineCurves.set(line.name, [...(pipelineCurves.get(line.name) ?? []), pipeline.curve]);
         continue;
       }
       const radius = tubeRadii[line.kind];
       const cableMaterial = cableMaterials[line.kind];
       const intact = createSeabedTube(run, radius, cableMaterial, sampleSeabedHeight);
-      scene.add(intact.mesh);
-      dataTubes.push({ tone: "cable", radius, tube: intact });
+      const intactLine = addDataLine("cable", radius, intact, true);
       const matchingCut = input.cuts
         .filter((cut) => cut.cableName === line.name)
         .map((cut) => ({ cut, nearest: nearestIndex(run, toScene(cut.longitude, cut.latitude)) }))
@@ -461,27 +474,23 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (!canSplit) continue;
       const before = createSeabedTube(run.slice(0, nearest.index - 1), radius, cableMaterial, sampleSeabedHeight);
       const after = createSeabedTube(run.slice(nearest.index + 2), radius, cableMaterial, sampleSeabedHeight);
-      before.mesh.visible = false;
-      after.mesh.visible = false;
-      scene.add(before.mesh, after.mesh);
-      dataTubes.push({ tone: "cable", radius, tube: before }, { tone: "cable", radius, tube: after });
-      const intactObjects: THREE.Object3D[] = [intact.mesh];
+      const pieces = [addDataLine("cable", radius, before, false), addDataLine("cable", radius, after, false)];
+      let halo: THREE.Object3D | null = null;
       if (cut === primaryCut) {
         // The signature "signal": a faint halo and a light that runs along the cable under watch.
-        const halo = new THREE.Mesh(
+        halo = new THREE.Mesh(
           new THREE.TubeGeometry(intact.curve, Math.max(12, run.length * 2), tubeRadii.signalHalo, 8, false),
           kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.cable, radiusKm: tubeRadii.signalHalo, fullWidthDistanceKm, opacity: 0.12, depthWrite: false }),
         );
         drawAfterWater(halo);
         scene.add(halo);
-        intactObjects.push(halo);
         signalCurve = intact.curve;
         signalStopCurve = before.curve;
         const previous = run[Math.max(0, nearest.index - 2)];
         const next = run[Math.min(run.length - 1, nearest.index + 2)];
         if (previous && next) cableDirection = unitDirection(previous, next, cableDirection);
       }
-      cutSwitches.push({ cut, intact: intactObjects, pieces: [before.mesh, after.mesh] });
+      cutSwitches.push({ cut, intact: intactLine, halo, pieces });
     }
   }
 
@@ -851,13 +860,19 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
     for (const cutSwitch of cutSwitches) {
       const isCut = atMs >= cutSwitch.cut.atMs;
-      cutSwitch.intact.forEach((object) => {
-        object.visible = !isCut;
-      });
-      cutSwitch.pieces.forEach((object) => {
-        object.visible = isCut;
+      cutSwitch.intact.isShown = !isCut;
+      cutSwitch.pieces.forEach((piece) => {
+        piece.isShown = isCut;
       });
     }
+    // Close to the seabed's lines (the Vessel view) each is drawn as the thing it is, carrying its tracer; from the map's
+    // height, as the crisp data-coloured tube. The signal's halo belongs to the map.
+    const isClose = isCloseToLines(camera.position);
+    for (const dataLine of dataTubes) {
+      dataLine.tube.mesh.visible = dataLine.isShown && !isClose;
+      dataLine.physical.group.visible = dataLine.isShown && isClose;
+    }
+    for (const cutSwitch of cutSwitches) if (cutSwitch.halo) cutSwitch.halo.visible = cutSwitch.intact.isShown && !isClose;
     for (const cutMarker of cutMarkers) {
       const isCut = atMs >= cutMarker.cut.atMs;
       cutMarker.marker.visible = isCut;
@@ -947,10 +962,21 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     });
   }
 
+  /** Whether a camera is low enough to see the lines as things (the absorption's height: water-surface.ts). */
+  function isCloseToLines(cameraPosition: THREE.Vector3): boolean {
+    return cameraPosition.y < WATER_ABSORPTION.fadeHeightKm[0];
+  }
+
   function readColorProbes(cameraPosition: THREE.Vector3): ColorProbe[] {
     const probes: ColorProbe[] = [];
-    for (const { tone, radius, tube } of dataTubes) {
-      if (!tube.mesh.visible) continue;
+    const isClose = isCloseToLines(cameraPosition);
+    for (const { tone, radius, tube, physical, isShown } of dataTubes) {
+      if (!isShown) continue;
+      if (isClose) {
+        // The tracer is a fixed number of pixels wide: its centreline is the probe.
+        COLOR_PROBE_SHARES.forEach((share) => probes.push({ tone, position: physical.tracerCurve.getPointAt(share), widthKm: null }));
+        continue;
+      }
       for (const share of COLOR_PROBE_SHARES) {
         const centre = tube.curve.getPointAt(share);
         const middleOffsetKm = readThinnedTubeMiddle(radius, centre.distanceTo(cameraPosition), fullWidthDistanceKm);
