@@ -3,6 +3,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import type { ReactNode } from "react";
 import { CloseButton } from "@/components/ui/LayerCard";
+import { useReturnFocusToOpener } from "@/components/ui/use-return-focus";
 
 type LayerSheetProps = {
   isOpen: boolean;
@@ -18,9 +19,10 @@ type LayerSheetProps = {
 /**
  * A modal layer over the whole console: the sources sheet, the aftermath and shortcut dialogs. The scrim dims the
  * console behind it, focus stays inside until it closes, and Esc or the close button returns focus to the control
- * that opened it (Radix restores it).
+ * that opened it (useReturnFocusToOpener: these layers have no Radix Trigger to fall back on).
  */
 export function LayerSheet({ isOpen, onClose, title, description, placement, testId, children }: LayerSheetProps) {
+  const { rememberOpener, returnFocus } = useReturnFocusToOpener();
   const position =
     placement === "sheet"
       ? "top-4 right-4 bottom-4 w-[460px] max-w-[calc(100vw-32px)] data-[state=closed]:animate-sheet-exit data-[state=open]:animate-sheet-enter"
@@ -32,6 +34,8 @@ export function LayerSheet({ isOpen, onClose, title, description, placement, tes
         <Dialog.Content
           className={`fixed z-(--layer-sheet) flex flex-col gap-4 overflow-hidden rounded-card bg-card px-5 pt-6 text-ink shadow-popover outline-none ${position}`}
           data-testid={testId}
+          onOpenAutoFocus={rememberOpener}
+          onCloseAutoFocus={returnFocus}
         >
           <div className="flex items-start gap-3 px-1">
             <div className="flex min-w-0 flex-col gap-0.5">

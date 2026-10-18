@@ -10,8 +10,9 @@ import { progressToTimeMs } from "@/lib/replay/replay-scene";
 
 /**
  * The anchor status at the top of the stage: a white pill saying what the anchor is doing; pressed, it grows into
- * the latest event with its quote (after bencho.dev's dynamic-island, MIT: one shape grows, the content fades in).
- * Re-renders only when the status or the latest event changes, not on every frame.
+ * the latest event with its quote, then what the sources say about the drag itself, so that evidence is one press
+ * away (after bencho.dev's dynamic-island, MIT: one shape grows, the content fades in). Re-renders only when the
+ * status or the latest event changes, not on every frame.
  */
 export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
   const { input, consoleCase, clock } = useConsole();
@@ -51,7 +52,7 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
           <Icon name="chevronDown" size={16} className={`flex-none text-muted transition-transform duration-220 ease-standard ${isOpen ? "rotate-180" : ""}`} />
         </button>
         {isOpen && (
-          <div className="flex w-[340px] max-w-full animate-layer-enter flex-col gap-2.5 px-4 pt-1 pb-4">
+          <div className="flex max-h-[min(55svh,480px)] w-[340px] max-w-full animate-layer-enter flex-col gap-2.5 overflow-y-auto px-4 pt-1 pb-4">
             {latestEvent ? (
               <>
                 <p className="flex items-baseline gap-2">
@@ -66,6 +67,18 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
               </>
             ) : (
               <p className="text-small text-muted">Nothing has happened yet at this moment of the replay. Press Play or pick an event.</p>
+            )}
+            {consoleCase.dragCitations.length > 0 && (
+              <div className="flex flex-col gap-2 pt-2" data-testid="anchor-drag-evidence">
+                <p className="text-caption font-normal text-muted">How the drag is known</p>
+                {consoleCase.dragCitations.map((citation, index) => (
+                  <div key={`${citation.sourceId}-${index}`} className="flex flex-col gap-1 rounded-field bg-page px-3.5 py-3">
+                    <p className="text-small">{citation.translation ?? citation.quote}</p>
+                    {citation.translation && <p className="text-caption font-normal text-muted">{citation.quote}</p>}
+                  </div>
+                ))}
+                <CitationButtons citations={consoleCase.dragCitations} />
+              </div>
             )}
           </div>
         )}

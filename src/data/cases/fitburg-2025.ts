@@ -584,7 +584,7 @@ export const FITBURG_2025: CableCase = {
       title: "FINEX, General Cargo Ship, IMO 9250397",
       url: "https://www.vesselfinder.com/vessels/details/9250397",
       publishedOn: "2026-10-17",
-      archivedUrl: "https://web.archive.org/web/20250123214517/https://www.vesselfinder.com/vessels/details/9250397",
+      archivedUrl: "https://web.archive.org/web/20261017160505/https://www.vesselfinder.com/vessels/details/9250397",
     },
     {
       id: 21,
@@ -600,7 +600,7 @@ export const FITBURG_2025: CableCase = {
       title: "Maritime boundaries (eez_boundaries), WFS extract for 20.5 to 28.5 E, 58.5 to 60.6 N",
       url: "https://geo.vliz.be/geoserver/MarineRegions/wfs?service=WFS&version=1.0.0&request=GetFeature&typeName=MarineRegions:eez_boundaries&outputFormat=application/json&bbox=20.5,58.5,28.5,60.6",
       publishedOn: "2026-10-17",
-      archivedUrl: null,
+      archivedUrl: "https://web.archive.org/web/20261017160740/https://geo.vliz.be/geoserver/MarineRegions/wfs?service=WFS&version=1.0.0&request=GetFeature&typeName=MarineRegions:eez_boundaries&outputFormat=application/json&bbox=20.5,58.5,28.5,60.6",
     },
   ],
 };

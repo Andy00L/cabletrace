@@ -71,6 +71,8 @@ export type ConsoleCase = {
     sourceNote: string;
   };
   recordedTrack: { selection: string; firstFixMs: number; lastFixMs: number; fixCount: number; citations: CitationView[]; sourceNote: string } | null;
+  /** What the sources say about the anchor drag itself; empty when the case has no drag window. */
+  dragCitations: CitationView[];
   positions: ConsolePosition[];
   cuts: [ConsoleCut, ...ConsoleCut[]];
   events: ConsoleEvent[];
@@ -157,6 +159,7 @@ export function toConsoleCase(cableCase: CableCase): ConsoleCase {
             sourceNote: formatSourceNote(cableCase.recordedTrack.citations),
           }
         : null,
+    dragCitations: cableCase.dragWindow ? cableCase.dragWindow.citations.map(toCitationView) : [],
     positions: cableCase.track.map((position) => {
       const atMs = Date.parse(position.atUtc);
       return {

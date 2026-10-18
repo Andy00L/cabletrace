@@ -202,7 +202,7 @@ export const HAI_HONG_GONG_66_2026: CableCase = {
       title: "HAI HONG GONG 66, Dredger, IMO 8537504",
       url: "https://www.vesselfinder.com/vessels/details/8537504",
       publishedOn: "2026-10-17",
-      archivedUrl: "https://web.archive.org/web/20260120151654/https://www.vesselfinder.com/vessels/details/8537504",
+      archivedUrl: "https://web.archive.org/web/20261017203608/https://www.vesselfinder.com/vessels/details/8537504",
     },
   ],
 };

@@ -533,7 +533,7 @@ export const NEWNEW_POLAR_BEAR_2023: CableCase = {
       title: "Hong Kong court to call 18 witnesses over Baltic Sea undersea cable damage case",
       url: "https://www.thestandard.com.hk/news/article/322084/Hong-Kong-court-to-call-18-witnesses-over-Baltic-Sea-undersea-cable-damage-case",
       publishedOn: "2026-01-20",
-      archivedUrl: null,
+      archivedUrl: "https://web.archive.org/web/20261017160301/https://www.thestandard.com.hk/news/article/322084/Hong-Kong-court-to-call-18-witnesses-over-Baltic-Sea-undersea-cable-damage-case",
     },
     {
       id: 17,
