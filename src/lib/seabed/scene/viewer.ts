@@ -9,7 +9,8 @@ import type { Result } from "@/lib/result";
 import { clampValue, easeOutCubic } from "@/lib/seabed/math";
 import { hideOverlappingLabels } from "@/lib/seabed/scene/labels";
 import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
-import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneTarget } from "@/lib/seabed/scene/overview";
+import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneSubject, type SceneTarget } from "@/lib/seabed/scene/overview";
+import { chooseScenePalette, readSceneLook } from "@/lib/seabed/scene/scene-look";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
 import type { SeabedData } from "@/lib/seabed/seabed-data";
 import { chooseSmoothingPasses, createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
@@ -47,6 +48,50 @@ const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
 // Lookdev colour probes skip data tubes drawn narrower than this many device pixels: below two, every pixel of the
 // tube is an antialiased edge and none can hold the exact colour.
 const MIN_PROBED_WIDTH_DEVICE_PX = 2;
+// A close-up subject counts as hidden when the seabed is hit this much (units) before reaching it.
+const CLOSE_UP_HIDDEN_MARGIN = 0.3;
+
+/**
+ * Lookdev camera override (explore/natural-look storyboard): a page agent writes `data-camera-override` on the canvas
+ * as JSON `{ "position": [x, y, z], "target": [x, y, z], "fovDegrees": n }` in the drawn scene's units (the overview's
+ * km, or the close-up's units on the At the cut view). The camera then holds that pose, without the right panel's
+ * view offset, until the attribute is removed.
+ */
+type CameraOverride = { position: THREE.Vector3; target: THREE.Vector3; fovDegrees: number };
+
+function readVector(value: unknown): THREE.Vector3 | null {
+  if (!Array.isArray(value) || value.length !== 3) return null;
+  const [pointX, pointY, pointZ]: unknown[] = value;
+  return typeof pointX === "number" && typeof pointY === "number" && typeof pointZ === "number" ? new THREE.Vector3(pointX, pointY, pointZ) : null;
+}
+
+/** Parses the override attribute; null when absent or malformed. */
+function parseCameraOverride(text: string | undefined): CameraOverride | null {
+  if (!text) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    console.warn("[parseCameraOverride] data-camera-override is not JSON");
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const position = readVector(Reflect.get(parsed, "position"));
+  const target = readVector(Reflect.get(parsed, "target"));
+  const fovDegrees: unknown = Reflect.get(parsed, "fovDegrees");
+  return position && target && typeof fovDegrees === "number" ? { position, target, fovDegrees } : null;
+}
+
+/** Puts a camera on an override pose (and its orbit target with it). */
+function applyCameraOverride(override: CameraOverride, camera: THREE.PerspectiveCamera, orbitTarget: THREE.Vector3) {
+  camera.position.copy(override.position);
+  orbitTarget.copy(override.target);
+  camera.fov = override.fovDegrees;
+  camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+  camera.lookAt(override.target);
+  camera.updateMatrixWorld();
+}
 
 /**
  * Drawing budget per tier. On a CPU renderer (SwiftShader, llvmpipe: headless test browsers and machines
@@ -208,7 +253,11 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     rippleNormalMap.wrapT = THREE.RepeatWrapping;
     rippleNormalMap.anisotropy = renderer.maxAnisotropy;
   }
+  // The environment look (explore/natural-look): ?look=natural-a|natural-b, reported back on the canvas for the harness.
+  const palette = chooseScenePalette(readSceneLook(), input.seabedArea);
+  canvas.dataset.sceneLook = palette.look;
   const overview = buildOverview({
+    palette,
     kit: renderer.kit,
     domElement: canvas,
     features,
@@ -227,6 +276,12 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   function markDirty() {
     isDirty = true;
   }
+  let cameraOverride: CameraOverride | null = null;
+  const overrideObserver = new MutationObserver(() => {
+    cameraOverride = parseCameraOverride(canvas.dataset.cameraOverride);
+    markDirty();
+  });
+  overrideObserver.observe(canvas, { attributes: true, attributeFilter: ["data-camera-override"] });
 
   // The close-up takes 0.2 to 0.4 s to build on a slow machine, so it is built the first time it is shown.
   let closeUp: CloseUpScene | null = null;
@@ -475,21 +530,25 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   }
 
   function renderCloseUp(closeUpScene: CloseUpScene, nowSeconds: number, deltaSeconds: number) {
-    const hasCameraMoved = closeUpScene.controls.update();
+    if (cameraOverride) applyCameraOverride(cameraOverride, closeUpScene.camera, closeUpScene.controls.target);
+    const hasCameraMoved = cameraOverride ? false : closeUpScene.controls.update();
     if (isCalm && !isDirty && !hasCameraMoved) return;
     closeUpScene.update(nowSeconds, deltaSeconds);
     renderer.draw(closeUpScene.scene, closeUpScene.camera);
     closeUpLabels.render(closeUpScene.scene, closeUpScene.camera);
     isDirty = false;
     recordDrawnFrame(readTimeMs());
+    if (canvas.dataset.lookdev === "on") recordCloseUpSubjects(closeUpScene);
   }
 
   function renderOverview(now: number, elapsedSeconds: number, deltaSeconds: number) {
     const atMs = readTimeMs();
     const hasTimeChanged = atMs !== lastDrawnAtMs;
     let isCameraEasing = false;
-    const vesselFrame = activeView === "vessel" ? overview.readVesselFrame() : null;
-    if (vesselFrame) {
+    const vesselFrame = activeView === "vessel" && !cameraOverride ? overview.readVesselFrame() : null;
+    if (cameraOverride) {
+      applyCameraOverride(cameraOverride, overview.camera, overview.controls.target);
+    } else if (vesselFrame) {
       const { position, heading, drawnLengthKm } = vesselFrame;
       const behindKm = FOLLOW_BEHIND_LENGTHS * drawnLengthKm;
       const sideKm = FOLLOW_SIDE_LENGTHS * drawnLengthKm;
@@ -511,13 +570,14 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     }
     // The follow camera owns the camera in the Vessel view: the orbit controls would pull it out to their minimum
     // distance (1.5 km), closer than a short hull's follow offset allows, and the two would fight every frame.
-    const hasCameraMoved = vesselFrame ? false : overview.controls.update();
+    const hasCameraMoved = vesselFrame || cameraOverride ? false : overview.controls.update();
     if (isCalm && !isDirty && !hasTimeChanged && !hasCameraMoved && !isCameraEasing) return;
     // A paused calm scene holds still: silt drifts only while the replay moves.
     overview.update(atMs, isCalm && !hasTimeChanged ? 0 : deltaSeconds, now / 1000);
     // The vessel moved with the replay, so the follow camera has a new target: one more frame after this one.
     isDirty = activeView === "vessel" && hasTimeChanged;
     lastDrawnAtMs = atMs;
+    overview.followCamera(overview.camera.position, overview.camera.position.distanceTo(overview.controls.target));
     renderer.draw(overview.scene, overview.camera);
     overviewLabels.render(overview.scene, overview.camera);
     hideOverlappingLabels(overviewLabels.domElement);
@@ -553,6 +613,46 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       return isInClearPart ? [{ hex: probe.expectedHex, x: Math.round(canvasX * 10) / 10, y: Math.round(canvasY * 10) / 10 }] : [];
     });
     canvas.dataset.seabedProbes = JSON.stringify(seabedProbes);
+    recordStoryboardHooks(
+      overview.camera,
+      overview.controls.target,
+      overview.readSubjects().map((subject) => ({ subject, isHidden: overview.isBehindRelief(subject.position, overview.camera.position) })),
+    );
+    canvas.dataset.anchorFacts = JSON.stringify(overview.readAnchorFacts(readTimeMs()));
+  }
+
+  // Lookdev hooks for the storyboard (explore/natural-look): the camera's pose and where each named subject lands on
+  // the canvas (CSS px, null behind the camera), and whether the seabed hides it from the camera.
+  function recordStoryboardHooks(camera: THREE.PerspectiveCamera, target: THREE.Vector3, subjects: { subject: SceneSubject; isHidden: boolean }[]) {
+    const canvasRect = canvas.getBoundingClientRect();
+    const toArray = (vector: THREE.Vector3) => vector.toArray().map((value) => Math.round(value * 1000) / 1000);
+    canvas.dataset.cameraPose = JSON.stringify({ view: activeView, position: toArray(camera.position), target: toArray(target), fovDegrees: Math.round(camera.fov * 100) / 100, aspect: camera.aspect });
+    const projected = subjects.map(({ subject, isHidden }) => {
+      projectedPoint.copy(subject.position).applyMatrix4(camera.matrixWorldInverse);
+      const isInFront = projectedPoint.z < -camera.near;
+      projectedPoint.copy(subject.position).project(camera);
+      return {
+        name: subject.name,
+        scene: toArray(subject.position),
+        x: isInFront ? Math.round(((projectedPoint.x + 1) / 2) * canvasRect.width * 10) / 10 : null,
+        y: isInFront ? Math.round(((1 - projectedPoint.y) / 2) * canvasRect.height * 10) / 10 : null,
+        isHidden,
+      };
+    });
+    canvas.dataset.subjects = JSON.stringify(projected);
+  }
+
+  const closeUpRaycaster = new THREE.Raycaster();
+  function recordCloseUpSubjects(closeUpScene: CloseUpScene) {
+    const subjects = closeUpScene.readSubjects().map((subject) => {
+      const toSubject = subject.position.clone().sub(closeUpScene.camera.position);
+      const distance = toSubject.length();
+      closeUpRaycaster.set(closeUpScene.camera.position, toSubject.normalize());
+      closeUpRaycaster.far = distance;
+      const hit = closeUpRaycaster.intersectObject(closeUpScene.seabed, false)[0];
+      return { subject, isHidden: hit !== undefined && hit.distance < distance - CLOSE_UP_HIDDEN_MARGIN };
+    });
+    recordStoryboardHooks(closeUpScene.camera, closeUpScene.controls.target, subjects);
   }
 
   function renderFrame(now: number) {
@@ -610,6 +710,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         cancelAnimationFrame(frameHandle);
         if (switchTimer !== null) clearTimeout(switchTimer);
         resizeObserver.disconnect();
+        overrideObserver.disconnect();
         visibilityObserver.disconnect();
         canvas.removeEventListener("pointerdown", handlePointerDown);
         canvas.removeEventListener("pointerup", handlePointerUp);

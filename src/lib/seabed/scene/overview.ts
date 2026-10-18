@@ -8,7 +8,8 @@ import { buildAnchorModel } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
 import { createDataColorMaterial, drawAfterWater } from "@/lib/render/data-colors";
 import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
-import { DEPTH_TOKEN_RAMP, LAND_TOKEN_RAMP, SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
+import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
+import type { ScenePalette, SceneSky } from "@/lib/seabed/scene/scene-look";
 import { bakeReliefOcclusion } from "@/lib/seabed/scene/relief-occlusion";
 import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
 import { buildWaterBody } from "@/lib/seabed/scene/water-surface";
@@ -91,6 +92,14 @@ const CONTACT_SHADOW_LIFT_METRES = 0.3;
 // Room kept around the track when the overview frames it (km), and the smallest framed radius.
 const OVERVIEW_PADDING_KM = 6;
 const OVERVIEW_MIN_RADIUS_KM = 12;
+// A natural look's haze (scene-look.ts): clear up to the camera's target, full this many times as far. Measured from the
+// target, so every view (the gulf from 125 km, the hull from 2 km) fades its far ground alike.
+const HAZE_FAR_SHARE = 6;
+// The sky dome's gradient: the horizon colour at the horizon, the upper sky from this elevation up (degrees).
+const SKY_UPPER_ELEVATION_DEGREES = 25;
+// Where a storyboard looks for the anchor's pace: this far either side of the moment (ms).
+const ANCHOR_PACE_SPAN_MS = 30 * 1000;
+const KM_PER_NAUTICAL_MILE = 1.852;
 // Vertical field of view of the overview camera (degrees); the viewer widens it on narrow screens.
 export const OVERVIEW_FOV_DEGREES = 32;
 // The top view fits the block for this aspect ratio, a little wider than the replay card.
@@ -121,6 +130,18 @@ export type ColorProbe = { tone: DataTone; position: THREE.Vector3; widthKm: num
 
 /** A point of level, open seabed and the depth token it must show there (sRGB hex), for the lookdev seabed check. */
 export type SeabedProbe = { position: THREE.Vector3; expectedHex: string };
+
+/** A named thing a storyboard frame must show (explore/natural-look lookdev hook). */
+export type SceneSubject = { name: string; position: THREE.Vector3 };
+
+/** What the anchor cam states at a moment, from the engine's own anchor model (explore/natural-look). */
+export type AnchorFacts = {
+  waterDepthMetres: number;
+  chainPaidOutMetres: number;
+  laybackMetres: number;
+  nearestCable: { name: string; distanceMetres: number } | null;
+  anchorSpeedKnots: number;
+};
 
 export type OverviewScene = {
   scene: THREE.Scene;
@@ -153,6 +174,14 @@ export type OverviewScene = {
   readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
   /** Points of level open seabed in sight of `cameraPosition` and their depth tokens, for the lookdev seabed check. */
   readSeabedProbes: (cameraPosition: THREE.Vector3) => SeabedProbe[];
+  /** Keeps a natural look's sky around the camera and its haze measured from the camera's target; no-op otherwise. */
+  followCamera: (cameraPosition: THREE.Vector3, targetDistanceKm: number) => void;
+  /** Lookdev (explore/natural-look): named subjects at the last updated moment. */
+  readSubjects: () => SceneSubject[];
+  /** Whether the relief rises above the sight line from the camera to a point. */
+  isBehindRelief: (point: THREE.Vector3, cameraPosition: THREE.Vector3) => boolean;
+  /** The anchor cam's numbers at a moment, or null while the anchor is not down. */
+  readAnchorFacts: (atMs: number) => AnchorFacts | null;
 };
 
 type OverviewOptions = {
@@ -170,6 +199,8 @@ type OverviewOptions = {
   isHighDetail: boolean;
   /** The sand-ripple detail normal map (GPU tier), or null. */
   rippleNormalMap: THREE.Texture | null;
+  /** Environment colours of the look drawn (scene-look.ts). */
+  palette: ScenePalette;
 };
 
 function buildRamp(stops: readonly [number, string][]) {
@@ -192,18 +223,18 @@ function sampleRamp(ramp: { value: number; color: THREE.Color }[], value: number
 // (illustrative texture, not survey data; mipmaps fade it to nothing in the overview).
 const RIPPLE_TILE_KM = 0.12;
 
-type TerrainLook = { lighting: TerrainLighting; rippleNormalMap: THREE.Texture | null; kit: SceneMaterialKit };
+type TerrainLook = { lighting: TerrainLighting; rippleNormalMap: THREE.Texture | null; kit: SceneMaterialKit; palette: ScenePalette };
 
 function buildTerrainMesh(elevations: Float32Array, features: SeabedFeatures, projection: Projection, exaggeration: SceneExaggeration, look: TerrainLook): THREE.Mesh {
-  const { lighting, rippleNormalMap, kit } = look;
+  const { lighting, rippleNormalMap, kit, palette } = look;
   const { width: columns, height: rows } = features.grid;
   const geometry = new THREE.PlaneGeometry(projection.widthKm, projection.depthKm, columns - 1, rows - 1);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute("position");
   const colors = new Float32Array(positions.count * 3);
   const sceneHeights = new Float32Array(positions.count);
-  const depthRamp = buildRamp(DEPTH_TOKEN_RAMP);
-  const landRamp = buildRamp(LAND_TOKEN_RAMP);
+  const depthRamp = buildRamp(palette.depthRamp);
+  const landRamp = buildRamp(palette.landRamp);
   const vertexColor = new THREE.Color();
   for (let index = 0; index < positions.count; index += 1) {
     const elevation = elevations[index] ?? 0;
@@ -247,8 +278,8 @@ function pickSeabedProbes(terrain: THREE.Mesh): SeabedProbe[] {
   return probes;
 }
 
-// The four cut faces of the block: from the terrain edge down to the base, darker toward the base.
-function buildBlockSides(terrain: THREE.Mesh, features: SeabedFeatures, baseY: number): THREE.Mesh {
+// The four cut faces of the block: from the terrain edge down to the base, darker toward the base (the look's colours).
+function buildBlockSides(terrain: THREE.Mesh, features: SeabedFeatures, baseY: number, palette: ScenePalette): THREE.Mesh {
   const positions = terrain.geometry.getAttribute("position");
   const { width, height } = features.grid;
   const readVertex = (row: number, column: number) => {
@@ -261,8 +292,8 @@ function buildBlockSides(terrain: THREE.Mesh, features: SeabedFeatures, baseY: n
     Array.from({ length: height }, (_slot, row) => readVertex(row, 0)),
     Array.from({ length: height }, (_slot, row) => readVertex(row, width - 1)),
   ];
-  const topColor = new THREE.Color(SCENE_COLORS.blockTop).toArray();
-  const baseColor = new THREE.Color(SCENE_COLORS.blockBase).toArray();
+  const topColor = new THREE.Color(palette.blockTopHex).toArray();
+  const baseColor = new THREE.Color(palette.blockBaseHex).toArray();
   const vertices: number[] = [];
   const colors: number[] = [];
   for (const edge of edges) {
@@ -345,8 +376,54 @@ function unitDirection(from: ScenePoint, to: ScenePoint, fallback: ScenePoint): 
   return length > 1e-6 ? { x: (to.x - from.x) / length, z: (to.z - from.z) / length } : fallback;
 }
 
+/**
+ * A natural look's sky: a dome around the camera, the horizon colour at eye level fading to the upper sky by
+ * SKY_UPPER_ELEVATION_DEGREES, the haze below the horizon (what the block stands in). Unlit, untouched by tone mapping
+ * and haze, drawn before everything else, so each pixel of open sky is a palette colour.
+ */
+function buildSkyDome(sky: SceneSky, radiusKm: number): THREE.Mesh {
+  const geometry = new THREE.SphereGeometry(radiusKm, 48, 32);
+  const positions = geometry.getAttribute("position");
+  const colors = new Float32Array(positions.count * 3);
+  const upper = new THREE.Color(sky.upperHex);
+  const horizon = new THREE.Color(sky.horizonHex);
+  const haze = new THREE.Color(sky.hazeHex);
+  const vertexColor = new THREE.Color();
+  for (let index = 0; index < positions.count; index += 1) {
+    const elevationDegrees = (Math.asin(clampUnit(positions.getY(index) / radiusKm)) * 180) / Math.PI;
+    if (elevationDegrees < 0) vertexColor.copy(haze);
+    else vertexColor.copy(horizon).lerp(upper, Math.min(1, elevationDegrees / SKY_UPPER_ELEVATION_DEGREES));
+    vertexColor.toArray(colors, index * 3);
+  }
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const dome = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false, toneMapped: false }));
+  dome.renderOrder = -1;
+  dome.frustumCulled = false;
+  return dome;
+}
+
+function clampUnit(value: number): number {
+  return Math.min(1, Math.max(-1, value));
+}
+
+/** Shortest distance (km) from a point to a polyline in scene x and z. */
+function measureDistanceToPolyline(point: ScenePoint, line: readonly ScenePoint[]): number {
+  let nearest = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < line.length; index += 1) {
+    const start = line[index - 1];
+    const end = line[index];
+    if (!start || !end) continue;
+    const segmentX = end.x - start.x;
+    const segmentZ = end.z - start.z;
+    const lengthSquared = segmentX * segmentX + segmentZ * segmentZ;
+    const along = lengthSquared > 0 ? Math.min(1, Math.max(0, ((point.x - start.x) * segmentX + (point.z - start.z) * segmentZ) / lengthSquared)) : 0;
+    nearest = Math.min(nearest, Math.hypot(point.x - (start.x + segmentX * along), point.z - (start.z + segmentZ * along)));
+  }
+  return nearest;
+}
+
 export function buildOverview(options: OverviewOptions): OverviewScene {
-  const { kit, features, elevations, projection, sampleElevationMetres, input, softDot, prefersReducedMotion } = options;
+  const { kit, features, elevations, projection, sampleElevationMetres, input, softDot, prefersReducedMotion, palette } = options;
   // Deep areas are drawn less exaggerated than the shallow Baltic (scene-scales.ts); the page states the same factors.
   const exaggeration = chooseSceneExaggeration(features.elevationRange);
   const sampleSeabedHeight = (sceneX: number, sceneZ: number) => elevationToSceneY(sampleElevationMetres(sceneX, sceneZ), exaggeration);
@@ -358,7 +435,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const scene = new THREE.Scene();
   scene.environment = kit.createEnvironment();
   scene.environmentIntensity = 0.38;
-  const skyLight = new THREE.HemisphereLight(SCENE_COLORS.skyLight, SCENE_COLORS.groundLight, 0.95);
+  const skyLight = new THREE.HemisphereLight(palette.skyLightHex, palette.groundLightHex, 0.95);
   scene.add(skyLight);
   const sunLight = new THREE.DirectionalLight(SCENE_COLORS.skyLight, 2.1);
   const blockRadiusKm = Math.hypot(projection.widthKm, projection.depthKm) / 2;
@@ -376,10 +453,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     lighting: { levelIrradiance: measureLevelIrradiance(sunLight, skyLight), environment: { texture: scene.environment, intensity: scene.environmentIntensity } },
     rippleNormalMap: options.rippleNormalMap,
     kit,
+    palette,
   });
   const seabedProbeCandidates = pickSeabedProbes(terrain);
   const water = buildWaterBody({ projection, deepestY, hasWaves: options.isHighDetail, sun: sunLight, kit });
-  scene.add(terrain, buildBlockSides(terrain, features, baseY), water.group);
+  scene.add(terrain, buildBlockSides(terrain, features, baseY, palette), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = baseY - 0.02;
@@ -686,6 +764,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const topHeightKm = Math.max(projection.depthKm, projection.widthKm / TOP_VIEW_ASPECT) / (2 * halfFovTangent) + 4;
   const camera = new THREE.PerspectiveCamera(OVERVIEW_FOV_DEGREES, 1, 0.1, topHeightKm * 4);
   const controls = new OrbitControls(camera, options.domElement);
+  // A natural look draws its sky inside the far plane, around the camera, and hazes distant ground toward it.
+  const skyDome = palette.sky ? buildSkyDome(palette.sky, topHeightKm * 2) : null;
+  const haze = palette.sky ? new THREE.Fog(palette.sky.hazeHex, 1, 1 + HAZE_FAR_SHARE) : null;
+  if (skyDome) scene.add(skyDome);
+  scene.fog = haze;
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.minDistance = 1.5;
@@ -914,6 +997,54 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return probes.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
   }
 
+  function followCamera(cameraPosition: THREE.Vector3, targetDistanceKm: number) {
+    skyDome?.position.copy(cameraPosition);
+    if (!haze) return;
+    haze.near = targetDistanceKm;
+    haze.far = targetDistanceKm * HAZE_FAR_SHARE;
+  }
+
+  function readSubjects(): SceneSubject[] {
+    const subjects: SceneSubject[] = [];
+    if (ship.visible) subjects.push({ name: "vessel", position: ship.position.clone() });
+    if (anchor.visible) {
+      subjects.push({ name: "anchor", position: anchor.position.clone() });
+      subjects.push({ name: "hawse (chain top)", position: hawseWorld.clone() });
+      const middle = Math.floor(CHAIN_POINT_COUNT / 2) * 3;
+      subjects.push({ name: "chain middle", position: new THREE.Vector3(chainPositions[middle], chainPositions[middle + 1], chainPositions[middle + 2]) });
+      // The furrow two minutes of drag behind the anchor: where it has just been.
+      const behind = locateAnchor(lastAtMs - 2 * 60 * 1000);
+      if (behind) subjects.push({ name: "furrow behind anchor", position: new THREE.Vector3(behind.point.x, sampleSeabedHeight(behind.point.x, behind.point.z) + FURROW_SEABED_LIFT, behind.point.z) });
+    }
+    for (const cutMarker of cutMarkers) subjects.push({ name: `${cutMarker.cut.label} cut point`, position: cutMarker.marker.position.clone() });
+    // The whole track, drawn or not yet: eleven points evenly along it.
+    for (let share = 0; share <= 10; share += 1) {
+      const point = sceneAt(timeAtTrackKm((totalTrackKm * share) / 10));
+      if (point) subjects.push({ name: `track ${share * 10}%`, position: new THREE.Vector3(point.x, TRACK_SURFACE_LIFT, point.z) });
+    }
+    return subjects;
+  }
+
+  const cableRuns = features.lines.filter((line) => line.kind !== "pipeline").map((line) => ({ name: line.name, points: line.points.map(([longitude, latitude]) => toScene(longitude, latitude)) }));
+  function readAnchorFacts(atMs: number): AnchorFacts | null {
+    const located = locateAnchor(atMs);
+    if (!located || !dragWindow || atMs < dragWindow.startMs || atMs > dragWindow.endMs) return null;
+    const before = locateAnchor(atMs - ANCHOR_PACE_SPAN_MS);
+    const after = locateAnchor(atMs + ANCHOR_PACE_SPAN_MS);
+    const paceKmPerHour = before && after ? (Math.hypot(after.point.x - before.point.x, after.point.z - before.point.z) / (2 * ANCHOR_PACE_SPAN_MS)) * 3600 * 1000 : 0;
+    const nearestCable = cableRuns.reduce<{ name: string; distanceMetres: number } | null>((nearest, run) => {
+      const distanceMetres = measureDistanceToPolyline(located.point, run.points) * 1000;
+      return nearest === null || distanceMetres < nearest.distanceMetres ? { name: run.name, distanceMetres } : nearest;
+    }, null);
+    return {
+      waterDepthMetres: -sampleElevationMetres(located.point.x, located.point.z),
+      chainPaidOutMetres: chainState.nominalPaidOutMetres,
+      laybackMetres: located.span.laybackMetres,
+      nearestCable,
+      anchorSpeedKnots: paceKmPerHour / KM_PER_NAUTICAL_MILE,
+    };
+  }
+
   function readSeabedProbes(cameraPosition: THREE.Vector3): SeabedProbe[] {
     return seabedProbeCandidates.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
   }
@@ -935,5 +1066,5 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return false;
   }
 
-  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes, readSeabedProbes };
+  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes, readSeabedProbes, followCamera, readSubjects, isBehindRelief, readAnchorFacts };
 }
