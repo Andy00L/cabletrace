@@ -170,11 +170,13 @@ const BACKGROUND_DEPTH_DARK_SHARE = 0.35;
 const CAUSTIC_DECAL_KM = 1.6;
 const CAUSTIC_DECAL_CELLS = 48;
 const CAUSTIC_PERIOD_KM = 0.14;
-const CAUSTIC_OPACITY = 0.15;
+const CAUSTIC_OPACITY = 0.12;
 // The light's strength wanders over the seabed (the waves focus it unevenly), on this scale (km).
 const CAUSTIC_PATCH_KM = 0.35;
 const CAUSTIC_LIFT_KM = 0.004;
 const CAUSTIC_SEED = 20241225;
+// The caustic tile's size (px).
+const CAUSTIC_TEXTURE_PX = 256;
 
 export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number): UnderwaterLook {
   const hazeColor = new THREE.Color(look.column);
@@ -190,10 +192,12 @@ export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (scene
     widthKm: 0.04 + shaftRandom() * 0.08,
   }));
   shaftLayout.forEach((layout) => lightShafts.add(new THREE.Mesh(new THREE.PlaneGeometry(layout.widthKm, 3.2), shaftMaterial)));
-  const caustics = createCausticDecal(sampleSeabedHeight);
   const group = new THREE.Group();
-  group.add(lightShafts, caustics.mesh);
+  group.add(lightShafts);
   group.visible = false;
+  // The caustic decal (its texture takes tens of ms to draw) is made the first time a camera goes under the surface,
+  // never on the replay's first frame.
+  let caustics: ReturnType<typeof createCausticDecal> | null = null;
   const forward = new THREE.Vector3();
   return {
     group,
@@ -202,6 +206,10 @@ export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (scene
       scene.background = isUnderwater ? background : null;
       group.visible = isUnderwater;
       if (!isUnderwater) return;
+      if (!caustics) {
+        caustics = createCausticDecal(sampleSeabedHeight);
+        group.add(caustics.mesh);
+      }
       // The shafts stand in front of the camera, from the surface down, leaning with the sun and turned to face it.
       camera.getWorldDirection(forward);
       forward.y = 0;
@@ -261,36 +269,25 @@ function createCausticDecal(sampleSeabedHeight: (sceneX: number, sceneZ: number)
  */
 function createCausticTexture(): THREE.Texture {
   if (typeof document === "undefined") return new THREE.Texture();
-  const size = 256;
-  const pointCount = 22;
   const random = createSeededRandom(CAUSTIC_SEED);
-  const points = Array.from({ length: pointCount }, () => ({ x: random() * size, y: random() * size }));
+  // Two networks, the second finer and fainter, so no cell shape repeats as a tiling would.
+  const coarsePoints = Array.from({ length: 18 }, () => ({ x: random() * CAUSTIC_TEXTURE_PX, y: random() * CAUSTIC_TEXTURE_PX }));
+  const finePoints = Array.from({ length: 46 }, () => ({ x: random() * CAUSTIC_TEXTURE_PX, y: random() * CAUSTIC_TEXTURE_PX }));
   const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = CAUSTIC_TEXTURE_PX;
+  canvas.height = CAUSTIC_TEXTURE_PX;
   const context = canvas.getContext("2d");
   if (!context) return new THREE.Texture();
-  const image = context.createImageData(size, size);
-  for (let row = 0; row < size; row += 1) {
-    for (let column = 0; column < size; column += 1) {
-      let nearest = Number.POSITIVE_INFINITY;
-      let second = Number.POSITIVE_INFINITY;
-      for (const point of points) {
-        // Wrapped distance, so the pattern tiles.
-        const offsetX = Math.min(Math.abs(column - point.x), size - Math.abs(column - point.x));
-        const offsetY = Math.min(Math.abs(row - point.y), size - Math.abs(row - point.y));
-        const distance = Math.hypot(offsetX, offsetY);
-        if (distance < nearest) {
-          second = nearest;
-          nearest = distance;
-        } else if (distance < second) {
-          second = distance;
-        }
-      }
-      // A thin bright core with a soft glow around it.
-      const edgeDistance = second - nearest;
-      const brightness = Math.round(255 * Math.min(1, 0.8 * Math.max(0, 1 - edgeDistance / 3.5) ** 2 + 0.25 * Math.max(0, 1 - edgeDistance / 16) ** 2));
-      image.data.set([brightness, brightness, brightness, 255], (row * size + column) * 4);
+  const image = context.createImageData(CAUSTIC_TEXTURE_PX, CAUSTIC_TEXTURE_PX);
+  for (let row = 0; row < CAUSTIC_TEXTURE_PX; row += 1) {
+    for (let column = 0; column < CAUSTIC_TEXTURE_PX; column += 1) {
+      // The lines wave, as light focused by moving water does; the periods divide the tile so it still wraps.
+      const wavedX = column + 5 * Math.sin((row * 2 * Math.PI) / 64);
+      const wavedY = row + 5 * Math.sin((column * 2 * Math.PI) / 128);
+      const coarse = readCausticLine(readCellEdgeDistance(wavedX, wavedY, coarsePoints));
+      const fine = readCausticLine(readCellEdgeDistance(wavedY, wavedX, finePoints));
+      const brightness = Math.round(255 * Math.min(1, Math.max(coarse, 0.55 * fine)));
+      image.data.set([brightness, brightness, brightness, 255], (row * CAUSTIC_TEXTURE_PX + column) * 4);
     }
   }
   context.putImageData(image, 0, 0);
@@ -299,6 +296,29 @@ function createCausticTexture(): THREE.Texture {
   texture.wrapT = THREE.RepeatWrapping;
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+/** The gap (px) between a point's nearest and second-nearest cell centres on the wrapped tile: 0 on a cell edge. */
+function readCellEdgeDistance(pointX: number, pointY: number, centres: readonly { x: number; y: number }[]): number {
+  let nearest = Number.POSITIVE_INFINITY;
+  let second = Number.POSITIVE_INFINITY;
+  for (const centre of centres) {
+    const offsetX = Math.abs((((pointX - centre.x) % CAUSTIC_TEXTURE_PX) + CAUSTIC_TEXTURE_PX) % CAUSTIC_TEXTURE_PX);
+    const offsetY = Math.abs((((pointY - centre.y) % CAUSTIC_TEXTURE_PX) + CAUSTIC_TEXTURE_PX) % CAUSTIC_TEXTURE_PX);
+    const distance = Math.hypot(Math.min(offsetX, CAUSTIC_TEXTURE_PX - offsetX), Math.min(offsetY, CAUSTIC_TEXTURE_PX - offsetY));
+    if (distance < nearest) {
+      second = nearest;
+      nearest = distance;
+    } else if (distance < second) {
+      second = distance;
+    }
+  }
+  return second - nearest;
+}
+
+/** A caustic line's brightness at a distance (px) from its cell edge: a thin bright core with a soft glow. */
+function readCausticLine(edgeDistance: number): number {
+  return 0.8 * Math.max(0, 1 - edgeDistance / 3) ** 2 + 0.2 * Math.max(0, 1 - edgeDistance / 14) ** 2;
 }
 
 /** A vertical gradient: daylight overhead, the body colour at eye level and darker water below. */

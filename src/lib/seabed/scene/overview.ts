@@ -64,7 +64,7 @@ const FURROW_TRENCH_DEPTH_KM = 0.012;
 const LABEL_LAYER = 1;
 const ANCHOR_ROLL_RADIANS = 0.8;
 // The anchor steel is lifted this share toward galvanised grey (models.ts): it stays dark to stand out under 75 m of water.
-const ANCHOR_GALVANISED_SHARE = 0.08;
+const ANCHOR_GALVANISED_SHARE = 0;
 const UNDERWATER_LABEL_LAYER = 2;
 const PLUME_PARTICLE_COUNT = 140;
 // Heading is read over this span around the current moment, so a reconstructed corner does not snap the hull.

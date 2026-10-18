@@ -36,7 +36,7 @@ const FOLLOW_AIM_AHEAD_LENGTHS = 0.22;
 const FOLLOW_AIM_ABOVE_LENGTHS = 0.036;
 // While the anchor drags (the water drawn 20 times deeper puts it 1 to 2 km under the hull), the follow camera stands
 // this many times farther off, this many ship lengths higher, and aims this share of the way to the anchor.
-const FOLLOW_DRAG_FRAMING = { reach: 1.7, riseLengths: 0.15, aimShare: 0.4 } as const;
+const FOLLOW_DRAG_FRAMING = { reach: 1.9, riseLengths: 0.2, aimShare: 0.44 } as const;
 const FOLLOW_EASE_PER_SECOND = 3.5;
 // The follow camera counts as arrived within this distance (km), and stops asking for frames.
 const FOLLOW_SETTLED_KM = 0.002;
