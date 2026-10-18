@@ -2,6 +2,7 @@ import type * as THREE from "three";
 import { cameraViewMatrix, clamp, cos, float, fwidth, max, normalize, positionViewDirection, positionWorld, pow, sin, smoothstep, sqrt, uniform, vec2, vec3, vec4 } from "three/tsl";
 import { Color, MeshBasicNodeMaterial, Vector3, type Node } from "three/webgpu";
 import type { WaterSurfaceMaterial } from "@/lib/render/scene-renderer";
+import { decodeSrgb } from "@/lib/render/webgpu/srgb-nodes";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { METRES_PER_KM, readGerstnerTerms, WATER_BASE_REFLECTANCE, WAVE_DETAIL_FADE } from "@/lib/seabed/scene/water-surface";
 
@@ -71,7 +72,9 @@ export function createWaterSurfaceNodeMaterial(hasWaves: boolean, sun: THREE.Dir
   const facing = clamp(viewNormal.dot(positionViewDirection), float(0), float(1));
   const reflectance = pow(float(1).sub(facing), float(5)).mul(1 - WATER_BASE_REFLECTANCE).add(WATER_BASE_REFLECTANCE);
   const skyReflection = uniform(new Color(SCENE_COLORS.waterSky)).mul(reflectance);
-  material.outputNode = vec4(skyReflection.add(readSunGlint(viewNormal, sunViewDirection, sunIrradiance)), reflectance);
+  // The WebGL surface writes this sum into its sRGB canvas as it is, unencoded (water-surface.ts); the tier encodes
+  // every material's output, so the sum is decoded first and lands on the same values.
+  material.outputNode = vec4(decodeSrgb(skyReflection.add(readSunGlint(viewNormal, sunViewDirection, sunIrradiance))), reflectance);
   return {
     material,
     setWaveTime(seconds) {

@@ -2,10 +2,11 @@
 import type * as THREE from "three";
 import { ao } from "three/addons/tsl/display/GTAONode.js";
 import { denoise } from "three/addons/tsl/display/DenoiseNode.js";
-import { context, convertToTexture, mrt, normalView, pass, screenUV, toneMapping } from "three/tsl";
-import { NeutralToneMapping, NoToneMapping, PCFShadowMap, RenderPipeline, WebGPUBackend, WebGPURenderer, type Material, type Node, type NodeBuilder } from "three/webgpu";
+import { context, convertToTexture, mrt, normalView, pass, screenUV, toneMapping, vec4 } from "three/tsl";
+import { Color, NeutralToneMapping, NoToneMapping, PCFShadowMap, RenderPipeline, WebGPUBackend, WebGPURenderer, type Material, type Node, type NodeBuilder } from "three/webgpu";
 import { SCENE_EXPOSURE, type SceneRenderer } from "@/lib/render/scene-renderer";
 import type { DrawingBudget } from "@/lib/render/webgl-scene-renderer";
+import { encodeSrgb } from "@/lib/render/webgpu/srgb-nodes";
 import { createWebGpuKit } from "@/lib/render/webgpu/webgpu-kit";
 import type { Result } from "@/lib/result";
 
@@ -18,13 +19,16 @@ import type { Result } from "@/lib/result";
 //   - per-material tone mapping, as the WebGL tiers do it: WebGPURenderer tone maps the whole frame in one pass and
 //     ignores `toneMapped: false`, which would shift the data colours, so the frame is drawn without tone mapping and
 //     each material that asks for it is tone mapped in its own shader (the scene pass's getOutput hook).
-//   - 4x MSAA on the scene pass, as the WebGL hardware tier.
+//   - sRGB encoding in each material's shader too, as WebGL draws into its sRGB canvas: blending and the 4x MSAA
+//     resolve then mix encoded values, as on the WebGL hardware tier. Mixed in linear light instead, a 1 to 2 px blue
+//     cable over the light seabed came out thinner and broken, and the see-through water, wake and signal halo read
+//     lighter than the approved look.
 // Loaded only when that tier is chosen (viewer.ts, createSceneRenderer).
 
 // GTAO radius as a share of the camera's height over the sea (scene units): one rule for the overview (km, the camera
 // 40 to 300 km up), the vessel view (under 1 km up) and the close-up (2 m units, about 13 units up), so the occlusion
 // keeps about the same reach on screen in each. Clamped so a camera skimming the water still gets a usable radius.
-const AO_RADIUS_PER_HEIGHT = 0.03;
+const AO_RADIUS_PER_HEIGHT = 0.06;
 const AO_MIN_RADIUS = 0.02;
 // Occlusion strength on the ambient light (GTAO's own scale) and the effect's resolution share: half resolution,
 // denoised, is what the three.js GTAO notes recommend for most scenes.
@@ -36,8 +40,9 @@ type ScenePipeline = { pipeline: RenderPipeline; setAoRadius: (radius: number) =
 type GetAoContext = { material: Material };
 
 /**
- * The scene pass's context: GTAO on the ambient light of opaque lit materials (three.js's builtinAOContext rule), and
- * Neutral tone mapping at the WebGL tiers' exposure for every material that has `toneMapped` set.
+ * The scene pass's context: GTAO on the ambient light of opaque lit materials (three.js's builtinAOContext rule),
+ * Neutral tone mapping at the WebGL tiers' exposure for every material that has `toneMapped` set, then sRGB encoding
+ * for every material (the pipeline's output pass leaves the colour as it is).
  */
 function createSceneContext(aoValue: Node<"float">) {
   return context({
@@ -46,9 +51,9 @@ function createSceneContext(aoValue: Node<"float">) {
       return inputNode !== null ? inputNode.mul(aoValue) : aoValue;
     },
     getOutput: (outputNode: Node<"vec4">, builder: NodeBuilder) => {
-      if (!builder.material.toneMapped) return outputNode;
-      // The node keeps the colour's alpha: it maps rgb and passes a through.
-      return toneMapping(NeutralToneMapping, SCENE_EXPOSURE, outputNode);
+      // Given the whole colour, the tone mapping node maps rgb and keeps alpha; only its rgb is used here.
+      const color = builder.material.toneMapped ? toneMapping(NeutralToneMapping, SCENE_EXPOSURE, outputNode).rgb : outputNode.rgb;
+      return vec4(encodeSrgb(color), outputNode.a);
     },
   });
 }
@@ -68,6 +73,8 @@ function buildScenePipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera
   const scenePass = pass(scene, camera);
   scenePass.contextNode = createSceneContext(aoTexture.sample(screenUV).r);
   const pipeline = new RenderPipeline(renderer, scenePass);
+  // The scene pass already holds encoded colours (createSceneContext).
+  pipeline.outputColorTransform = false;
   return {
     pipeline,
     setAoRadius(radius) {
@@ -109,6 +116,7 @@ export async function createWebGpuSceneRenderer(options: { device: GPUDevice; bu
   renderer.shadowMap.enabled = budget.shadows;
   renderer.shadowMap.type = PCFShadowMap;
   const pipelines = new Map<THREE.Scene, ScenePipeline>();
+  const encodedBackground = new Color();
 
   function readPipeline(scene: THREE.Scene, camera: THREE.PerspectiveCamera): ScenePipeline {
     const existing = pipelines.get(scene);
@@ -130,7 +138,11 @@ export async function createWebGpuSceneRenderer(options: { device: GPUDevice; bu
       draw(scene, camera) {
         const scenePipeline = readPipeline(scene, camera);
         scenePipeline.setAoRadius(Math.max(AO_MIN_RADIUS, Math.abs(camera.position.y) * AO_RADIUS_PER_HEIGHT));
+        // A colour background is a clear, which no material encodes: it is cleared with its encoded value instead.
+        const background = scene.background;
+        if (background instanceof Color) scene.background = encodedBackground.copy(background).convertLinearToSRGB();
         scenePipeline.pipeline.render();
+        scene.background = background;
       },
       compile: async (scene, camera) => {
         await renderer.compileAsync(scene, camera);
