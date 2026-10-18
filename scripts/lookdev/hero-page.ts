@@ -4,26 +4,36 @@ import * as THREE from "three";
 import { detectRendererKind } from "../../src/lib/diagnostics/webgl-renderer";
 import { SCENE_EXPOSURE } from "../../src/lib/render/scene-renderer";
 import { createWebGlKit } from "../../src/lib/render/webgl-scene-renderer";
-import { buildHeroScene, HERO_FRAME } from "./hero-scene";
+import { buildHeroScene, HERO_FRAME, HERO_WATER_NAME } from "./hero-scene";
 
 async function drawHero() {
+  const search = new URLSearchParams(window.location.search);
+  // The frame bench can leave parts out to measure what each costs: "?bench&without=water,shadows,antialias,detail"
+  // (or "everything").
+  const leftOut = new Set((search.get("without") ?? "").split(","));
   const isHardware = detectRendererKind() === "hardware";
-  const renderer = new THREE.WebGLRenderer({ antialias: isHardware, alpha: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: isHardware && !leftOut.has("antialias"), alpha: true });
   renderer.setPixelRatio(1);
   renderer.setSize(HERO_FRAME.widthPx, HERO_FRAME.heightPx);
   renderer.setClearColor(0x000000, 0);
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = SCENE_EXPOSURE;
-  renderer.shadowMap.enabled = isHardware;
+  renderer.shadowMap.enabled = isHardware && !leftOut.has("shadows");
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.domElement.dataset.renderer = isHardware ? "hardware" : "software";
   document.body.appendChild(renderer.domElement);
-  const isBench = new URLSearchParams(window.location.search).has("bench");
+  const isBench = search.has("bench");
   const { scene, camera, ready, setWaveTime } = buildHeroScene(createWebGlKit(renderer), isHardware, isBench);
   await ready;
+  scene.traverse((object) => {
+    if ((leftOut.has("water") && object.name === HERO_WATER_NAME) || (leftOut.has("detail") && object.name === "ship-detail")) object.visible = false;
+  });
+  // "without=everything" draws an empty frame: what is left is the browser's and the driver's own pacing.
+  if (leftOut.has("everything")) scene.children.forEach((child) => (child.visible = false));
   await renderer.compileAsync(scene, camera);
   renderer.render(scene, camera);
-  if (isBench) document.body.dataset.bench = JSON.stringify(await runFrameBench(renderer, scene, camera, setWaveTime));
+  // "?bench=nosync" leaves out the per-frame pixel read, which waits for the GPU and breaks its pipelining.
+  if (isBench) document.body.dataset.bench = JSON.stringify(await runFrameBench(renderer, scene, camera, setWaveTime, search.get("bench") !== "nosync"));
   document.body.dataset.state = "ready";
 }
 
@@ -35,7 +45,7 @@ const BENCH_WARM_UP_FRAMES = 30;
  * Draws the scene once per animation frame with the waves moving and measures, per frame, the interval between
  * animation frames (what a viewer sees) and the time to draw and finish it (one pixel read back waits for the GPU).
  */
-async function runFrameBench(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, setWaveTime: (seconds: number) => void) {
+async function runFrameBench(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, setWaveTime: (seconds: number) => void, shouldSync: boolean) {
   const intervals: number[] = [];
   const drawTimes: number[] = [];
   const pixel = new Uint8Array(4);
@@ -46,7 +56,7 @@ async function runFrameBench(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     setWaveTime(frame / 60);
     const drawStart = performance.now();
     renderer.render(scene, camera);
-    context.readPixels(0, 0, 1, 1, context.RGBA, context.UNSIGNED_BYTE, pixel);
+    if (shouldSync) context.readPixels(0, 0, 1, 1, context.RGBA, context.UNSIGNED_BYTE, pixel);
     const drawEnd = performance.now();
     if (frame >= BENCH_WARM_UP_FRAMES) {
       intervals.push(frameAt - lastAt);

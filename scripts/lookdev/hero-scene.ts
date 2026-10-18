@@ -37,6 +37,7 @@ const WAKE_SAMPLES = 40;
 const WAKE_STEP_SECONDS = 20;
 
 export const HERO_FRAME = { widthPx: 1440, heightPx: 900 } as const;
+export const HERO_WATER_NAME = "hero-water";
 
 /** The seabed's colour through the water at the hero's depth: the depth token ramp's band for that depth. */
 function readSeabedHex(depthMetres: number): string {
@@ -125,6 +126,8 @@ export function buildHeroScene(kit: SceneMaterialKit, isDetailed: boolean, hasBe
     surface: { hasWaves: isDetailed, sun, look: readWaterLook(window.location.search), sky: skyMap, depthMap: createUniformDepthMap(HERO_DEPTH_METRES) },
   });
   water.setWaveTime(0);
+  // Named so the frame bench can leave it out to measure what it costs (hero-page.ts, ?without=water).
+  water.group.name = HERO_WATER_NAME;
   scene.add(water.group);
 
   const shipOptions = { isDetailed, skyMap, waterHex: readWaterLook(window.location.search).column };
