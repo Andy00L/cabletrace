@@ -56,6 +56,11 @@ const START_STEPS: Record<keyof PhotoCamera, number> = { distanceMetres: 40, hei
 // Bounds a real camera and loading condition stay inside: a marina's eye height, a tanker's draughts.
 const BOUNDS: Partial<Record<keyof PhotoCamera, [number, number]>> = { heightMetres: [1, 12], draughtMetres: [8, 14.5], yawDegrees: [-40, 40], distanceMetres: [1200, 3000], verticalFovDegrees: [5.1, 6.3] };
 const SEARCH_ROUNDS = 7;
+// The headings the search starts from (degrees), and the refinement at the judged size: its first steps as a share of
+// the search's, and its rounds.
+const START_YAWS_DEGREES = [-6, 0, 6];
+const REFINE_STEP_SHARE = 1 / 16;
+const REFINE_ROUNDS = 3;
 
 function readFlagValue(argumentList: string[], flag: string): string | null {
   const flagIndex = argumentList.indexOf(flag);
@@ -114,8 +119,8 @@ async function measureModel(page: Page, camera: PhotoCamera, width: number, heig
  * Lines the model up with the photograph before the search: the distance from the ship's length in the frame, then
  * pan and tilt so its ends and waterline land where the photograph's do (a few secant steps, each read off a render).
  */
-async function alignCamera(page: Page, photoExtent: Extent, width: number, height: number): Promise<PhotoCamera> {
-  let camera = { ...START_CAMERA };
+async function alignCamera(page: Page, photoExtent: Extent, width: number, height: number, yawDegrees: number): Promise<PhotoCamera> {
+  let camera = { ...START_CAMERA, yawDegrees };
   const degreesPerPixel = camera.verticalFovDegrees / height;
   for (let iteration = 0; iteration < 6; iteration += 1) {
     const model = await measureModel(page, camera, width, height);
@@ -129,14 +134,18 @@ async function alignCamera(page: Page, photoExtent: Extent, width: number, heigh
   return camera;
 }
 
-/** Coordinate descent on the camera: each parameter tries a step either way, steps halve when nothing improves. */
-async function fitCamera(page: Page, start: PhotoCamera): Promise<{ camera: PhotoCamera; score: number; evaluations: number }> {
+/**
+ * Coordinate descent on the camera: each parameter tries a step either way, steps halve when nothing improves.
+ * `stepShare` scales the first steps (1 for the search, smaller for the refinement at the judged size).
+ */
+async function fitCamera(page: Page, start: PhotoCamera, stepShare: number, rounds: number): Promise<{ camera: PhotoCamera; score: number; evaluations: number }> {
   let camera = { ...start };
   let best = await scoreCamera(page, camera);
   let evaluations = 1;
   const steps = { ...START_STEPS };
   const keys = Object.keys(steps).filter((key): key is keyof PhotoCamera => key in START_CAMERA && steps[key as keyof PhotoCamera] > 0);
-  for (let round = 0; round < SEARCH_ROUNDS; round += 1) {
+  for (const key of keys) steps[key] *= stepShare;
+  for (let round = 0; round < rounds; round += 1) {
     let hasImproved = true;
     while (hasImproved) {
       hasImproved = false;
@@ -158,7 +167,7 @@ async function fitCamera(page: Page, start: PhotoCamera): Promise<{ camera: Phot
       }
     }
     for (const key of keys) steps[key] /= 2;
-    console.log(`[photoMatch] round ${round + 1}: intersection over union ${best.toFixed(4)} at the search size`);
+    console.log(`[photoMatch] round ${round + 1}: intersection over union ${best.toFixed(4)}`);
   }
   return { camera, score: best, evaluations };
 }
@@ -205,9 +214,22 @@ async function runPhotoMatch(photoPath: string, outDirectory: string, chromiumPa
         { width: ship.width, height: ship.height, shipBase64: Buffer.from(ship.data).toString("base64"), voidBase64: Buffer.from(voidMask.data).toString("base64") },
       );
     await loadMasks(searchShip, searchVoid);
-    const aligned = await alignCamera(page, measurePhotoExtent(searchShip), searchShip.width, searchShip.height);
-    console.log(`[photoMatch] aligned: distance ${aligned.distanceMetres.toFixed(0)} m, pan ${aligned.panDegrees.toFixed(3)}, tilt ${aligned.tiltDegrees.toFixed(3)} degrees`);
-    const fitted = await fitCamera(page, aligned);
+    // The ship's heading against the camera is ambiguous from a side view (a few degrees either way look alike), so the
+    // search starts from each of a few headings and keeps the best; then refines at the judged size, where the
+    // waterline and the thin gear are resolved.
+    let searched: { camera: PhotoCamera; score: number; evaluations: number } | null = null;
+    let evaluations = 0;
+    for (const yawDegrees of START_YAWS_DEGREES) {
+      const aligned = await alignCamera(page, measurePhotoExtent(searchShip), searchShip.width, searchShip.height, yawDegrees);
+      console.log(`[photoMatch] aligned from yaw ${yawDegrees}: distance ${aligned.distanceMetres.toFixed(0)} m, pan ${aligned.panDegrees.toFixed(3)}, tilt ${aligned.tiltDegrees.toFixed(3)} degrees`);
+      const candidate = await fitCamera(page, aligned, 1, SEARCH_ROUNDS);
+      evaluations += candidate.evaluations;
+      if (!searched || candidate.score > searched.score) searched = candidate;
+    }
+    if (!searched) return { ok: false, reason: "no camera start to search from" };
+    await loadMasks(segmentation.ship, segmentation.voidMask);
+    const refined = await fitCamera(page, searched.camera, REFINE_STEP_SHARE, REFINE_ROUNDS);
+    const fitted = { camera: refined.camera, score: searched.score, evaluations: evaluations + refined.evaluations };
     const modelBase64 = await page.evaluate(
       ({ camera, width, height }) => {
         const render: unknown = Reflect.get(window, "photoMatchRender");
