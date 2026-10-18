@@ -1,7 +1,13 @@
-import type * as THREE from "three";
+import * as THREE from "three";
+import type { Caustics } from "@/lib/render/scene-renderer";
 
 // Animated caustic light on the seabed, injected into a standard material's shader. One uniform per viewer,
-// so two viewers on a page never share a clock.
+// so two viewers on a page never share a clock. This GLSL serves the WebGL tiers; the WebGPU tier draws the same
+// pattern from src/lib/render/webgpu/caustics-node.ts, with the numbers below.
+
+/** The caustic light's tint (linear RGB) and the scale from world units to the pattern's coordinates. */
+export const CAUSTIC_TINT = [0.82, 0.93, 1.0] as const;
+export const CAUSTIC_WORLD_SCALE = 0.11;
 
 const CAUSTIC_GLSL = `
 uniform float causticTime;
@@ -18,16 +24,14 @@ float sampleCaustic(vec2 position, float time) {
   return pow(1.0 - brightness, 6.0);
 }`;
 
-export type Caustics = {
-  uniform: { value: number };
-  apply: <MaterialType extends THREE.MeshStandardMaterial>(material: MaterialType, strength: number) => MaterialType;
-};
-
 export function createCaustics(): Caustics {
   const uniform = { value: 0 };
   return {
-    uniform,
-    apply(material, strength) {
+    setTime(seconds) {
+      uniform.value = seconds;
+    },
+    createMaterial(parameters, strength) {
+      const material = new THREE.MeshStandardMaterial(parameters);
       material.onBeforeCompile = (shader) => {
         shader.uniforms.causticTime = uniform;
         shader.vertexShader = shader.vertexShader
@@ -40,7 +44,7 @@ export function createCaustics(): Caustics {
           .replace("#include <common>", `#include <common>\n${CAUSTIC_GLSL}`)
           .replace(
             "#include <emissivemap_fragment>",
-            `#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(0.82, 0.93, 1.0) * sampleCaustic(vCausticWorld.xz * 0.11, causticTime) * ${strength.toFixed(3)};`,
+            `#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(${CAUSTIC_TINT.map((channel) => channel.toFixed(2)).join(", ")}) * sampleCaustic(vCausticWorld.xz * ${CAUSTIC_WORLD_SCALE.toFixed(2)}, causticTime) * ${strength.toFixed(3)};`,
           );
       };
       return material;

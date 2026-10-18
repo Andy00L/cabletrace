@@ -220,9 +220,36 @@ Checked on the production build in headless Chromium on SwiftShader, `/cases/eag
 was ready 1.2 s after navigation, a no-op round trip to the main thread took 0 ms with the scene idle, and 3 s of
 playback moved the replay clock 55 minutes (the intended pace is 58).
 
+## WebGPU tier
+
+Measured 2026-10-18 on a local production build. The case page is `/cases/eagle-s-2024`; JS is every script the page
+loads, compressed (gzip from `next start`), headers excluded.
+
+| What | Software | Hardware | WebGPU |
+| --- | --- | --- | --- |
+| Case page JS, `main` at c9b9024 | 418.4 KB, 16 scripts | 418.4 KB, 16 scripts | no such tier |
+| Case page JS, with the WebGPU tier | 420.9 KB, 17 scripts | 420.9 KB, 17 scripts | 620.4 KB, 18 scripts |
+
+- The other tiers pay 2.5 KB: the adapter check (`src/lib/diagnostics/webgpu-adapter.ts`) and the renderer seam. The
+  viewer chunk that holds them is 74.5 KB raw, 27.3 KB gzip.
+- The WebGPU tier adds one chunk, loaded by the dynamic import in `viewer.ts` only after the adapter check passes:
+  713.2 KB raw, 199.5 KB as served (three.js's WebGPU renderer, TSL, GTAO and the denoiser, and the tier's materials).
+  The build's chunk graph lists that one file for the import, and Windows Chrome's resource list on the WebGPU tier
+  showed it as the only script the other tiers do not load. The WebGPU total is the other tiers' 420.9 KB plus that
+  chunk; Windows Chrome cannot be driven by Playwright from WSL, so it was not counted request by request.
+- Frame times on the WebGPU tier (Windows Chrome, AMD GCN 5, real time, lookdev harness): scrub to the next drawn
+  frame, median of the overview medians 12 and 25 ms on two runs; page load to settled frame, median 4,528 and
+  4,584 ms. The hardware tier (WebGL, WSL Chromium on the RTX 3050 through d3d12) measured 17 ms and 3,475 ms on the
+  same build. Different browsers on different GPUs, so this says the tier keeps up, not which tier is faster.
+- `bun run perf` on the same build: every budget passes (`/` 187.0 KB of JS, the `/diagnostics` 3D probe 4,264 ms on
+  SwiftShader). Headless Chromium has no real WebGPU adapter, so the perf tool and every headless test runner stay on
+  the software tier.
+
 ## Not measured
 
-- Real GPUs and mobile devices: no hardware GPU or phone on this machine. The 3D figures are SwiftShader only.
+- Mobile devices and GPUs other than one: the 3D figures above are SwiftShader, the lookdev's hardware tier ran on
+  Mesa d3d12 over an RTX 3050, and the WebGPU tier on one AMD GCN 5 adapter through Windows Chrome (WebGPU tier
+  section). No phone was measured.
 - Throttled networks for every page: only `/` was checked on a 150 ms, 1.6 Mbps profile (for the font shift).
 - Interaction latency (INP): the tool loads pages and does not click; long tasks are the proxy.
 - The live site after these changes: not deployed from here.

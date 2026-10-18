@@ -2,9 +2,10 @@ import type * as THREE from "three";
 
 // Seabed tubes are drawn far wider than the real cables so they read across the whole gulf. Next to the vessel
 // that width would dwarf the ship, so each tube narrows as the camera comes closer, keeping its underside on
-// the seabed. Full width from this camera distance (km) outward, down to this share of it up close.
+// the seabed. Full width from this camera distance (km) outward, down to this share of it up close. The GLSL below
+// serves the WebGL tiers; the WebGPU tier's TSL port (src/lib/render/webgpu/tube-node-material.ts) uses the same numbers.
 export const FULL_WIDTH_DISTANCE_KM = 60;
-const MIN_WIDTH_SHARE = 0.12;
+export const MIN_WIDTH_SHARE = 0.12;
 
 const THINNED_BEGIN_VERTEX = /* glsl */ `
 vec3 tubeCentre = position - normal * tubeRadius;
