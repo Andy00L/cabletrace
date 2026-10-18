@@ -31,8 +31,10 @@ import type { Result } from "@/lib/result";
 const AO_RADIUS_PER_HEIGHT = 0.06;
 const AO_MIN_RADIUS = 0.02;
 // Occlusion strength on the ambient light (GTAO's own scale) and the effect's resolution share: half resolution,
-// denoised, is what the three.js GTAO notes recommend for most scenes.
-const AO_SCALE = 1;
+// denoised, is what the three.js GTAO notes recommend for most scenes. At three.js's default strength of 1 the contact
+// shading under the close-up's cable and between the hatch covers barely read against the hardware tier; 2 grounds
+// them while open seabed stays on its token.
+const AO_SCALE = 2;
 const AO_RESOLUTION_SCALE = 0.5;
 
 type ScenePipeline = { pipeline: RenderPipeline; setAoRadius: (radius: number) => void; dispose: () => void };

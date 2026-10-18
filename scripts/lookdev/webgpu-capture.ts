@@ -27,7 +27,7 @@ const CONNECTION_RETRY_MS = 3000;
 const CONNECTION_ATTEMPTS = 4;
 export const DEFAULT_PROXY_PORT = 3329;
 // The agent's console lines carry this prefix; anything else Chrome logs is ignored.
-const RESULT_PREFIX = "LOOKDEV_RESULT ";
+const RESULT_PREFIX = "[runLookdevAgent] result ";
 const HOLD_PATH = "/__lookdev/hold.js";
 const RELEASE_PATH = "/__lookdev/release";
 /** Where the proxy serves the WebGPU ship turntable (turntable-webgpu-page.ts) from. */
