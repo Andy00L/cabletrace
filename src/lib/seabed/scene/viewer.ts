@@ -34,6 +34,9 @@ const FOLLOW_ABOVE_LENGTHS = 0.45;
 // It aims a little ahead of and above the hull's origin (the waterline amidships).
 const FOLLOW_AIM_AHEAD_LENGTHS = 0.22;
 const FOLLOW_AIM_ABOVE_LENGTHS = 0.036;
+// While the anchor drags (the water drawn 20 times deeper puts it 1 to 2 km under the hull), the follow camera stands
+// this many times farther off, this many ship lengths higher, and aims this share of the way to the anchor.
+const FOLLOW_DRAG_FRAMING = { reach: 1.7, riseLengths: 0.15, aimShare: 0.4 } as const;
 const FOLLOW_EASE_PER_SECOND = 3.5;
 // The follow camera counts as arrived within this distance (km), and stops asking for frames.
 const FOLLOW_SETTLED_KM = 0.002;
@@ -78,6 +81,17 @@ function parseCameraOverride(text: string | undefined): CameraOverride | null {
   const target = readVector(Reflect.get(parsed, "target"));
   const fovDegrees: unknown = Reflect.get(parsed, "fovDegrees");
   return position && target && typeof fovDegrees === "number" ? { position, target, fovDegrees } : null;
+}
+
+/**
+ * Lookdev time override: a page agent writes `data-time-override` on the canvas as a replay moment in ms since the
+ * epoch, and the scene draws that moment instead of the replay clock's until the attribute is removed. Frames between
+ * the URL's whole minutes (the cut sequence at 10 s steps) are drawn this way.
+ */
+function parseTimeOverride(text: string | undefined): number | null {
+  if (!text) return null;
+  const atMs = Number(text);
+  return Number.isFinite(atMs) ? atMs : null;
 }
 
 /** Puts a camera on an override pose (and its orbit target with it). */
@@ -290,12 +304,18 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   function markDirty() {
     isDirty = true;
   }
+  // Lookdev hooks on the canvas: the camera and time overrides, and the anchor hidden for the contrast check.
   let cameraOverride: CameraOverride | null = null;
+  let timeOverrideMs: number | null = null;
   const overrideObserver = new MutationObserver(() => {
     cameraOverride = parseCameraOverride(canvas.dataset.cameraOverride);
+    timeOverrideMs = parseTimeOverride(canvas.dataset.timeOverride);
+    overview.setAnchorHidden(canvas.dataset.lookdevHide === "anchor");
     markDirty();
   });
-  overrideObserver.observe(canvas, { attributes: true, attributeFilter: ["data-camera-override"] });
+  overrideObserver.observe(canvas, { attributes: true, attributeFilter: ["data-camera-override", "data-time-override", "data-lookdev-hide", "data-lookdev-traces"] });
+  /** The replay moment to draw: the lookdev override when one is set, the replay clock's otherwise. */
+  const readDrawTimeMs = () => timeOverrideMs ?? readTimeMs();
 
   // The close-up takes 0.2 to 0.4 s to build on a slow machine, so it is built the first time it is shown.
   let closeUp: CloseUpScene | null = null;
@@ -549,7 +569,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     if (cameraOverride) applyCameraOverride(cameraOverride, closeUpScene.camera, closeUpScene.controls.target);
     const hasCameraMoved = cameraOverride ? false : closeUpScene.controls.update();
     // The cut plays out on the replay's clock, so a new moment is a new frame.
-    const atMs = readTimeMs();
+    const atMs = readDrawTimeMs();
     const hasTimeChanged = atMs !== lastDrawnAtMs;
     if (isCalm && !isDirty && !hasCameraMoved && !hasTimeChanged) return;
     lastDrawnAtMs = atMs;
@@ -557,11 +577,11 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     renderer.draw(closeUpScene.scene, closeUpScene.camera);
     closeUpLabels.render(closeUpScene.scene, closeUpScene.camera);
     isDirty = false;
-    recordDrawnFrame(readTimeMs());
+    recordDrawnFrame(atMs);
   }
 
   function renderOverview(now: number, elapsedSeconds: number, deltaSeconds: number) {
-    const atMs = readTimeMs();
+    const atMs = readDrawTimeMs();
     const hasTimeChanged = atMs !== lastDrawnAtMs;
     let isCameraEasing = false;
     const vesselFrame = activeView === "vessel" && !cameraOverride ? overview.readVesselFrame() : null;
@@ -569,11 +589,17 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       applyCameraOverride(cameraOverride, overview.camera, overview.controls.target);
     } else if (vesselFrame) {
       const { position, heading, drawnLengthKm } = vesselFrame;
-      const behindKm = FOLLOW_BEHIND_LENGTHS * drawnLengthKm;
-      const sideKm = FOLLOW_SIDE_LENGTHS * drawnLengthKm;
-      followPosition.set(position.x - heading.x * behindKm - heading.z * sideKm, position.y + FOLLOW_ABOVE_LENGTHS * drawnLengthKm, position.z - heading.z * behindKm + heading.x * sideKm);
+      // While the anchor drags, the camera stands back, rises and tips down toward it, so the ship, its chain and the
+      // anchor on the seabed share the frame.
+      const anchorPosition = overview.readAnchorPosition();
+      const reach = anchorPosition ? FOLLOW_DRAG_FRAMING.reach : 1;
+      const behindKm = FOLLOW_BEHIND_LENGTHS * drawnLengthKm * reach;
+      const sideKm = FOLLOW_SIDE_LENGTHS * drawnLengthKm * reach;
+      const aboveKm = (FOLLOW_ABOVE_LENGTHS + (anchorPosition ? FOLLOW_DRAG_FRAMING.riseLengths : 0)) * drawnLengthKm;
+      followPosition.set(position.x - heading.x * behindKm - heading.z * sideKm, position.y + aboveKm, position.z - heading.z * behindKm + heading.x * sideKm);
       const aimAheadKm = FOLLOW_AIM_AHEAD_LENGTHS * drawnLengthKm;
       followTarget.set(position.x + heading.x * aimAheadKm, position.y + FOLLOW_AIM_ABOVE_LENGTHS * drawnLengthKm, position.z + heading.z * aimAheadKm);
+      if (anchorPosition) followTarget.lerp(anchorPosition, FOLLOW_DRAG_FRAMING.aimShare);
       const ease = isCalm ? 1 : 1 - Math.exp(-elapsedSeconds * FOLLOW_EASE_PER_SECOND);
       overview.camera.position.lerp(followPosition, ease);
       overview.controls.target.lerp(followTarget, ease);
@@ -601,6 +627,29 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     hideOverlappingLabels(overviewLabels.domElement);
     recordDrawnFrame(atMs);
     if (canvas.dataset.lookdev === "on") recordColorProbes();
+    if (canvas.dataset.lookdevTraces === "request") recordLineTraces();
+  }
+
+  /**
+   * Lookdev hook (asked for with data-lookdev-traces="request", answered with "done"): every shown data line's drawn
+   * path in canvas px, each point marked in sight or not, and the anchor's point, for the continuity and contrast checks.
+   */
+  function recordLineTraces() {
+    const canvasRect = canvas.getBoundingClientRect();
+    const toCanvasPoint = (position: THREE.Vector3) => {
+      const screenPoint = projectToClient(position, canvasRect);
+      return screenPoint ? [Math.round((screenPoint.clientX - canvasRect.left) * 10) / 10, Math.round((screenPoint.clientY - canvasRect.top) * 10) / 10] : null;
+    };
+    const traces = overview.readLineTraces(overview.camera.position).map((trace) => ({
+      tone: trace.tone,
+      points: trace.points.map((point) => {
+        const canvasPoint = toCanvasPoint(point.position);
+        return canvasPoint ? [...canvasPoint, point.isInSight ? 1 : 0] : null;
+      }),
+    }));
+    const anchorPosition = overview.readAnchorPosition();
+    canvas.dataset.lineTraces = JSON.stringify({ traces, anchor: anchorPosition ? toCanvasPoint(anchorPosition) : null });
+    canvas.dataset.lookdevTraces = "done";
   }
 
   // Lookdev hook (scripts/lookdev sets data-lookdev="on" on the canvas): where each data line is on this frame, in

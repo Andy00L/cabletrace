@@ -3,7 +3,6 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
-import { drawAfterWater, keepDataColorExact } from "@/lib/render/data-colors";
 import { clampValue, createSeededRandom, interpolate, sampleFractalNoise, smoothStep } from "@/lib/seabed/math";
 import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
 import type { ChainShape } from "@/lib/ships/anchor-chain";
@@ -11,7 +10,7 @@ import { makeLabel, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel, buildStudLinkGeometry, createAnchorSteelMaterial } from "@/lib/seabed/scene/models";
 import { SCENE_SCALES } from "@/lib/seabed/scene-scales";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
-import { createCableServingTexture } from "@/lib/seabed/scene/seabed-lines";
+import { createCableArmourTexture, createTracerLine } from "@/lib/seabed/scene/seabed-lines";
 import { createRayTexture } from "@/lib/seabed/scene/textures";
 import type { ScenePoint } from "@/lib/seabed/terrain";
 
@@ -41,6 +40,8 @@ const LIGHT_SHAFT_COUNT = 7;
 const ANCHOR_X = 11;
 const ANCHOR_LIFT = 1.35;
 const ANCHOR_ROLL_RADIANS = 0.8;
+// The anchor steel is lifted this share toward galvanised grey (models.ts), so it keeps its form on the lit sand.
+const ANCHOR_GALVANISED_SHARE = 0.45;
 // Cable radius in units (0.76 m): drawn thicker than life so it reads at this scale; no source gives the real
 // diameter, so the disclosure says "thicker than life" rather than a factor. It lies a third buried in the sediment.
 const CABLE_RADIUS = 0.38;
@@ -51,8 +52,6 @@ const ANCHOR_UNITS_PER_METRE = SCENE_SCALES.closeUpAnchorScale / METRES_PER_UNIT
 const CABLE_GAP = 0.9;
 // Fixed seed so the illustrated detail is identical on every load (the Estlink 2 cut date).
 const DETAIL_SEED = 20241225;
-// The cable's thin tracer: its data colour along the top, a fixed number of device pixels wide.
-const TRACER_WIDTH_PX = 2;
 // The contact shadow under the cable: this many cable radii wide, this dark at its middle.
 const CONTACT_SHADOW_RADII = 3.2;
 const CONTACT_SHADOW_OPACITY = 0.45;
@@ -275,8 +274,8 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
     const localZ = along * cableLocal.z;
     return target.set(localX, computeHeight(localX, localZ, isIllustrated) + CABLE_CENTRE_ABOVE_SAND, localZ);
   };
-  const servingTexture = createCableServingTexture();
-  const servingMaterial = new THREE.MeshStandardMaterial({ map: servingTexture, roughness: 0.78, metalness: 0.05, bumpMap: servingTexture, bumpScale: 0.6 });
+  // The armoured cable in its data blue, lit, as the approved close-up drew it; the lay's strands give it relief.
+  const armourTexture = createCableArmourTexture();
   const copperMaterial = new THREE.MeshStandardMaterial({ color: SCENE_COLORS.copper, roughness: 0.3, metalness: 0.9, emissive: SCENE_COLORS.copperGlow, emissiveIntensity: 0.25 });
   const steelMaterial = new THREE.MeshStandardMaterial({ color: SCENE_COLORS.steel, roughness: 0.35, metalness: 0.75 });
   const insulationMaterial = new THREE.MeshStandardMaterial({ color: "#1C1C1E", roughness: 0.55, metalness: 0 });
@@ -284,13 +283,13 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
 
   /** One drawn piece of cable: its tube, the tracer along its top and the contact shadow under it, rebuilt on demand. */
   function createCablePiece() {
-    const tube = new THREE.Mesh(new THREE.BufferGeometry(), servingMaterial);
+    // Each piece repeats the lay along its own length, so it owns its texture.
+    const pieceTexture = armourTexture?.clone() ?? null;
+    const tube = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ map: pieceTexture, roughness: 0.42, metalness: 0.35, bumpMap: pieceTexture, bumpScale: 0.6 }));
     tube.castShadow = true;
     tube.receiveShadow = true;
     const tracerGeometry = new LineGeometry();
-    const tracer = drawAfterWater(kit.createScreenLine(tracerGeometry, { color: WEBGL_COLORS.cable, widthPx: TRACER_WIDTH_PX, hasVertexColors: false, opacity: 1 }));
-    if (!Array.isArray(tracer.material)) keepDataColorExact(tracer.material);
-    tracer.frustumCulled = false;
+    const tracer = createTracerLine(tracerGeometry, WEBGL_COLORS.cable, kit, false);
     const shadow = new THREE.Mesh(new THREE.BufferGeometry(), contactShadowMaterial);
     shadow.renderOrder = 1;
     const group = new THREE.Group();
@@ -300,7 +299,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
       curve = new THREE.CatmullRomCurve3(points, false, "centripetal");
       tube.geometry.dispose();
       tube.geometry = new THREE.TubeGeometry(curve, points.length * 2, CABLE_RADIUS, 14, false);
-      if (servingTexture) servingTexture.repeat.set(curve.getLength() / 1.2, 1);
+      pieceTexture?.repeat.set(curve.getLength() / 1.2, 1);
       tracerGeometry.setPositions(points.flatMap((point) => [point.x, point.y + CABLE_RADIUS * 1.02, point.z]));
       shadow.geometry.dispose();
       shadow.geometry = buildContactShadow(points);
@@ -400,7 +399,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   measuredCutRing.position.set(0, computeHeight(0, 0, false) + 0.3, 0);
   measuredGroup.add(measuredCutRing);
 
-  const anchorMaterial = createAnchorSteelMaterial(SCENE_COLORS.closeUpAnchor, options.sky);
+  const anchorMaterial = createAnchorSteelMaterial(SCENE_COLORS.closeUpAnchor, options.sky, ANCHOR_GALVANISED_SHARE);
   const anchor = buildAnchorModel(anchorMaterial);
   anchor.group.scale.setScalar(ANCHOR_UNITS_PER_METRE);
   anchor.group.rotation.order = "YXZ";

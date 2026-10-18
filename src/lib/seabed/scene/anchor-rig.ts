@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { createSeededRandom, sampleFractalNoise, smoothStep } from "@/lib/seabed/math";
 import { buildStudLinkGeometry } from "@/lib/seabed/scene/models";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { createRayTexture } from "@/lib/seabed/scene/textures";
@@ -142,52 +144,165 @@ export function createFurrowTrench(
 }
 
 /**
- * The inside of the water, for a camera under the surface: a haze toward the water's own colour with distance (light
- * scattered back by the water), brighter overhead where the daylight comes down, a few shafts of light falling from the
- * surface, and the surface itself hidden (from below, the sky's window would be a bright disc; the haze stands in).
+ * The inside of the water, for a camera under the surface: a haze in the water's own body colour with distance (light
+ * scattered back by the water), lighter overhead where the daylight comes down, shafts of light falling from the
+ * surface in front of the camera, caustic light rippling over the seabed around it (an additive decal, so the terrain's
+ * material is untouched), and the surface itself hidden (from below, the sky's window would be a bright disc; the
+ * background's lit top stands in).
  */
-export type UnderwaterLook = { lightShafts: THREE.Group; apply: (scene: THREE.Scene, camera: THREE.Camera, isUnderwater: boolean) => void };
+export type UnderwaterLook = { group: THREE.Group; apply: (scene: THREE.Scene, camera: THREE.Camera, isUnderwater: boolean) => void };
 
 // Haze density (per km, exponential squared): 1.0 keeps a subject 0.6 km away 70% clear and hides the seabed 2.5 km out.
 const UNDERWATER_HAZE_PER_KM = 1.0;
+// Shafts of light: how many, how bright (additive), where they stand in front of the camera (km ahead, km either side)
+// and how far they lean with the sun (radians).
 const LIGHT_SHAFT_COUNT = 9;
-// The haze leans toward the sky's colour by this share: water lit from above scatters lighter than its body colour.
-const HAZE_SKY_SHARE = 0.25;
+const LIGHT_SHAFT_OPACITY = 0.38;
+const LIGHT_SHAFT_AHEAD_KM = [0.25, 0.9] as const;
+const LIGHT_SHAFT_SPREAD_KM = 0.55;
+const LIGHT_SHAFT_LEAN = 0.18;
+// The background: lighter toward the surface by this share of the way to the sky's colour, darker below by this share
+// of the way to black.
+const BACKGROUND_SURFACE_SKY_SHARE = 0.45;
+const BACKGROUND_DEPTH_DARK_SHARE = 0.35;
+// The caustic decal: a square this wide (km) on the seabed ahead of the camera, this many cells a side, its pattern
+// repeating every this many km (about the anchor's drawn width), this bright, and this far over the ground (km).
+const CAUSTIC_DECAL_KM = 1.6;
+const CAUSTIC_DECAL_CELLS = 48;
+const CAUSTIC_PERIOD_KM = 0.14;
+const CAUSTIC_OPACITY = 0.15;
+// The light's strength wanders over the seabed (the waves focus it unevenly), on this scale (km).
+const CAUSTIC_PATCH_KM = 0.35;
+const CAUSTIC_LIFT_KM = 0.004;
+const CAUSTIC_SEED = 20241225;
 
-export function createUnderwaterLook(look: WaterLook): UnderwaterLook {
-  const hazeColor = new THREE.Color(look.column).lerp(new THREE.Color(look.sky), HAZE_SKY_SHARE);
+export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number): UnderwaterLook {
+  const hazeColor = new THREE.Color(look.column);
   const fog = new THREE.FogExp2(hazeColor, UNDERWATER_HAZE_PER_KM);
-  const background = createUnderwaterBackground(look, hazeColor);
+  const background = createUnderwaterBackground(look);
   const rayTexture = createRayTexture();
   const lightShafts = new THREE.Group();
-  const shaftMaterial = new THREE.MeshBasicMaterial({ map: rayTexture, color: SCENE_COLORS.lightShaft, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
-  for (let index = 0; index < LIGHT_SHAFT_COUNT; index += 1) {
-    const shaft = new THREE.Mesh(new THREE.PlaneGeometry(0.06 + (index % 3) * 0.04, 3.2), shaftMaterial);
-    // Spread on a ring around the group's centre, leaning a little with the sun.
-    const angle = (index / LIGHT_SHAFT_COUNT) * Math.PI * 2;
-    shaft.position.set(Math.cos(angle) * (0.35 + 0.15 * (index % 4)), -0.4, Math.sin(angle) * (0.35 + 0.15 * (index % 4)));
-    shaft.rotation.z = 0.12;
-    lightShafts.add(shaft);
-  }
-  lightShafts.visible = false;
+  const shaftMaterial = new THREE.MeshBasicMaterial({ map: rayTexture, color: SCENE_COLORS.lightShaft, transparent: true, opacity: LIGHT_SHAFT_OPACITY, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  const shaftRandom = createSeededRandom(CAUSTIC_SEED);
+  const shaftLayout = Array.from({ length: LIGHT_SHAFT_COUNT }, () => ({
+    aheadKm: LIGHT_SHAFT_AHEAD_KM[0] + shaftRandom() * (LIGHT_SHAFT_AHEAD_KM[1] - LIGHT_SHAFT_AHEAD_KM[0]),
+    acrossKm: (shaftRandom() - 0.5) * 2 * LIGHT_SHAFT_SPREAD_KM,
+    widthKm: 0.04 + shaftRandom() * 0.08,
+  }));
+  shaftLayout.forEach((layout) => lightShafts.add(new THREE.Mesh(new THREE.PlaneGeometry(layout.widthKm, 3.2), shaftMaterial)));
+  const caustics = createCausticDecal(sampleSeabedHeight);
+  const group = new THREE.Group();
+  group.add(lightShafts, caustics.mesh);
+  group.visible = false;
+  const forward = new THREE.Vector3();
   return {
-    lightShafts,
+    group,
     apply(scene, camera, isUnderwater) {
       scene.fog = isUnderwater ? fog : null;
       scene.background = isUnderwater ? background : null;
-      lightShafts.visible = isUnderwater;
+      group.visible = isUnderwater;
       if (!isUnderwater) return;
-      // The shafts stand around the camera's sight line and turn to face it.
-      lightShafts.position.set(camera.position.x, 0, camera.position.z);
-      lightShafts.children.forEach((shaft) => {
-        shaft.rotation.y = Math.atan2(camera.position.x - lightShafts.position.x - shaft.position.x, camera.position.z - lightShafts.position.z - shaft.position.z);
+      // The shafts stand in front of the camera, from the surface down, leaning with the sun and turned to face it.
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      if (forward.lengthSq() < 1e-8) forward.set(1, 0, 0);
+      forward.normalize();
+      lightShafts.children.forEach((shaft, index) => {
+        const layout = shaftLayout[index];
+        if (!layout) return;
+        shaft.position.set(camera.position.x + forward.x * layout.aheadKm - forward.z * layout.acrossKm, -1.6, camera.position.z + forward.z * layout.aheadKm + forward.x * layout.acrossKm);
+        shaft.rotation.set(0, Math.atan2(camera.position.x - shaft.position.x, camera.position.z - shaft.position.z), LIGHT_SHAFT_LEAN);
       });
+      caustics.moveTo(camera.position.x + forward.x * CAUSTIC_DECAL_KM * 0.4, camera.position.z + forward.z * CAUSTIC_DECAL_KM * 0.4);
     },
   };
 }
 
-/** A vertical gradient: daylight overhead fading to the haze at eye level and darker water below. */
-function createUnderwaterBackground(look: WaterLook, hazeColor: THREE.Color): THREE.Texture {
+/** The caustic light as a decal: a grid laid on the seabed, its pattern fixed to the ground as the grid moves. */
+function createCausticDecal(sampleSeabedHeight: (sceneX: number, sceneZ: number) => number): { mesh: THREE.Mesh; moveTo: (centreX: number, centreZ: number) => void } {
+  const geometry = new THREE.PlaneGeometry(CAUSTIC_DECAL_KM, CAUSTIC_DECAL_KM, CAUSTIC_DECAL_CELLS, CAUSTIC_DECAL_CELLS);
+  geometry.rotateX(-Math.PI / 2);
+  const positions = geometry.getAttribute("position");
+  const uvs = geometry.getAttribute("uv");
+  const localX = Float32Array.from({ length: positions.count }, (_slot, index) => positions.getX(index));
+  const localZ = Float32Array.from({ length: positions.count }, (_slot, index) => positions.getZ(index));
+  // The decal fades to nothing at its edge, so its square never shows.
+  const fades = Float32Array.from({ length: positions.count }, (_slot, index) => {
+    const edge = Math.max(Math.abs(localX[index] ?? 0), Math.abs(localZ[index] ?? 0)) / (CAUSTIC_DECAL_KM / 2);
+    return 1 - Math.min(1, Math.max(0, (edge - 0.55) / 0.45));
+  });
+  const strengths = new THREE.BufferAttribute(new Float32Array(positions.count * 3), 3);
+  geometry.setAttribute("color", strengths);
+  const material = new THREE.MeshBasicMaterial({ map: createCausticTexture(), vertexColors: true, color: SCENE_COLORS.lightShaft, transparent: true, opacity: CAUSTIC_OPACITY, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 1;
+  return {
+    mesh,
+    moveTo(centreX, centreZ) {
+      for (let index = 0; index < positions.count; index += 1) {
+        const pointX = centreX + (localX[index] ?? 0);
+        const pointZ = centreZ + (localZ[index] ?? 0);
+        positions.setXYZ(index, pointX, sampleSeabedHeight(pointX, pointZ) + CAUSTIC_LIFT_KM, pointZ);
+        uvs.setXY(index, pointX / CAUSTIC_PERIOD_KM, pointZ / CAUSTIC_PERIOD_KM);
+        const strength = (fades[index] ?? 0) * smoothStep(0.3, 0.7, sampleFractalNoise(pointX / CAUSTIC_PATCH_KM, pointZ / CAUSTIC_PATCH_KM, 2));
+        strengths.setXYZ(index, strength, strength, strength);
+      }
+      positions.needsUpdate = true;
+      uvs.needsUpdate = true;
+      strengths.needsUpdate = true;
+    },
+  };
+}
+
+/**
+ * A tileable caustic pattern: the bright network where sunlight focused by the waves meets the seabed, drawn as the
+ * edges between cells of a wrapped Worley pattern (thin where two cells' nearest points are equally near).
+ */
+function createCausticTexture(): THREE.Texture {
+  if (typeof document === "undefined") return new THREE.Texture();
+  const size = 256;
+  const pointCount = 22;
+  const random = createSeededRandom(CAUSTIC_SEED);
+  const points = Array.from({ length: pointCount }, () => ({ x: random() * size, y: random() * size }));
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) return new THREE.Texture();
+  const image = context.createImageData(size, size);
+  for (let row = 0; row < size; row += 1) {
+    for (let column = 0; column < size; column += 1) {
+      let nearest = Number.POSITIVE_INFINITY;
+      let second = Number.POSITIVE_INFINITY;
+      for (const point of points) {
+        // Wrapped distance, so the pattern tiles.
+        const offsetX = Math.min(Math.abs(column - point.x), size - Math.abs(column - point.x));
+        const offsetY = Math.min(Math.abs(row - point.y), size - Math.abs(row - point.y));
+        const distance = Math.hypot(offsetX, offsetY);
+        if (distance < nearest) {
+          second = nearest;
+          nearest = distance;
+        } else if (distance < second) {
+          second = distance;
+        }
+      }
+      // A thin bright core with a soft glow around it.
+      const edgeDistance = second - nearest;
+      const brightness = Math.round(255 * Math.min(1, 0.8 * Math.max(0, 1 - edgeDistance / 3.5) ** 2 + 0.25 * Math.max(0, 1 - edgeDistance / 16) ** 2));
+      image.data.set([brightness, brightness, brightness, 255], (row * size + column) * 4);
+    }
+  }
+  context.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** A vertical gradient: daylight overhead, the body colour at eye level and darker water below. */
+function createUnderwaterBackground(look: WaterLook): THREE.Texture {
   if (typeof document === "undefined") return new THREE.Texture();
   const canvas = document.createElement("canvas");
   canvas.width = 4;
@@ -195,13 +310,21 @@ function createUnderwaterBackground(look: WaterLook, hazeColor: THREE.Color): TH
   const context = canvas.getContext("2d");
   if (context) {
     const gradient = context.createLinearGradient(0, 0, 0, 256);
-    gradient.addColorStop(0, look.sky);
-    gradient.addColorStop(0.45, `#${hazeColor.getHexString()}`);
-    gradient.addColorStop(1, look.column);
+    gradient.addColorStop(0, `#${new THREE.Color(look.column).lerp(new THREE.Color(look.sky), BACKGROUND_SURFACE_SKY_SHARE).getHexString()}`);
+    gradient.addColorStop(0.5, look.column);
+    gradient.addColorStop(1, `#${new THREE.Color(look.column).lerp(new THREE.Color(0, 0, 0), BACKGROUND_DEPTH_DARK_SHARE).getHexString()}`);
     context.fillStyle = gradient;
     context.fillRect(0, 0, 4, 256);
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+/** The anchor's note under the water (the anchor cam): one small "illustrated" chip, not the map label's long text. */
+export function makeIllustratedChip(): CSS2DObject {
+  const element = document.createElement("div");
+  element.className = "rounded-full bg-card/85 px-1.5 text-micro text-muted shadow-row";
+  element.textContent = "illustrated";
+  return new CSS2DObject(element);
 }

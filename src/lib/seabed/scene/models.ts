@@ -93,15 +93,17 @@ function createWornSteelTexture(): THREE.CanvasTexture | null {
 
 /**
  * Dark cast and forged steel, worn: a little metallic sheen, scoured bright where it drags, the sky's light in its
- * reflections when `sky` is given. `color` is the scene's anchor tone.
+ * reflections when `sky` is given. `color` is the scene's anchor tone, lifted `galvanisedShare` of the way toward
+ * galvanised grey: the close-up's lit seabed needs 0.45 (dark painted steel at full metalness reads as a black hole
+ * there), the overview's anchor under 75 m of water stays darker so it stands out against the seabed.
  */
-export function createAnchorSteelMaterial(color: string, sky: THREE.Texture | null): THREE.MeshStandardMaterial {
+export function createAnchorSteelMaterial(color: string, sky: THREE.Texture | null, galvanisedShare: number): THREE.MeshStandardMaterial {
   const wear = createWornSteelTexture();
-  // Lifted toward galvanised grey: dark painted steel at full metalness reads as a black hole under the water.
-  const material = new THREE.MeshStandardMaterial({ color: new THREE.Color(color).lerp(new THREE.Color(GALVANISED_HEX), 0.45), roughness: 0.48, metalness: 0.55, map: wear, roughnessMap: wear });
+  const material = new THREE.MeshStandardMaterial({ color: new THREE.Color(color).lerp(new THREE.Color(GALVANISED_HEX), galvanisedShare), roughness: 0.48, metalness: 0.55, map: wear, roughnessMap: wear });
   if (sky) {
     material.envMap = sky;
-    material.envMapIntensity = 0.7;
+    // Bright enough that the worn edges catch the sky as highlights, which carry the anchor's form under the water.
+    material.envMapIntensity = 1.1;
   }
   return material;
 }
