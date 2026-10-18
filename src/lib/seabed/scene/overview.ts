@@ -4,7 +4,9 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene/labels";
-import { buildAnchorModel } from "@/lib/seabed/scene/models";
+import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { createChainLinks, createFurrowTrench, createUnderwaterLook, type FurrowTrench } from "@/lib/seabed/scene/anchor-rig";
+import { buildAnchorModel, createAnchorSteelMaterial } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
 import { createDataColorMaterial, drawAfterWater } from "@/lib/render/data-colors";
 import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
@@ -49,6 +51,18 @@ const FURROW_SEABED_LIFT = 0.09;
 const CHAIN_POINT_COUNT = 48;
 const CHAIN_WIDTH_PX = 1.5;
 const CLOSE_UP_CHAIN_POINT_COUNT = 240;
+// The chain as stud links: 0.5 m links (models.ts), at most this many, drawn when the camera is within this many km.
+const CHAIN_LINK_PITCH_METRES = 0.5;
+const CHAIN_LINK_COUNT = 260;
+const CHAIN_LINK_VIEW_KM = 8;
+// The furrow's trench: half as wide as the anchor's 2.5 m across the flukes on each side, drawn 12 m deep (about 0.6 m
+// of sediment at the water's 20 times).
+const FURROW_TRENCH_HALF_WIDTH_METRES = 1.4;
+const FURROW_TRENCH_DEPTH_KM = 0.012;
+// Layers: map labels on one (hidden under the water), the anchor's own label on another (shown only there).
+const LABEL_LAYER = 1;
+const ANCHOR_ROLL_RADIANS = 0.8;
+const UNDERWATER_LABEL_LAYER = 2;
 const PLUME_PARTICLE_COUNT = 140;
 // Heading is read over this span around the current moment, so a reconstructed corner does not snap the hull.
 const HEADING_SPAN_MS = 2 * 60 * 1000;
@@ -613,16 +627,31 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   if (kelvinWake) ship.add(kelvinWake.mesh);
   const wake = createWake();
   scene.add(wake.mesh);
-  const anchorModel = buildAnchorModel(new THREE.MeshStandardMaterial({ color: SCENE_COLORS.anchor, roughness: 0.48, metalness: 0.6 }));
+  const anchorMaterial = createAnchorSteelMaterial(SCENE_COLORS.anchor, options.skyMap);
+  const anchorModel = buildAnchorModel(anchorMaterial);
   const anchor = anchorModel.group;
   anchor.scale.setScalar(ANCHOR_DRAWN_SCALE * METRES_TO_KM);
   anchor.visible = false;
   scene.add(anchor);
+  // Under the water the anchor is named, and said to be drawn: its shape is the type's, its size 30 times life.
+  const anchorLabel = makeStackedLabel("Anchor", `illustrated, drawn ${ANCHOR_DRAWN_SCALE} times its size`, "above");
+  anchorLabel.object.position.set(0, 1.6, 2);
+  anchorLabel.object.layers.set(UNDERWATER_LABEL_LAYER);
+  anchor.add(anchorLabel.object);
+  // Close up, the chain is real stud links at the anchor's drawn scale; from afar, the hairline below.
+  const chainLinks = createChainLinks(anchorMaterial, CHAIN_LINK_COUNT, CHAIN_LINK_PITCH_METRES * ANCHOR_DRAWN_SCALE * METRES_TO_KM, ANCHOR_DRAWN_SCALE * METRES_TO_KM);
+  chainLinks.mesh.visible = false;
+  scene.add(chainLinks.mesh);
+  const underwaterLook = createUnderwaterLook(options.waterLook);
+  scene.add(underwaterLook.lightShafts);
   const chainGeometry = new LineGeometry();
   chainGeometry.setPositions(new Float32Array(CHAIN_POINT_COUNT * 3));
   const chain = kit.createScreenLine(chainGeometry, { color: SCENE_COLORS.anchor, widthPx: CHAIN_WIDTH_PX, hasVertexColors: false, opacity: 1 });
   chain.frustumCulled = false;
   chain.visible = false;
+  // Drawn after the water (not in a data colour): the chain's run down from the hawse stays readable through the sea.
+  chain.renderOrder = 4;
+  if (!Array.isArray(chain.material)) chain.material.transparent = true;
   scene.add(chain);
 
   // The anchor from physics (src/lib/ships/anchor-chain.ts, the detector's own model): the case ship's chain hangs
@@ -645,6 +674,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
   // The anchor's furrow: where the anchor itself went, from the start to the end of the drag window.
   let furrow: ProgressLine | null = null;
+  let furrowTrench: FurrowTrench | null = null;
   if (dragWindow && dragWindow.endMs > dragWindow.startMs) {
     const furrowPoints = Array.from({ length: FURROW_SEGMENTS + 1 }, (_slot, index) => locateAnchor(dragWindow.startMs + ((dragWindow.endMs - dragWindow.startMs) * index) / FURROW_SEGMENTS))
       .flatMap((located) => (located ? [located.point] : []))
@@ -652,6 +682,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     if (furrowPoints.length >= 2) {
       furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX, kit });
       scene.add(drawAfterWater(furrow.line));
+      // The trench itself, in the sediment under the line: about the anchor's drawn width, as deep as its flukes dig.
+      const seabedRamp = buildRamp(DEPTH_TOKEN_RAMP);
+      const readSeabedColor = (sceneX: number, sceneZ: number, target: THREE.Color) => sampleRamp(seabedRamp, -sampleElevationMetres(sceneX, sceneZ), target);
+      furrowTrench = createFurrowTrench(furrowPoints, FURROW_TRENCH_HALF_WIDTH_METRES * ANCHOR_DRAWN_SCALE * METRES_TO_KM, FURROW_TRENCH_DEPTH_KM, sampleSeabedHeight, readSeabedColor);
+      scene.add(furrowTrench.mesh);
     }
   }
   /** The chain's shape at the primary cut, for the close-up (metres from the anchor along the ground, and up). */
@@ -786,19 +821,33 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
     const isDragging = dragWindow !== null && shipPoint !== null && atMs >= dragWindow.startMs && atMs <= dragWindow.endMs;
     if (furrow && dragWindow) furrow.setFraction((atMs - dragWindow.startMs) / (dragWindow.endMs - dragWindow.startMs));
+    if (furrowTrench && dragWindow) furrowTrench.setFraction((atMs - dragWindow.startMs) / (dragWindow.endMs - dragWindow.startMs));
     const located = isDragging ? locateAnchor(atMs) : null;
     anchor.visible = located !== null;
     chain.visible = located !== null;
+    chainLinks.mesh.visible = false;
     if (located) {
       // The anchor lies where the chain's layback puts it, shank pointing along the chain toward the hawse.
       hawseWorld.copy(shipModel.hawseLocal).applyMatrix4(ship.matrixWorld);
       const towardHawse = unitDirection(located.point, { x: hawseWorld.x, z: hawseWorld.z }, lastHeading);
       anchor.position.set(located.point.x, sampleSeabedHeight(located.point.x, located.point.z) + 0.02, located.point.z);
-      anchor.rotation.set(-0.12, Math.atan2(towardHawse.x, towardHawse.z), 0);
+      // Rolled onto one side, as a dragged anchor lies: one fluke dug in, the other's blade turned up (as in the close-up).
+      anchor.rotation.set(-0.12, Math.atan2(towardHawse.x, towardHawse.z), ANCHOR_ROLL_RADIANS, "YXZ");
       anchor.updateMatrixWorld();
       shackleWorld.copy(anchorModel.shackleLocal).applyMatrix4(anchor.matrixWorld);
       writeChain(located.span);
+      // Links where the camera is close enough to see them; the hairline otherwise.
+      const isChainClose = camera.position.distanceTo(anchor.position) < CHAIN_LINK_VIEW_KM;
+      chainLinks.mesh.visible = isChainClose;
+      if (isChainClose) chainLinks.update(chainPositions, CHAIN_POINT_COUNT);
     }
+
+    // A camera under the surface (the anchor cam) sees the inside of the water and no map labels.
+    const isUnderwater = camera.position.y < 0;
+    underwaterLook.apply(scene, camera, isUnderwater);
+    water.group.visible = !isUnderwater;
+    camera.layers.set(0);
+    camera.layers.enable(isUnderwater ? UNDERWATER_LABEL_LAYER : LABEL_LAYER);
 
     for (const cutSwitch of cutSwitches) {
       const isCut = atMs >= cutSwitch.cut.atMs;
@@ -951,6 +1000,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     }
     return false;
   }
+
+  // Every map label lives on its own layer, so a camera under the water can leave them out (CSS2DRenderer tests layers).
+  scene.traverse((object) => {
+    if (object instanceof CSS2DObject && !object.layers.isEnabled(UNDERWATER_LABEL_LAYER)) object.layers.set(LABEL_LAYER);
+  });
+  camera.layers.enable(LABEL_LAYER);
 
   return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes, readSeabedProbes };
 }
