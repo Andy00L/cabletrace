@@ -42,11 +42,17 @@ export type ShipStatic = {
 /** What the recorder stores beyond the frame's ship record: the crew's navigational status and the rate of turn code. */
 export type PositionStatus = { navigationStatus: number | null; turnRate: number | null };
 
+/**
+ * Which kind of transponder sent a position: class A sends messages 1 to 3 (aisstream's PositionReport), class B
+ * messages 18 and 19 (ITU-R M.1371-5). Digitraffic publishes class A only (src/lib/live/cross-source.ts).
+ */
+export type TransponderClass = "A" | "B";
+
 /** A position report with its status fields, as the recorder needs it; the frame keeps only `report`. */
 export type PositionDetail = { report: ShipRecord; status: PositionStatus };
 
 export type AisstreamMessage =
-  | { kind: "position"; report: ShipRecord; status: PositionStatus; staticData: ShipStatic | null }
+  | { kind: "position"; report: ShipRecord; status: PositionStatus; staticData: ShipStatic | null; transponderClass: TransponderClass }
   | { kind: "static"; staticData: ShipStatic }
   | { kind: "server-error"; reason: string }
   | { kind: "ignored"; reason: string };
@@ -260,7 +266,7 @@ export function parseAisstreamMessage(messageText: string): AisstreamMessage {
     const staticData = messageType === "ExtendedClassBPositionReport" ? readExtendedClassBStatic(body, mmsi) : null;
     // Class B reports carry neither field; null means the ship did not say.
     const status = { navigationStatus: readNavigationStatus(readNumber(body, "NavigationalStatus")), turnRate: readTurnRate(readNumber(body, "RateOfTurn")) };
-    return { kind: "position", report, status, staticData };
+    return { kind: "position", report, status, staticData, transponderClass: messageType === "PositionReport" ? "A" : "B" };
   }
   return { kind: "ignored", reason: `message type ${messageType}` };
 }

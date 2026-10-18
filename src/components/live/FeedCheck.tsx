@@ -25,7 +25,7 @@ export function FeedCheck({ state, regionNames }: { state: FeedCheckState; regio
             <span className={`size-1.5 flex-none -translate-y-px rounded-full ${doFeedsAgree ? "bg-live" : "bg-alarm"}`} aria-hidden="true" />
             <span>
               <span className="font-medium text-ink">{doFeedsAgree ? "Feeds agree" : "Feeds disagree"}</span> in the {regionNames[region.regionId] ?? region.regionId}:{" "}
-              <span className="tabular-nums">{formatPercent(region.shipAgreementShare)}</span> of aisstream&apos;s moving ships are also in Digitraffic (target{" "}
+              <span className="tabular-nums">{formatPercent(region.shipAgreementShare)}</span> of aisstream&apos;s moving class A ships are also in Digitraffic (target{" "}
               {formatPercent(SHIP_AGREEMENT_MIN_SHARE)}), and <span className="tabular-nums">{formatPercent(region.positionAgreementShare)}</span> of the
               shared positions lie within {POSITION_TOLERANCE_METRES} m (target {formatPercent(POSITION_AGREEMENT_MIN_SHARE)}).
             </span>

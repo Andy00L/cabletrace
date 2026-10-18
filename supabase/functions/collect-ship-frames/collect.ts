@@ -106,6 +106,8 @@ export type CollectSummary = {
 type AisstreamAccumulator = {
   addMessage: (messageText: string) => void;
   positions: Map<number, ShipRecord>;
+  // Ships heard through class A position reports, the only ones Digitraffic publishes (the cross-source check).
+  classAMmsis: Set<number>;
   statics: ShipStatic[];
   ignored: Map<string, number>;
   serverErrors: string[];
@@ -116,6 +118,7 @@ type AisstreamAccumulator = {
 // ship (about 10,000) rather than one per message.
 function createAisstreamAccumulator(): AisstreamAccumulator {
   const positions = new Map<number, ShipRecord>();
+  const classAMmsis = new Set<number>();
   const statics: ShipStatic[] = [];
   const ignored = new Map<string, number>();
   const serverErrors: string[] = [];
@@ -125,6 +128,7 @@ function createAisstreamAccumulator(): AisstreamAccumulator {
     if (message.kind === "position") {
       positionMessages += 1;
       positions.set(message.report.mmsi, pickPreferredReport(positions.get(message.report.mmsi), message.report));
+      if (message.transponderClass === "A") classAMmsis.add(message.report.mmsi);
       if (message.staticData !== null) statics.push(message.staticData);
     } else if (message.kind === "static") {
       statics.push(message.staticData);
@@ -134,7 +138,7 @@ function createAisstreamAccumulator(): AisstreamAccumulator {
       ignored.set(message.reason, (ignored.get(message.reason) ?? 0) + 1);
     }
   };
-  return { addMessage, positions, statics, ignored, serverErrors, positionCount: () => positionMessages };
+  return { addMessage, positions, classAMmsis, statics, ignored, serverErrors, positionCount: () => positionMessages };
 }
 
 type PreviousFrame = { slotStartMs: number; path: string; compressed: Uint8Array; frameTimeMs: number; ships: ShipRecord[] };
@@ -263,12 +267,13 @@ function countShips(ships: readonly ShipRecord[], runStartMs: number) {
   return { aisstreamShips, digitrafficShips, reportedBeforeRunShips, unknownClassShips };
 }
 
-// Compares the two feeds where both report, when both answered this run, and stores the samples.
+// Compares the two feeds where both report, when both answered this run, and stores the samples. The aisstream
+// reports carry the frame's ship classes, so the comparison can leave fishing vessels out.
 async function sampleCrossSource(
   ports: CollectorPorts,
   regions: readonly CrossCheckRegion[],
   window: { startMs: number; endMs: number },
-  feeds: { aisstream: readonly ShipRecord[]; digitraffic: readonly ShipRecord[] },
+  feeds: { aisstream: readonly ShipRecord[]; classAMmsis: ReadonlySet<number>; digitraffic: readonly ShipRecord[] },
   errors: string[],
 ): Promise<CrossSourceSample[]> {
   if (regions.length === 0 || feeds.aisstream.length === 0 || feeds.digitraffic.length === 0) return [];
@@ -309,13 +314,6 @@ export async function collectShipFrame(
   if (!vessels.ok) errors.push(vessels.reason);
   const digitrafficReports = locations.ok ? locations.value : [];
   const digitrafficVessels: DigitrafficVessel[] = vessels.ok ? vessels.value : [];
-  const crossSource = await sampleCrossSource(
-    ports,
-    crossCheckRegions,
-    { startMs: runStartMs, endMs: frameTimeMs },
-    { aisstream: [...accumulator.positions.values()], digitraffic: digitrafficReports },
-    errors,
-  );
   // Nothing new from either feed (both down, or the key refused): keep the stored frames as they are
   // rather than publish a frame that only repeats old positions or shows an empty globe.
   const hasNewReports = accumulator.positions.size > 0 || digitrafficReports.length > 0;
@@ -329,6 +327,17 @@ export async function collectShipFrame(
   const classByMmsi = buildClassMap(mergeShipStatics([...digitrafficVessels.map((vessel) => vessel.staticData), ...accumulator.statics]));
   if (hasNewReports) await lookUpNewShipClasses(ports.statics, merged, classByMmsi, new Set(previousShips.map((ship) => ship.mmsi)), errors);
   const ships = assignShipClasses(merged, classByMmsi);
+  const crossSource = await sampleCrossSource(
+    ports,
+    crossCheckRegions,
+    { startMs: runStartMs, endMs: frameTimeMs },
+    {
+      aisstream: assignShipClasses([...accumulator.positions.values()], new Map(ships.map((ship) => [ship.mmsi, ship.shipClass]))),
+      classAMmsis: accumulator.classAMmsis,
+      digitraffic: digitrafficReports,
+    },
+    errors,
+  );
 
   const summary: CollectSummary = {
     ok: false,

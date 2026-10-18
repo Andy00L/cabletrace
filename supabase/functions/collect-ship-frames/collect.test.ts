@@ -192,6 +192,11 @@ Deno.test("compares aisstream with Digitraffic inside the cross-check regions an
         positionMessage(230_000_002, 25.5, 59.9, RUN_START_MS + 12_000),
         // Outside the Gulf: not compared.
         positionMessage(555_000_001, 3.0, 52.0, RUN_START_MS + 10_000),
+        // A class B transponder and a fishing vessel, heard by aisstream only: Digitraffic publishes neither, so
+        // neither is compared.
+        positionMessage(230_000_003, 25.1, 60.0, RUN_START_MS + 11_000).replaceAll("PositionReport", "StandardClassBPositionReport"),
+        positionMessage(230_000_004, 25.2, 60.0, RUN_START_MS + 11_000),
+        staticMessage(230_000_004, 30),
       ],
       [{ type: "Feature", geometry: { type: "Point", coordinates: [24.9, 60.1] }, properties: { mmsi: 230_000_001, sog: 8.2, cog: 12.5, heading: 13, timestampExternal: RUN_START_MS + 15_000 } }],
     ),
