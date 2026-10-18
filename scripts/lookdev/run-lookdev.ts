@@ -16,11 +16,11 @@ import { resolveChromiumPath } from "../perf/chromium-path";
 import { compareImages, downscaleImage, formatHexColor, matchColorNear, parseHexColor, type RgbColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
 import { listLookdevShots, type LookdevShot } from "./shots";
+import { TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
 import { buildTurntablePage, buildWebGpuTurntablePage } from "./turntable";
 import { canRunWindowsChrome, captureWithWindowsChrome, cropToBox, DEFAULT_PROXY_PORT, DEFAULT_WINDOWS_CHROME, startLookdevProxy, TURNTABLE_PATH, type AgentConfig, type CaptureMode, type WindowsCapture } from "./webgpu-capture";
 
-type TierName = "software" | "hardware" | "webgpu";
-type PlaywrightTierName = Exclude<TierName, "webgpu">;
+type TierName = PlaywrightTierName | "webgpu";
 
 // The console's desktop layout at device pixel ratio 1, the size docs/PERFORMANCE.md measures.
 const VIEWPORT = { width: 1440, height: 900 };
@@ -60,19 +60,6 @@ const TURNTABLE_SHOT_NAME = "ships-turntable";
 const DATA_TONES: readonly DataTone[] = ["cable", "pipeline", "suspect", "alarm"];
 const TONE_HEX: Record<DataTone, string> = { cable: WEBGL_COLORS.cable, pipeline: WEBGL_COLORS.pipeline, suspect: WEBGL_COLORS.ink, alarm: WEBGL_COLORS.alarm };
 
-// Chromium flags per tier. Software: SwiftShader, as the test browsers draw (M139 and later need the unsafe flag).
-// Hardware: ANGLE on OpenGL; on WSL2 Mesa's d3d12 driver reaches the Windows GPU through /dev/dxg. On a laptop with
-// two adapters the integrated one lost its contexts and failed to link three.js shaders, so the driver is pointed at
-// the adapter named in LOOKDEV_GPU_ADAPTER (default NVIDIA; Mesa matches part of the name).
-const TIER_LAUNCH: Record<PlaywrightTierName, { args: string[]; env: Record<string, string> }> = {
-  software: { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"], env: {} },
-  hardware: {
-    args: ["--use-angle=gl", "--ignore-gpu-blocklist", "--enable-gpu", "--enable-unsafe-webgpu", "--enable-features=Vulkan"],
-    env: existsSync("/usr/lib/wsl/lib")
-      ? { GALLIUM_DRIVER: "d3d12", MESA_D3D12_DEFAULT_ADAPTER_NAME: process.env.LOOKDEV_GPU_ADAPTER ?? "NVIDIA", LD_LIBRARY_PATH: "/usr/lib/wsl/lib" }
-      : {},
-  },
-};
 
 type ToneVerdict = { tone: DataTone; probeCount: number; exactCount: number; medianDeviation: number; worstFound: string | null; isPass: boolean; reason: string };
 

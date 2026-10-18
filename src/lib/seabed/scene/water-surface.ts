@@ -111,7 +111,7 @@ gl_FragColor = vec4(waterSkyColor * reflectance + reflectedLight.directSpecular,
 }
 
 /** The water column's sides, the surface (its material from the renderer's kit) and the white rim around the block's top. */
-export function buildWaterBody(options: { projection: Projection; deepestY: number; hasWaves: boolean; sun: THREE.DirectionalLight; kit: SceneMaterialKit }): WaterBody {
+export function buildWaterBody(options: { projection: Pick<Projection, "widthKm" | "depthKm">; deepestY: number; hasWaves: boolean; sun: THREE.DirectionalLight; kit: SceneMaterialKit }): WaterBody {
   const { projection, deepestY, hasWaves, sun, kit } = options;
   const inset = 0.04;
   const halfWidth = (projection.widthKm - inset) / 2;

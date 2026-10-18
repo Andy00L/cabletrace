@@ -26,6 +26,13 @@ const HERO_CASE_SLUG = "eagle-s-2024";
 const HERO_EXTRA_VIEWS: readonly SeabedViewName[] = ["top", "closeup"];
 // The hero's after-drag frame: this long after the drag window ends (ms), when the ink track is long enough to probe.
 const AFTER_DRAG_MS = 3 * 60 * 60 * 1000;
+// Two more Eagle S frames at fixed minutes: the Vessel view Andy judged the ships, sea and cables on (the ship under
+// way, hours before the drag), and the overview at the first cut window's opening, where the map-scale lines must stay
+// crisp lines whatever the close views draw.
+const HERO_MOMENT_SHOTS: readonly { name: string; view: SeabedViewName; minute: string }[] = [
+  { name: `${HERO_CASE_SLUG}-vessel-1150`, view: "vessel", minute: "2024-12-25T11:50:00Z" },
+  { name: `${HERO_CASE_SLUG}-overview-1026`, view: "overview", minute: "2024-12-25T10:26:00Z" },
+];
 
 /** A moment as the URL carries it: rounded down to its minute. */
 function toWholeMinute(atMs: number): number {
@@ -55,6 +62,7 @@ export function listLookdevShots(): LookdevShot[] {
       const requiredTones: DataTone[] = ["suspect", "alarm"];
       shots.push({ name: `${cableCase.slug}-after-drag`, caseSlug: cableCase.slug, view: "overview", atMs: toWholeMinute(Math.min(input.dragWindow.endMs + AFTER_DRAG_MS, lastPositionMs)), requiredTones });
     }
+    if (isHero) shots.push(...HERO_MOMENT_SHOTS.map((moment) => ({ name: moment.name, caseSlug: cableCase.slug, view: moment.view, atMs: Date.parse(moment.minute), requiredTones: [] })));
     return shots;
   });
 }

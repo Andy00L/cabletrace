@@ -49,6 +49,48 @@ const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
 const MIN_PROBED_WIDTH_DEVICE_PX = 2;
 
 /**
+ * Lookdev camera override (explore/natural-look storyboard): a page agent writes `data-camera-override` on the canvas
+ * as JSON `{ "position": [x, y, z], "target": [x, y, z], "fovDegrees": n }` in the drawn scene's units (the overview's
+ * km, or the close-up's units on the At the cut view). The camera then holds that pose, without the right panel's
+ * view offset, until the attribute is removed.
+ */
+type CameraOverride = { position: THREE.Vector3; target: THREE.Vector3; fovDegrees: number };
+
+function readVector(value: unknown): THREE.Vector3 | null {
+  if (!Array.isArray(value) || value.length !== 3) return null;
+  const [pointX, pointY, pointZ]: unknown[] = value;
+  return typeof pointX === "number" && typeof pointY === "number" && typeof pointZ === "number" ? new THREE.Vector3(pointX, pointY, pointZ) : null;
+}
+
+/** Parses the override attribute; null when absent or malformed. */
+function parseCameraOverride(text: string | undefined): CameraOverride | null {
+  if (!text) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    console.warn("[parseCameraOverride] data-camera-override is not JSON");
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const position = readVector(Reflect.get(parsed, "position"));
+  const target = readVector(Reflect.get(parsed, "target"));
+  const fovDegrees: unknown = Reflect.get(parsed, "fovDegrees");
+  return position && target && typeof fovDegrees === "number" ? { position, target, fovDegrees } : null;
+}
+
+/** Puts a camera on an override pose (and its orbit target with it). */
+function applyCameraOverride(override: CameraOverride, camera: THREE.PerspectiveCamera, orbitTarget: THREE.Vector3) {
+  camera.position.copy(override.position);
+  orbitTarget.copy(override.target);
+  camera.fov = override.fovDegrees;
+  camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+  camera.lookAt(override.target);
+  camera.updateMatrixWorld();
+}
+
+/**
  * Drawing budget per tier. On a CPU renderer (SwiftShader, llvmpipe: headless test browsers and machines
  * without a usable GPU) an overview frame drawn as for a GPU took 0.9 to 1.6 s and froze the page; without
  * antialiasing and shadows, at half the terrain grid and a low pixel ratio it takes about 0.12 s
@@ -227,6 +269,12 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   function markDirty() {
     isDirty = true;
   }
+  let cameraOverride: CameraOverride | null = null;
+  const overrideObserver = new MutationObserver(() => {
+    cameraOverride = parseCameraOverride(canvas.dataset.cameraOverride);
+    markDirty();
+  });
+  overrideObserver.observe(canvas, { attributes: true, attributeFilter: ["data-camera-override"] });
 
   // The close-up takes 0.2 to 0.4 s to build on a slow machine, so it is built the first time it is shown.
   let closeUp: CloseUpScene | null = null;
@@ -475,7 +523,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   }
 
   function renderCloseUp(closeUpScene: CloseUpScene, nowSeconds: number, deltaSeconds: number) {
-    const hasCameraMoved = closeUpScene.controls.update();
+    if (cameraOverride) applyCameraOverride(cameraOverride, closeUpScene.camera, closeUpScene.controls.target);
+    const hasCameraMoved = cameraOverride ? false : closeUpScene.controls.update();
     if (isCalm && !isDirty && !hasCameraMoved) return;
     closeUpScene.update(nowSeconds, deltaSeconds);
     renderer.draw(closeUpScene.scene, closeUpScene.camera);
@@ -488,8 +537,10 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     const atMs = readTimeMs();
     const hasTimeChanged = atMs !== lastDrawnAtMs;
     let isCameraEasing = false;
-    const vesselFrame = activeView === "vessel" ? overview.readVesselFrame() : null;
-    if (vesselFrame) {
+    const vesselFrame = activeView === "vessel" && !cameraOverride ? overview.readVesselFrame() : null;
+    if (cameraOverride) {
+      applyCameraOverride(cameraOverride, overview.camera, overview.controls.target);
+    } else if (vesselFrame) {
       const { position, heading, drawnLengthKm } = vesselFrame;
       const behindKm = FOLLOW_BEHIND_LENGTHS * drawnLengthKm;
       const sideKm = FOLLOW_SIDE_LENGTHS * drawnLengthKm;
@@ -511,7 +562,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     }
     // The follow camera owns the camera in the Vessel view: the orbit controls would pull it out to their minimum
     // distance (1.5 km), closer than a short hull's follow offset allows, and the two would fight every frame.
-    const hasCameraMoved = vesselFrame ? false : overview.controls.update();
+    const hasCameraMoved = vesselFrame || cameraOverride ? false : overview.controls.update();
     if (isCalm && !isDirty && !hasTimeChanged && !hasCameraMoved && !isCameraEasing) return;
     // A paused calm scene holds still: silt drifts only while the replay moves.
     overview.update(atMs, isCalm && !hasTimeChanged ? 0 : deltaSeconds, now / 1000);
@@ -610,6 +661,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         cancelAnimationFrame(frameHandle);
         if (switchTimer !== null) clearTimeout(switchTimer);
         resizeObserver.disconnect();
+        overrideObserver.disconnect();
         visibilityObserver.disconnect();
         canvas.removeEventListener("pointerdown", handlePointerDown);
         canvas.removeEventListener("pointerup", handlePointerUp);
