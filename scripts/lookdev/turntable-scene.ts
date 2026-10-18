@@ -47,7 +47,7 @@ export function buildTurntableCell(kind: ShipKind, kit: SceneMaterialKit, enviro
   const ship = buildShip({ kind, lengthMetres, tone: "suspect", isDetailed });
   scene.add(ship.group);
   if (isDetailed) {
-    const wake = createKelvinWake(ship.form, kit);
+    const wake = createKelvinWake(ship.form, kit, SCENE_COLORS.water);
     wake.setSpeed(TURNTABLE_SPEED_METRES_PER_SECOND);
     ship.group.add(wake.mesh);
   }

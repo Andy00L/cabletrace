@@ -46,7 +46,7 @@ export function createWebGpuKit(renderer: WebGPURenderer): SceneMaterialKit {
       return environment;
     },
     createTerrainMaterial: createTerrainNodeMaterial,
-    createWaterSurfaceMaterial: ({ hasWaves, sun }) => createWaterSurfaceNodeMaterial(hasWaves, sun),
+    createWaterSurfaceMaterial: createWaterSurfaceNodeMaterial,
     createThinnedDataTubeMaterial: createThinnedDataTubeNodeMaterial,
     // Hard-edged like WebGL's LineMaterial: the node material's default alpha-to-coverage feathers a 2 px line until no
     // pixel holds its exact colour, and dithers it under MSAA.

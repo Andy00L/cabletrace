@@ -11,6 +11,7 @@ import { hideOverlappingLabels } from "@/lib/seabed/scene/labels";
 import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
 import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneTarget } from "@/lib/seabed/scene/overview";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
+import { readWaterLook, SKY_HDRI_URL } from "@/lib/seabed/scene/water-surface";
 import type { SeabedData } from "@/lib/seabed/seabed-data";
 import { chooseSmoothingPasses, createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
 
@@ -250,6 +251,19 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     rippleNormalMap.wrapT = THREE.RepeatWrapping;
     rippleNormalMap.anisotropy = renderer.maxAnisotropy;
   }
+  // The sky HDRI (GPU tiers only, CC0, public/textures/CREDITS.md): the water's reflection and the ships' light.
+  let skyMap: THREE.Texture | null = null;
+  if (isGpuTier) {
+    pendingAssetCount += 1;
+    canvas.dataset.pendingAssets = String(pendingAssetCount);
+    skyMap = new THREE.TextureLoader().load(SKY_HDRI_URL, settleAsset, undefined, () => {
+      console.error(`[createSeabedViewer] the sky ${SKY_HDRI_URL} did not load`);
+      settleAsset();
+    });
+    skyMap.mapping = THREE.EquirectangularReflectionMapping;
+    // Stored with linear values (it is light, not a picture).
+    skyMap.colorSpace = THREE.LinearSRGBColorSpace;
+  }
   const overview = buildOverview({
     kit: renderer.kit,
     domElement: canvas,
@@ -262,6 +276,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     prefersReducedMotion: isCalm,
     isHighDetail: isGpuTier,
     rippleNormalMap,
+    waterLook: readWaterLook(window.location.search),
+    skyMap,
   });
 
   // Set whenever the picture must be redrawn even though the replay moment did not change.
@@ -679,6 +695,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         overview.scene.environment?.dispose();
         softDot.dispose();
         rippleNormalMap?.dispose();
+        skyMap?.dispose();
         renderer.dispose();
         canvas.remove();
         overviewLabels.domElement.remove();

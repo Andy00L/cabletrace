@@ -11,7 +11,7 @@ import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
 import { DEPTH_TOKEN_RAMP, LAND_TOKEN_RAMP, SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { bakeReliefOcclusion } from "@/lib/seabed/scene/relief-occlusion";
 import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
-import { buildWaterBody } from "@/lib/seabed/scene/water-surface";
+import { buildWaterBody, createWaterDepthMap, type WaterLook } from "@/lib/seabed/scene/water-surface";
 import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
@@ -170,6 +170,10 @@ type OverviewOptions = {
   isHighDetail: boolean;
   /** The sand-ripple detail normal map (GPU tier), or null. */
   rippleNormalMap: THREE.Texture | null;
+  /** The water's colours (water-surface.ts, WATER_LOOKS). */
+  waterLook: WaterLook;
+  /** The CC0 sky HDRI (linear equirectangular) for the water's reflection and the ships' light (GPU tiers), or null. */
+  skyMap: THREE.Texture | null;
 };
 
 function buildRamp(stops: readonly [number, string][]) {
@@ -378,7 +382,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     kit,
   });
   const seabedProbeCandidates = pickSeabedProbes(terrain);
-  const water = buildWaterBody({ projection, deepestY, hasWaves: options.isHighDetail, sun: sunLight, kit });
+  const water = buildWaterBody({
+    projection,
+    deepestY,
+    kit,
+    surface: { hasWaves: options.isHighDetail, sun: sunLight, look: options.waterLook, sky: options.skyMap, depthMap: createWaterDepthMap(elevations, features.grid, projection) },
+  });
   scene.add(terrain, buildBlockSides(terrain, features, baseY), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
   ground.rotation.x = -Math.PI / 2;
@@ -570,7 +579,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const dragWindow = input.dragWindow;
 
   // Built at the case ship's real length, then drawn at the scale the disclosure under the view states.
-  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail });
+  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail, sky: options.skyMap });
   const ship = shipModel.group;
   ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
   const shipDrawnLengthKm = input.vessel.lengthMetres * SHIP_DRAWN_SCALE * METRES_TO_KM;
@@ -592,7 +601,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   contactShadow.renderOrder = 2.6;
   ship.add(contactShadow);
   // The GPU tier draws the bow wave and the Kelvin wake on a patch that sails with the hull.
-  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form, kit) : null;
+  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form, kit, options.waterLook.column) : null;
   if (kelvinWake) ship.add(kelvinWake.mesh);
   const wake = createWake();
   scene.add(wake.mesh);

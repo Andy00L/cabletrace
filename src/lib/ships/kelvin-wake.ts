@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import type { KelvinWakeMaterial, SceneMaterialKit } from "@/lib/render/scene-renderer";
-import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { WAVE_DETAIL_FADE } from "@/lib/seabed/scene/water-surface";
 import type { HullForm } from "@/lib/ships/hull-form";
 
@@ -61,12 +60,25 @@ export const KELVIN_PATTERN = {
   crestLightening: 0.5,
   opacityPerHeight: 0.8,
   maxOpacity: 0.95,
+  /**
+   * The propeller's wash: a turbulent white band from the stern along the track, this many ship lengths long, widening
+   * from these shares of the half beam as it ages, and the foam's noise scales (per metre along and across).
+   */
+  washLengths: 1.6,
+  washWidthShares: [0.6, 2.4],
+  washOpacity: 0.85,
+  foamNoisePerMetre: [0.05, 0.11],
+  /** Crest foam breaks up where its noise falls under this band (foam in clumps and streaks, not a painted line). */
+  crestFoamNoiseBand: [0.3, 0.62],
 } as const;
 
 const PATTERN = KELVIN_PATTERN;
 
-/** One hull's wake in its own frame (metres): where the bow and stern sources sit, its half beam and length. */
-export type KelvinWakeShape = { bowX: number; sternX: number; halfBeam: number; lengthMetres: number };
+/**
+ * One hull's wake in its own frame (metres): where the bow and stern sources sit, its half beam and length, and the
+ * colour of the water it disturbs (the sea's body colour, so the wave pattern reads as the same sea, lit).
+ */
+export type KelvinWakeShape = { bowX: number; sternX: number; halfBeam: number; lengthMetres: number; waterHex: string };
 
 const WAKE_UNIFORMS = /* glsl */ `
 uniform float wakeWavenumber;
@@ -112,6 +124,28 @@ float readKelvin(vec2 point, float sourceX) {
   return decay * wedgeEdge * (${PATTERN.transverseWeight.toFixed(1)} * transverseDetail * cos(transversePhase) + ${PATTERN.divergentWeight.toFixed(2)} * cuspRise * divergentDetail * cos(divergentPhase + ${PATTERN.divergentPhaseShift.toFixed(6)}));
 }
 
+// Two octaves of value noise (0 to 1): the foam's clumps and streaks.
+float readWakeHash(vec2 point) { return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453); }
+float readWakeValueNoise(vec2 point) {
+  vec2 cell = floor(point);
+  vec2 inside = fract(point);
+  vec2 blend = inside * inside * (3.0 - 2.0 * inside);
+  return mix(mix(readWakeHash(cell), readWakeHash(cell + vec2(1.0, 0.0)), blend.x), mix(readWakeHash(cell + vec2(0.0, 1.0)), readWakeHash(cell + vec2(1.0, 1.0)), blend.x), blend.y);
+}
+float readFoamNoise(vec2 point) {
+  vec2 scaled = point * vec2(${PATTERN.foamNoisePerMetre[0].toFixed(3)}, ${PATTERN.foamNoisePerMetre[1].toFixed(3)});
+  return 0.62 * readWakeValueNoise(scaled) + 0.38 * readWakeValueNoise(scaled * 2.7 + 3.1);
+}
+
+// The propeller's wash behind the stern: 0 to 1, broken by the foam noise, fading as it widens and ages.
+float readPropellerWash(vec2 point) {
+  float behind = wakeSternX - point.x;
+  float age = behind / (${PATTERN.washLengths.toFixed(2)} * wakeLength);
+  float width = wakeHalfBeam * (${PATTERN.washWidthShares[0].toFixed(2)} + ${(PATTERN.washWidthShares[1] - PATTERN.washWidthShares[0]).toFixed(2)} * sqrt(clamp(age, 0.0, 1.0)));
+  float band = (1.0 - smoothstep(0.55, 1.0, abs(point.y) / width)) * (1.0 - smoothstep(0.0, 1.0, age)) * step(0.0, behind);
+  return band * smoothstep(0.25, 0.7, readFoamNoise(point) + 0.45 * (1.0 - age) - 0.2);
+}
+
 float readWakeHeight(vec2 point) {
   return wakeAmplitude * (readKelvin(point, wakeBowX) - ${PATTERN.sternWeight.toFixed(2)} * readKelvin(point, wakeSternX) + readBowWave(point));
 }
@@ -127,7 +161,7 @@ export function createKelvinWakeGlslMaterial(shape: KelvinWakeShape): KelvinWake
     wakeHalfBeam: { value: shape.halfBeam },
     wakeLength: { value: shape.lengthMetres },
   };
-  const material = new THREE.MeshStandardMaterial({ color: SCENE_COLORS.water, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.9, depthWrite: false });
+  const material = new THREE.MeshStandardMaterial({ color: shape.waterHex, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.9, depthWrite: false });
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -150,7 +184,8 @@ normal = normalize(normalMatrix * vec3(-wakeSlopeX, 1.0, -wakeSlopeZ));`,
 // Crests catch the light (lighter), troughs hold the water's colour, foam breaks on the bow wave and the highest
 // crests. Where the sea is flat the patch is fully clear, so its edges never show.
 float wakeShare = readWakeHeight(vWakeLocal) / max(wakeAmplitude, 1e-4);
-float foam = smoothstep(${PATTERN.foamBand[0].toFixed(1)}, ${PATTERN.foamBand[1].toFixed(1)}, wakeShare);
+float foam = smoothstep(${PATTERN.foamBand[0].toFixed(1)}, ${PATTERN.foamBand[1].toFixed(1)}, wakeShare) * smoothstep(${PATTERN.crestFoamNoiseBand[0].toFixed(2)}, ${PATTERN.crestFoamNoiseBand[1].toFixed(2)}, readFoamNoise(vWakeLocal));
+foam = max(foam, ${PATTERN.washOpacity.toFixed(2)} * readPropellerWash(vWakeLocal) * step(0.01, wakeAmplitude));
 float insideHull = step(abs(vWakeLocal.y), wakeHalfBeam * ${PATTERN.hullCutoutShare.toFixed(2)}) * step(wakeSternX, vWakeLocal.x) * step(vWakeLocal.x, wakeBowX);
 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), clamp(${PATTERN.crestLightening.toFixed(1)} * max(wakeShare, 0.0) + foam, 0.0, 1.0));
 diffuseColor.a *= clamp(${PATTERN.opacityPerHeight.toFixed(1)} * abs(wakeShare) + foam, 0.0, ${PATTERN.maxOpacity.toFixed(2)}) * (1.0 - insideHull);`,
@@ -172,15 +207,15 @@ export type KelvinWake = {
   setSpeed: (speedMetresPerSecond: number) => void;
 };
 
-/** The wake patch for one hull, in its frame (metres, waterline y = 0). Add it to the ship's group. */
-export function createKelvinWake(form: HullForm, kit: SceneMaterialKit): KelvinWake {
+/** The wake patch for one hull, in its frame (metres, waterline y = 0), over water of `waterHex`. Add it to the ship's group. */
+export function createKelvinWake(form: HullForm, kit: SceneMaterialKit, waterHex: string): KelvinWake {
   const lengthMetres = form.lengthMetres;
   const fromX = -form.halfLength - ASTERN_LENGTHS * lengthMetres;
   const toX = form.bowX + AHEAD_LENGTHS * lengthMetres;
   const geometry = new THREE.PlaneGeometry(toX - fromX, 2 * SIDE_LENGTHS * lengthMetres, GRID_ALONG, GRID_ACROSS);
   geometry.rotateX(-Math.PI / 2);
   geometry.translate((fromX + toX) / 2, 0, 0);
-  const wakeMaterial = kit.createKelvinWakeMaterial({ bowX: form.bowX - 0.02 * lengthMetres, sternX: -form.halfLength, halfBeam: form.halfBeam, lengthMetres });
+  const wakeMaterial = kit.createKelvinWakeMaterial({ bowX: form.bowX - 0.02 * lengthMetres, sternX: -form.halfLength, halfBeam: form.halfBeam, lengthMetres, waterHex });
   const mesh = new THREE.Mesh(geometry, wakeMaterial.material);
   // Over the water box (render order 2), under the foam trail (3).
   mesh.renderOrder = 2.5;

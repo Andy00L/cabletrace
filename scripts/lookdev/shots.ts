@@ -29,7 +29,9 @@ const AFTER_DRAG_MS = 3 * 60 * 60 * 1000;
 // Two more Eagle S frames at fixed minutes: the Vessel view Andy judged the ships, sea and cables on (the ship under
 // way, hours before the drag), and the overview at the first cut window's opening, where the map-scale lines must stay
 // crisp lines whatever the close views draw.
+// The 10:40 Vessel view is the board's hero frame (Andy, 18 Oct 2026): the anchor down and dragging, the ship under way.
 const HERO_MOMENT_SHOTS: readonly { name: string; view: SeabedViewName; minute: string }[] = [
+  { name: `${HERO_CASE_SLUG}-vessel-1040`, view: "vessel", minute: "2024-12-25T10:40:00Z" },
   { name: `${HERO_CASE_SLUG}-vessel-1150`, view: "vessel", minute: "2024-12-25T11:50:00Z" },
   { name: `${HERO_CASE_SLUG}-overview-1026`, view: "overview", minute: "2024-12-25T10:26:00Z" },
 ];

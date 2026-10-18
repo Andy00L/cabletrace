@@ -6,7 +6,7 @@ import * as THREE from "three";
 import type { SceneMaterialKit } from "../../src/lib/render/scene-renderer";
 import { DEPTH_TOKEN_RAMP, SCENE_COLORS } from "../../src/lib/seabed/scene/scene-colors";
 import { SCENE_SCALES } from "../../src/lib/seabed/scene-scales";
-import { buildWaterBody } from "../../src/lib/seabed/scene/water-surface";
+import { buildWaterBody, createUniformDepthMap, readWaterLook, SKY_HDRI_URL } from "../../src/lib/seabed/scene/water-surface";
 import { createWake } from "../../src/lib/seabed/scene/wake";
 import { buildShip } from "../../src/lib/ships/build-ship";
 import { createKelvinWake } from "../../src/lib/ships/kelvin-wake";
@@ -68,15 +68,36 @@ export function buildHeroScene(kit: SceneMaterialKit, isDetailed: boolean): { sc
   seabed.rotation.x = -Math.PI / 2;
   seabed.position.y = seabedY;
   scene.add(seabed);
-  const water = buildWaterBody({ projection: { widthKm: SEA_SIZE_KM, depthKm: SEA_SIZE_KM }, deepestY: seabedY, hasWaves: isDetailed, sun, kit });
+  // The sky HDRI on the GPU tiers, as the replay loads it (viewer.ts).
+  let skyMap: THREE.Texture | null = null;
+  let ready: Promise<void> = Promise.resolve();
+  if (isDetailed) {
+    ready = new Promise((resolve) => {
+      skyMap = new THREE.TextureLoader().load(SKY_HDRI_URL, () => resolve(), undefined, () => {
+        console.error(`[buildHeroScene] the sky ${SKY_HDRI_URL} did not load`);
+        resolve();
+      });
+    });
+  }
+  if (skyMap !== null) {
+    const loadedSky: THREE.Texture = skyMap;
+    loadedSky.mapping = THREE.EquirectangularReflectionMapping;
+    loadedSky.colorSpace = THREE.LinearSRGBColorSpace;
+  }
+  const water = buildWaterBody({
+    projection: { widthKm: SEA_SIZE_KM, depthKm: SEA_SIZE_KM },
+    deepestY: seabedY,
+    kit,
+    surface: { hasWaves: isDetailed, sun, look: readWaterLook(window.location.search), sky: skyMap, depthMap: createUniformDepthMap(HERO_DEPTH_METRES) },
+  });
   water.setWaveTime(0);
   scene.add(water.group);
 
-  const ship = buildShip({ kind: "tanker", lengthMetres: HERO_LENGTH_METRES, tone: "suspect", isDetailed });
+  const ship = buildShip({ kind: "tanker", lengthMetres: HERO_LENGTH_METRES, tone: "suspect", isDetailed, sky: skyMap });
   ship.group.scale.setScalar(DRAWN_SCALE);
   scene.add(ship.group);
   if (isDetailed) {
-    const kelvinWake = createKelvinWake(ship.form, kit);
+    const kelvinWake = createKelvinWake(ship.form, kit, readWaterLook(window.location.search).column);
     kelvinWake.setSpeed(HERO_SPEED_METRES_PER_SECOND);
     ship.group.add(kelvinWake.mesh);
   }
@@ -92,5 +113,5 @@ export function buildHeroScene(kit: SceneMaterialKit, isDetailed: boolean): { sc
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV_DEGREES, HERO_FRAME.widthPx / HERO_FRAME.heightPx, 0.005, SEA_SIZE_KM);
   camera.position.set(CAMERA_AHEAD_LENGTHS * drawnLengthKm, CAMERA_UP_LENGTHS * drawnLengthKm, CAMERA_OUT_LENGTHS * drawnLengthKm);
   camera.lookAt(AIM_AHEAD_LENGTHS * drawnLengthKm, AIM_UP_LENGTHS * drawnLengthKm, 0);
-  return { scene, camera, ready: Promise.resolve() };
+  return { scene, camera, ready };
 }
