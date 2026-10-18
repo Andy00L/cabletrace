@@ -112,9 +112,10 @@ five filters) and computes the YIQ difference in `compare.ts`. Both are short, t
 
 ## Baselines
 
-Baselines are stored at a third of the frame so the repository stays small. They are written with `--update` and are
-candidates until Andy approves the look; a fresh-context reviewer scores the frames against the reference board before
-that (plan: ambition pass, 4.4). The harness never grades its own renders.
+Baselines are stored at a third of the frame so the repository stays small. They are written with `--update`. Andy
+approved the look on 18 Oct 2026: the 72 baselines of the three tiers in this folder are the approved frames. A change
+that moves them needs his approval again before `--update` (plan: ambition pass, 4.4). The harness never grades its
+own renders.
 
 ## Assets
 

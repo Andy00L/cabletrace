@@ -247,7 +247,9 @@ loads, compressed (gzip from `next start`), headers excluded.
 
 ## Not measured
 
-- Real GPUs and mobile devices: no hardware GPU or phone on this machine. The 3D figures are SwiftShader only.
+- Mobile devices and GPUs other than one: the 3D figures above are SwiftShader, the lookdev's hardware tier ran on
+  Mesa d3d12 over an RTX 3050, and the WebGPU tier on one AMD GCN 5 adapter through Windows Chrome (WebGPU tier
+  section). No phone was measured.
 - Throttled networks for every page: only `/` was checked on a 150 ms, 1.6 Mbps profile (for the font shift).
 - Interaction latency (INP): the tool loads pages and does not click; long tasks are the proxy.
 - The live site after these changes: not deployed from here.

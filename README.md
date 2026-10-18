@@ -49,7 +49,9 @@ one.
   (Europe) or the GEBCO 2026 grid (Taiwan, Red Sea) and Copernicus land heights, drawn at an exaggeration that fits its
   depth: 20 times in the Baltic, 2 times off Svalbard. Each ship is built to its real length from a hull generator for
   its type (nine kinds, from trawler to tanker), its anchor hangs on a catenary chain and drags behind it, and the cut
-  breaks its cable at the time the sources give.
+  breaks its cable at the time the sources give. A browser with a real WebGPU adapter gets a WebGPU renderer with
+  ambient occlusion in the relief and under the cable and anchor; every other browser keeps WebGL, and headless test
+  browsers a software tier.
 - **Says how every position is known.** A placed position carries a `placement` text (`src/data/cases/*.ts`): "the
   point 130 km along the mapped route from its Ventspils end, the distance LVRTC gives". Recorded AIS fixes (Svalbard:
   235 of the trawler's own reports from the Norwegian Coastal Administration; Yi Peng 3: 114 from the Danish Maritime
@@ -190,11 +192,12 @@ Evidence:
   watchlist read without a session is refused.
 - **Every page fits one screen.** `bun scripts/perf/check-one-screen.ts` exits 0 for home, the case list, `/live`
   and all ten cases at 1440 x 900, 1280 x 720 and 1024 x 768; the 3D view covers 65.4% of a 1440 x 900 screen.
-- **The 3D look is checked frame by frame.** `bun scripts/lookdev/run-lookdev.ts` renders 48 fixed frames on the
-  software and GPU tiers, compares them with baselines and samples the data colours: on the GPU tier 102 of 104 cable
-  probes and all 170 alarm probes land within 2 levels of their token (0 of 457 cable probes did before). When the
-  GEBCO seabeds were smoothed and the two trawlers got fishing hulls, the software tier failed exactly the 9 frames
-  those changes moved and passed the other 15 (`docs/LOOKDEV.md`).
+- **The 3D look is checked frame by frame.** `bun scripts/lookdev/run-lookdev.ts` renders 72 fixed frames on the
+  software, WebGL GPU and WebGPU tiers (the WebGPU frames through Windows Chrome on a real adapter), compares them
+  with baselines Andy approved on 18 Oct 2026 and samples the data colours: on both GPU tiers 102 of 104 cable probes
+  and all 174 alarm probes land within 2 levels of their token (0 of 457 cable probes did before). When the GEBCO
+  seabeds were smoothed and the two trawlers got fishing hulls, the software tier failed exactly the 9 frames those
+  changes moved and passed the other 15 (`docs/LOOKDEV.md`).
 - **Every source still answers.** `bun run check:sources` resolves all 127 sources and their 119 archived copies (all
   live); the 8 that cannot be archived (multi-gigabyte AIS zips, an API query, pages that refuse archiving) are listed
   with their reasons. Its first run caught a moved Danish AIS file and an archive of the wrong page, both fixed.
@@ -282,9 +285,10 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
   for redisplay, so a signal shows only its title and a link. ENTSO-E power-link outages wait for an API token.
 - **Accounts run on Clerk's development instance.** A production instance needs a custom domain; the development tier
   allows 100 users.
-- **Not built:** the WebGPU renderer tier (the only WebGPU adapter on the build machine was a software one, so there
-  was nothing to judge it on), and Norway's own AIS feed (BarentsWatch), so Norway and Svalbard are heard through
-  aisstream only. The lookdev baselines are candidates until the look is approved.
+- **The WebGPU tier was tested on one adapter.** It ran on an AMD GCN 5 laptop GPU through Windows Chrome; other GPUs
+  and browsers fall back to WebGL when they offer no real adapter. Its code (199.5 KB compressed) loads only when the
+  tier is chosen.
+- **Not built:** Norway's own AIS feed (BarentsWatch), so Norway and Svalbard are heard through aisstream only.
 
 ## 🏆 TestSprite
 
