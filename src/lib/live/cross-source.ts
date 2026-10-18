@@ -20,8 +20,13 @@ export const POSITION_TOLERANCE_METRES = 250;
 // Verdict thresholds over a span of samples.
 export const POSITION_AGREEMENT_MIN_SHARE = 0.95;
 // Digitraffic's receivers cover the Gulf about 7 times more densely than aisstream's (DIGITRAFFIC_BOX in
-// ship-merge.ts), so nearly every ship aisstream hears there must also be in Digitraffic's 30-minute snapshot.
+// ship-merge.ts), so nearly every moving ship aisstream hears there must also be in Digitraffic's 30-minute snapshot.
 export const SHIP_AGREEMENT_MIN_SHARE = 0.9;
+// Only ships moving at least this fast are compared (Andy, 18 Oct 2026). On the first day, 80% of the ships aisstream
+// heard in the Gulf were in Digitraffic, and most of the rest sat at 0 knots in Helsinki and Turku harbours: the feeds
+// differ on moored craft, which the anchor-drag watch never needs. A ship at its berth or anchor reports 0 to 0.5 knots
+// of GPS jitter.
+export const MOVING_MIN_KNOTS = 1;
 // Fewer matched pairs than this over the judged span is too little to judge: the verdict is "no-data".
 export const MIN_MATCHED_PAIRS = 20;
 // Ships under this speed are compared where they are, without dead reckoning (their course is noise).
@@ -34,13 +39,13 @@ export type CrossSourceSample = {
   regionId: string;
   sampledAtMs: number;
   windowSeconds: number;
-  /** Ships aisstream reported inside the box during the listening window. */
+  /** Moving ships (MOVING_MIN_KNOTS) aisstream reported inside the box during the listening window. */
   aisstreamShips: number;
-  /** Ships Digitraffic reported inside the box during the same window. */
+  /** Moving ships Digitraffic reported inside the box during the same window. */
   digitrafficShips: number;
-  /** aisstream's ships that Digitraffic's snapshot (its last 30 minutes) also holds. */
+  /** aisstream's moving ships that Digitraffic's snapshot (its last 30 minutes) also holds, at any speed. */
   sharedShips: number;
-  /** aisstream's ships missing from Digitraffic's snapshot: Digitraffic blind spots, outages or identity mismatches. */
+  /** aisstream's moving ships missing from Digitraffic's snapshot: blind spots, outages or identity mismatches. */
   aisstreamOnlyShips: number;
   /** Shared ships whose two reports are at most MATCH_WINDOW_MS apart. */
   matchedPairs: number;
@@ -82,11 +87,18 @@ type CompareInput = {
   sampledAtMs: number;
 };
 
-/** One sample: ship counts and position offsets of the two feeds inside one box. */
+function isMoving(ship: ShipRecord): boolean {
+  return ship.speedKnots !== null && ship.speedKnots >= MOVING_MIN_KNOTS;
+}
+
+/**
+ * One sample: counts and position offsets of the two feeds' moving ships inside one box. A ship counts as shared when
+ * Digitraffic holds it at any speed, so a ship that just stopped is not lost between the two reports.
+ */
 export function compareFeeds({ regionId, box, aisstream, digitraffic, windowStartMs, sampledAtMs }: CompareInput): CrossSourceSample {
-  const aisstreamInBox = aisstream.filter((ship) => ship.source === "aisstream" && isInside(box, ship) && ship.reportedAtMs >= windowStartMs);
+  const aisstreamInBox = aisstream.filter((ship) => ship.source === "aisstream" && isMoving(ship) && isInside(box, ship) && ship.reportedAtMs >= windowStartMs);
   const digitrafficByMmsi = new Map(digitraffic.filter((ship) => ship.source === "digitraffic").map((ship) => [ship.mmsi, ship]));
-  const digitrafficInWindow = [...digitrafficByMmsi.values()].filter((ship) => isInside(box, ship) && ship.reportedAtMs >= windowStartMs);
+  const digitrafficInWindow = [...digitrafficByMmsi.values()].filter((ship) => isMoving(ship) && isInside(box, ship) && ship.reportedAtMs >= windowStartMs);
   const offsets: number[] = [];
   let sharedShips = 0;
   for (const aisstreamReport of aisstreamInBox) {
@@ -185,7 +197,7 @@ export type CrossSourceVerdict = {
 };
 
 /**
- * Judges a span of samples: the feeds agree when at least SHIP_AGREEMENT_MIN_SHARE of aisstream's ships are in
+ * Judges a span of samples: the feeds agree when at least SHIP_AGREEMENT_MIN_SHARE of aisstream's moving ships are in
  * Digitraffic too and at least POSITION_AGREEMENT_MIN_SHARE of matched pairs sit within POSITION_TOLERANCE_METRES.
  * Shares are pooled over all samples (a sample with more ships weighs more), so a quiet hour does not swing the verdict.
  */
@@ -202,7 +214,7 @@ export function judgeSamples(samples: readonly CrossSourceSample[]): CrossSource
   }
   const reasons: string[] = [];
   if (shipAgreementShare < SHIP_AGREEMENT_MIN_SHARE) {
-    reasons.push(`Digitraffic holds ${Math.round(shipAgreementShare * 100)}% of the ships aisstream hears, under ${SHIP_AGREEMENT_MIN_SHARE * 100}%`);
+    reasons.push(`Digitraffic holds ${Math.round(shipAgreementShare * 100)}% of the moving ships aisstream hears, under ${SHIP_AGREEMENT_MIN_SHARE * 100}%`);
   }
   if (positionAgreementShare < POSITION_AGREEMENT_MIN_SHARE) {
     reasons.push(`${Math.round(positionAgreementShare * 100)}% of matched positions within ${POSITION_TOLERANCE_METRES} m, under ${POSITION_AGREEMENT_MIN_SHARE * 100}%`);
