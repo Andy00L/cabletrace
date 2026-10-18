@@ -1,14 +1,16 @@
 /// <reference types="@webgpu/types" />
 import type * as THREE from "three";
 import { ao } from "three/addons/tsl/display/GTAONode.js";
+import { SimplexNoise } from "three/addons/math/SimplexNoise.js";
 import { denoise } from "three/addons/tsl/display/DenoiseNode.js";
-import { context, convertToTexture, mrt, normalView, pass, screenUV, toneMapping, vec4 } from "three/tsl";
-import { Color, NeutralToneMapping, NoToneMapping, PCFShadowMap, RenderPipeline, WebGPUBackend, WebGPURenderer, type Material, type Node, type NodeBuilder } from "three/webgpu";
+import { context, convertToTexture, mrt, normalView, pass, screenUV, texture, toneMapping, vec4 } from "three/tsl";
+import { Color, DataTexture, NeutralToneMapping, RepeatWrapping, NoToneMapping, PCFShadowMap, RenderPipeline, WebGPUBackend, WebGPURenderer, type Material, type Node, type NodeBuilder } from "three/webgpu";
 import { SCENE_EXPOSURE, type SceneRenderer } from "@/lib/render/scene-renderer";
 import type { DrawingBudget } from "@/lib/render/webgl-scene-renderer";
 import { encodeSrgb } from "@/lib/render/webgpu/srgb-nodes";
 import { createWebGpuKit } from "@/lib/render/webgpu/webgpu-kit";
 import type { Result } from "@/lib/result";
+import { createSeededRandom } from "@/lib/seabed/math";
 
 // The WebGPU tier of the 3D replay. It draws the same scene as the WebGL tiers through three.js's WebGPURenderer, on
 // the device made from the adapter src/lib/diagnostics/webgpu-adapter.ts checked, and adds what the WebGL tiers cannot
@@ -36,6 +38,32 @@ const AO_MIN_RADIUS = 0.02;
 // them while open seabed stays on its token.
 const AO_SCALE = 2;
 const AO_RESOLUTION_SCALE = 0.5;
+
+// The denoiser's rotation noise: 64 x 64 texels of simplex noise, as three.js's DenoiseNode makes it, but from a fixed
+// seed. three.js seeds it from Math.random, so two loads of the same frame differed by 1 to 3 pixels in the vessel
+// views, and the lookdev harness needs every frame to be a pure function of the build.
+const DENOISE_NOISE_SIZE = 64;
+const DENOISE_NOISE_SEED = 20241225;
+
+function createDenoiseNoise(): DataTexture {
+  const simplex = new SimplexNoise({ random: createSeededRandom(DENOISE_NOISE_SEED) });
+  const data = new Uint8Array(DENOISE_NOISE_SIZE * DENOISE_NOISE_SIZE * 4);
+  const toByte = (noise: number) => (noise * 0.5 + 0.5) * 255;
+  for (let row = 0; row < DENOISE_NOISE_SIZE; row += 1) {
+    for (let column = 0; column < DENOISE_NOISE_SIZE; column += 1) {
+      const offset = (row * DENOISE_NOISE_SIZE + column) * 4;
+      data[offset] = toByte(simplex.noise(row, column));
+      data[offset + 1] = toByte(simplex.noise(row + DENOISE_NOISE_SIZE, column));
+      data[offset + 2] = toByte(simplex.noise(row, column + DENOISE_NOISE_SIZE));
+      data[offset + 3] = toByte(simplex.noise(row + DENOISE_NOISE_SIZE, column + DENOISE_NOISE_SIZE));
+    }
+  }
+  const noiseTexture = new DataTexture(data, DENOISE_NOISE_SIZE, DENOISE_NOISE_SIZE);
+  noiseTexture.wrapS = RepeatWrapping;
+  noiseTexture.wrapT = RepeatWrapping;
+  noiseTexture.needsUpdate = true;
+  return noiseTexture;
+}
 
 type ScenePipeline = { pipeline: RenderPipeline; setAoRadius: (radius: number) => void; dispose: () => void };
 
@@ -71,7 +99,10 @@ function buildScenePipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera
   const aoPass = ao(prePassDepth, prePassNormal, camera);
   aoPass.resolutionScale = AO_RESOLUTION_SCALE;
   aoPass.scale.value = AO_SCALE;
-  const aoTexture = convertToTexture(denoise(aoPass.getTextureNode(), prePassDepth, prePassNormal, camera));
+  const denoiseNoise = createDenoiseNoise();
+  const denoised = denoise(aoPass.getTextureNode(), prePassDepth, prePassNormal, camera);
+  denoised.noiseNode = texture(denoiseNoise);
+  const aoTexture = convertToTexture(denoised);
   const scenePass = pass(scene, camera);
   scenePass.contextNode = createSceneContext(aoTexture.sample(screenUV).r);
   const pipeline = new RenderPipeline(renderer, scenePass);
@@ -87,6 +118,7 @@ function buildScenePipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera
       aoPass.dispose();
       prePass.dispose();
       scenePass.dispose();
+      denoiseNoise.dispose();
     },
   };
 }
