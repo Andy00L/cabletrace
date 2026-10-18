@@ -411,40 +411,42 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   // The chain toward the ship (+x) with the detector's catenary for the depth at the cut: on the sand first for its
   // grounded length, following the drawn-in relief, then rising. Without a modelled chain it rises straight ahead.
   // The first few metres bend down from the shackle (above the sand, the anchor lies on its side) to the ground. It is
-  // laid out for the anchor at rest and slides with the anchor.
-  const restAnchorY = computeBaseHeight(ANCHOR_X, 0, true) + computeFurrowOffset(ANCHOR_X, 0, ANCHOR_X) + ANCHOR_LIFT;
-  anchor.group.position.set(ANCHOR_X, restAnchorY, 0);
-  anchor.group.updateMatrixWorld(true);
-  const shacklePosition = anchor.shackleLocal.clone().applyMatrix4(anchor.group.matrixWorld);
+  // laid again from the shackle wherever the anchor stands, on the ground as it is then, so it never sinks into it.
   const modelledPoints = options.chainShape?.points ?? [{ alongMetres: 0, upMetres: 0 }, { alongMetres: 160, upMetres: 120 }];
-  const chainPoints = modelledPoints.filter((point) => point.alongMetres >= CHAIN_DROP_METRES).map((point) => {
-    const localX = shacklePosition.x + point.alongMetres / METRES_PER_UNIT;
-    const groundY = computeBaseHeight(localX, 0, true) + CHAIN_SAND_CLEARANCE;
-    return new THREE.Vector3(localX, groundY + point.upMetres / METRES_PER_UNIT, 0);
-  });
-  chainPoints.unshift(shacklePosition.clone());
-  const chainCurve = new THREE.CatmullRomCurve3(chainPoints, false, "centripetal");
+  const groundedPoints = modelledPoints.filter((point) => point.alongMetres >= CHAIN_DROP_METRES);
   const chain = new THREE.InstancedMesh(buildStudLinkGeometry(), anchorMaterial, CHAIN_LINKS);
+  chain.castShadow = true;
+  illustratedGroup.add(chain);
   const linkMatrix = new THREE.Matrix4();
   const linkQuaternion = new THREE.Quaternion();
   const twistQuaternion = new THREE.Quaternion();
   const linkScale = new THREE.Vector3(ANCHOR_UNITS_PER_METRE, ANCHOR_UNITS_PER_METRE, ANCHOR_UNITS_PER_METRE);
   const upAxis = new THREE.Vector3(0, 1, 0);
-  // Links follow each other at the drawn link pitch from the shackle, as far as the chain reaches.
-  const chainLength = chainCurve.getLength();
-  for (let link = 0; link < CHAIN_LINKS; link += 1) {
-    const along = Math.min(1, (link * CHAIN_LINK_PITCH_UNITS) / chainLength);
-    const tangent = chainCurve.getTangentAt(along);
-    linkQuaternion.setFromUnitVectors(upAxis, tangent);
-    twistQuaternion.setFromAxisAngle(tangent, link % 2 === 0 ? 0 : Math.PI / 2);
-    linkQuaternion.premultiply(twistQuaternion);
-    linkMatrix.compose(chainCurve.getPointAt(along), linkQuaternion, linkScale);
-    chain.setMatrixAt(link, linkMatrix);
+  /** Lays the chain from the anchor's shackle as it stands now: links at the drawn pitch, as far as the chain reaches. */
+  function layChain() {
+    anchor.group.updateMatrixWorld(true);
+    const shacklePosition = anchor.shackleLocal.clone().applyMatrix4(anchor.group.matrixWorld);
+    const chainPoints = groundedPoints.map((point) => {
+      const localX = shacklePosition.x + point.alongMetres / METRES_PER_UNIT;
+      return new THREE.Vector3(localX, computeHeight(localX, 0, true) + CHAIN_SAND_CLEARANCE + point.upMetres / METRES_PER_UNIT, 0);
+    });
+    chainPoints.unshift(shacklePosition);
+    const chainCurve = new THREE.CatmullRomCurve3(chainPoints, false, "centripetal");
+    const chainLength = chainCurve.getLength();
+    for (let link = 0; link < CHAIN_LINKS; link += 1) {
+      const along = Math.min(1, (link * CHAIN_LINK_PITCH_UNITS) / chainLength);
+      const tangent = chainCurve.getTangentAt(along);
+      linkQuaternion.setFromUnitVectors(upAxis, tangent);
+      twistQuaternion.setFromAxisAngle(tangent, link % 2 === 0 ? 0 : Math.PI / 2);
+      linkQuaternion.premultiply(twistQuaternion);
+      linkMatrix.compose(chainCurve.getPointAt(along), linkQuaternion, linkScale);
+      chain.setMatrixAt(link, linkMatrix);
+    }
+    chain.instanceMatrix.needsUpdate = true;
+    chain.computeBoundingSphere();
   }
-  chain.castShadow = true;
-  const chainGroup = new THREE.Group();
-  chainGroup.add(chain);
-  illustratedGroup.add(chainGroup);
+  anchor.group.position.set(ANCHOR_X, computeHeight(ANCHOR_X, 0, true) + ANCHOR_LIFT, 0);
+  layChain();
 
   // Shared corners are welded first, so the noise moves them together and the normals come out smooth.
   const rockShell = new THREE.IcosahedronGeometry(1, 3);
@@ -551,7 +553,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
     illustratedPatch.regrowFurrow(state.anchorX);
     const groundY = computeHeight(state.anchorX, 0, true);
     anchor.group.position.set(state.anchorX, groundY + ANCHOR_LIFT, 0);
-    chainGroup.position.set(state.anchorX - ANCHOR_X, anchor.group.position.y - restAnchorY, 0);
+    layChain();
     intactCable.group.visible = !state.isParted;
     westCable.group.visible = state.isParted;
     eastCable.group.visible = state.isParted;
