@@ -8,10 +8,10 @@
 //   - the proxy also injects an async script whose response it holds until the agent releases it. The load event
 //     waits for that script and headless Chrome takes its screenshot at the load event, so the screenshot is taken
 //     after the agent saw the settled frame, in real time (Chrome's virtual time ran ahead of the GPU's work);
-//   - Chrome always runs headless, with a profile inside .scratch, and only processes started with that profile are
-//     ever stopped.
+//   - Chrome always runs headless, with a profile and its temporary files inside .scratch, and only processes started
+//     with that profile are ever stopped.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Result } from "../../src/lib/result";
 import { decodePng, type RgbaImage } from "./png";
@@ -19,6 +19,11 @@ import { decodePng, type RgbaImage } from "./png";
 export const DEFAULT_WINDOWS_CHROME = "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe";
 // The profile lives here whatever --out says, so a run never writes a Chrome profile outside the repository's scratch.
 const PROFILE_DIRECTORY = path.resolve(".scratch", "lookdev-webgpu-profile");
+// Chrome's temporary files go here instead of Windows %TEMP%, and each run starts it empty. On 17 and 18 Oct 2026 the
+// runs left about 1,400 extension downloads (6 to 27 MB each) in %TEMP%: programs installed on Windows (Acrobat, NordVPN)
+// register extensions Chrome adds to every profile, and each run quit at its screenshot before the install finished,
+// so the next run started over. With this folder, whatever Chrome stages stays in the repository's scratch.
+const TEMP_DIRECTORY = path.resolve(".scratch", "lookdev-webgpu-temp");
 // One Chrome run per frame: long enough for a cold profile, the build's chunks and the GPU pipelines on a laptop.
 const RUN_TIMEOUT_MS = 150_000;
 // WSL forwards a port Windows can reach on localhost a moment after something starts listening on it; a run that
@@ -294,6 +299,12 @@ function stopProfileChrome() {
   }
 }
 
+/** Chrome's environment: TEMP and TMP point at TEMP_DIRECTORY, which WSLENV's /p flag hands over as a Windows path. */
+function buildChromeEnvironment(): Record<string, string | undefined> {
+  const passedVariables = [process.env.WSLENV, "TEMP/p", "TMP/p"].filter((entry) => entry !== undefined && entry !== "").join(":");
+  return { ...process.env, TEMP: TEMP_DIRECTORY, TMP: TEMP_DIRECTORY, WSLENV: passedVariables };
+}
+
 /** Whether this machine can run the tier: WSL with a Windows Chrome at `chromePath`. */
 export function canRunWindowsChrome(chromePath: string): Result<string> {
   if (!existsSync(chromePath)) return { ok: false, reason: `no Windows Chrome at ${chromePath}` };
@@ -375,11 +386,15 @@ type CaptureInput = { chromePath: string; pageUrl: string; screenshotPath: strin
 async function captureOnce(input: CaptureInput): Promise<Result<WindowsCapture>> {
   const { chromePath, pageUrl, screenshotPath, releaseAll, viewport } = input;
   mkdirSync(PROFILE_DIRECTORY, { recursive: true });
+  rmSync(TEMP_DIRECTORY, { recursive: true, force: true });
+  mkdirSync(TEMP_DIRECTORY, { recursive: true });
   mkdirSync(path.dirname(screenshotPath), { recursive: true });
   const args = [
     "--headless=new",
     `--user-data-dir=${toWindowsPath(PROFILE_DIRECTORY)}`,
     "--no-first-run",
+    // No extension is ever fetched or installed (see TEMP_DIRECTORY).
+    "--disable-extensions",
     "--enable-unsafe-webgpu",
     `--window-size=${viewport.width},${viewport.height}`,
     "--hide-scrollbars",
@@ -390,7 +405,7 @@ async function captureOnce(input: CaptureInput): Promise<Result<WindowsCapture>>
     `--screenshot=${toWindowsPath(path.resolve(screenshotPath))}`,
     pageUrl,
   ];
-  const child = Bun.spawn([chromePath, ...args], { stdout: "ignore", stderr: "pipe" });
+  const child = Bun.spawn([chromePath, ...args], { stdout: "ignore", stderr: "pipe", env: buildChromeEnvironment() });
   const timer = setTimeout(() => {
     console.error(`[captureWithWindowsChrome] no screenshot after ${RUN_TIMEOUT_MS} ms; stopping the harness's Chrome`);
     releaseAll();
