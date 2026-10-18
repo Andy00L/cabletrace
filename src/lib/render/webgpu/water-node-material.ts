@@ -3,7 +3,7 @@ import { Color, MeshBasicNodeMaterial, Vector3, type Node } from "three/webgpu";
 import type { WaterSurfaceMaterial } from "@/lib/render/scene-renderer";
 import { decodeSrgb, encodeSrgb } from "@/lib/render/webgpu/srgb-nodes";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
-import { DEPTH_MAP_MAX_METRES, METRES_PER_KM, readGerstnerTerms, SKY_MEAN_LUMINANCE, SKY_STRUCTURE_WEIGHT, WATER_ABSORPTION, WATER_BASE_REFLECTANCE, WAVE_DETAIL_FADE, type WaterSurfaceOptions } from "@/lib/seabed/scene/water-surface";
+import { DEPTH_MAP_MAX_METRES, METRES_PER_KM, readGerstnerTerms, SKY_MEAN_LUMINANCE, SKY_STRUCTURE, WATER_ABSORPTION, WATER_BASE_REFLECTANCE, WAVE_DETAIL_FADE, type WaterSurfaceOptions } from "@/lib/seabed/scene/water-surface";
 
 // The water surface for the WebGPU tier: the TSL port of src/lib/seabed/scene/water-surface.ts, from the same numbers:
 // the body colour absorbed along the path through the water (fading out as the camera climbs), the HDRI sky's
@@ -78,19 +78,20 @@ export function createWaterSurfaceNodeMaterial(options: WaterSurfaceOptions): Wa
   const toEye = normalize(cameraPosition.sub(positionWorld));
   const facing = clamp(worldNormal.dot(toEye), float(0), float(1));
   const reflectance = pow(float(1).sub(facing), float(5)).mul(1 - WATER_BASE_REFLECTANCE).add(WATER_BASE_REFLECTANCE);
-  // The sky: the look's colour, its brightness following the HDRI's clouds.
+  // The sky: the look's colour, its brightness following the HDRI's clouds faintly toward the horizon.
   const skyColor = uniform(readLinearVector(look.sky));
   let skyReflection: Node<"vec3"> = skyColor;
   if (sky) {
     const reflected = reflect(toEye.negate(), worldNormal);
     const upward = normalize(vec3(reflected.x, max(reflected.y, float(0.02)), reflected.z));
-    const structure = texture(sky, equirectUV(upward)).rgb.dot(vec3(0.2126, 0.7152, 0.0722)).div(SKY_MEAN_LUMINANCE);
-    skyReflection = skyColor.mul(mix(float(1), clamp(structure, float(0.35), float(2.4)), SKY_STRUCTURE_WEIGHT));
+    const structure = clamp(texture(sky, equirectUV(upward)).rgb.dot(vec3(0.2126, 0.7152, 0.0722)).div(SKY_MEAN_LUMINANCE), float(SKY_STRUCTURE.range[0]), float(SKY_STRUCTURE.range[1]));
+    const towardHorizon = float(1).sub(smoothstep(float(SKY_STRUCTURE.facing[0]), float(SKY_STRUCTURE.facing[1]), facing));
+    skyReflection = skyColor.mul(mix(float(1), structure, towardHorizon.mul(SKY_STRUCTURE.weight)));
   }
   // The body colour: the share of the seabed's light the water replaces on the way to the eye.
   const depthUv = positionWorld.xz.sub(vec2(depthMap.minX, depthMap.minZ)).div(vec2(depthMap.sizeX, depthMap.sizeZ));
   const depthMetres = texture(depthMap.texture, depthUv).r.mul(DEPTH_MAP_MAX_METRES);
-  const pathFactor = float(1).add(float(1).div(max(facing, float(WATER_ABSORPTION.minFacing))));
+  const pathFactor = float(1).add(float(1).div(pow(max(facing, float(WATER_ABSORPTION.minFacing)), float(WATER_ABSORPTION.grazingPower))));
   // 1 for a camera close to the water (the sea's look), 0 from the map's height (the approved map look, tokens intact).
   const gate = float(1).sub(smoothstep(float(WATER_ABSORPTION.fadeHeightKm[0]), float(WATER_ABSORPTION.fadeHeightKm[1]), cameraPosition.y));
   const absorbed = gate.mul(float(1).sub(exp(depthMetres.mul(pathFactor).mul(-WATER_ABSORPTION.perMetre))));

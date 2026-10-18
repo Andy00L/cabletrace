@@ -9,8 +9,9 @@ import type { Projection } from "@/lib/seabed/terrain";
 //     readable in the shallows. Seen from the map's height the seabed's colours already carry the water (the depth
 //     tokens of terrain-material.ts), so the absorption fades out as the camera climbs past a few km: the overview and
 //     the view from above keep their tokens, the Vessel view sees a sea;
-//   - the sky's reflection weighted by Fresnel (water's reflectance at normal incidence being 0.02), its clouds read
-//     from a CC0 sky HDRI (public/textures/CREDITS.md) and tinted to the look's sky colour;
+//   - the sky's reflection weighted by Fresnel (water's reflectance at normal incidence being 0.02), tinted to the look's
+//     sky colour, with the CC0 sky HDRI's clouds (public/textures/CREDITS.md) showing faintly and only toward the
+//     horizon, so the near sea reads as clean water and glints, never as grey smudges;
 //   - the sun's glints off the waves: Gerstner swell (Tessendorf, "Simulating Ocean Water", 2001, section 3.1) with
 //     octaves of shorter chop on top, all evaluated per pixel for the normal and faded where a pixel would alias them.
 // The waves move with the replay's clock, never on their own, so a paused replay holds still. The software tier draws
@@ -52,14 +53,22 @@ export const WAVE_DETAIL_FADE = [1.5, 3.0] as const;
 
 /**
  * The body colour's absorption: per metre of path (the scene draws the water 20 times deeper, the path is counted in
- * real metres) and the camera heights (km) between which it fades out, full below the first.
+ * real metres) and the camera heights (km) between which it fades out, full below the first. The path through the
+ * water counts the depth once on the way down and 1 / facing^grazingPower times on the way up (facing held at
+ * minFacing or more): a power of 2 rather than the geometric 1 is an illustrator's choice, so the water is clear where
+ * the camera looks down at the anchor, its chain and the furrow (about 35% of the seabed's light replaced through 75 m
+ * at a facing of 0.5) and closes to the sea's body colour toward the horizon (90% at a facing of 0.2).
  */
-export const WATER_ABSORPTION = { perMetre: 0.016, fadeHeightKm: [4, 12] as const, minFacing: 0.15 } as const;
+export const WATER_ABSORPTION = { perMetre: 0.0012, grazingPower: 2, fadeHeightKm: [4, 12] as const, minFacing: 0.1 } as const;
 // The sky HDRI's mean luminance over its upper hemisphere (linear, cos-latitude weighted), measured on the 512 px file:
 // its clouds are read as luminance over this mean, so the look's sky colour sets the average reflection.
 export const SKY_MEAN_LUMINANCE = 0.284;
-// How far the HDRI's cloud pattern moves the reflection off the look's sky colour (0 flat sky, 1 the HDRI's contrast).
-export const SKY_STRUCTURE_WEIGHT = 0.7;
+/**
+ * The HDRI's cloud pattern in the reflection: how far it moves the reflection off the look's sky colour (0 flat sky, 1
+ * the HDRI's contrast), the range its brightness is held to around the mean, and the view's facing (the cosine between
+ * the surface normal and the eye) over which it fades in: none looking down, all of it at the horizon.
+ */
+export const SKY_STRUCTURE = { weight: 0.6, range: [0.82, 1.18] as const, facing: [0.08, 0.3] as const } as const;
 // Deepest depth the depth map holds (m): one byte per texel, a metre a step.
 export const DEPTH_MAP_MAX_METRES = 255;
 // The CC0 sky (public/textures/CREDITS.md), stored with linear values.
@@ -170,13 +179,15 @@ uniform vec4 waterDepthExtent;
 #ifdef WATER_SKY_MAP
 uniform sampler2D waterSkyMap;
 #endif
-// The sky in a world direction: the look's colour, its brightness following the HDRI's clouds.
-vec3 readSkyReflection(vec3 direction) {
+// The sky in a world direction, seen at a facing: the look's colour, its brightness following the HDRI's clouds faintly
+// toward the horizon.
+vec3 readSkyReflection(vec3 direction, float facing) {
 #ifdef WATER_SKY_MAP
   vec3 upward = normalize(vec3(direction.x, max(direction.y, 0.02), direction.z));
   vec3 hdri = texture2D(waterSkyMap, equirectUv(upward)).rgb;
-  float structure = dot(hdri, vec3(0.2126, 0.7152, 0.0722)) / ${SKY_MEAN_LUMINANCE.toFixed(3)};
-  return waterSkyColor * mix(1.0, clamp(structure, 0.35, 2.4), ${SKY_STRUCTURE_WEIGHT.toFixed(2)});
+  float structure = clamp(dot(hdri, vec3(0.2126, 0.7152, 0.0722)) / ${SKY_MEAN_LUMINANCE.toFixed(3)}, ${SKY_STRUCTURE.range[0].toFixed(2)}, ${SKY_STRUCTURE.range[1].toFixed(2)});
+  float towardHorizon = 1.0 - smoothstep(${SKY_STRUCTURE.facing[0].toFixed(2)}, ${SKY_STRUCTURE.facing[1].toFixed(2)}, facing);
+  return waterSkyColor * mix(1.0, structure, ${SKY_STRUCTURE.weight.toFixed(2)} * towardHorizon);
 #else
   return waterSkyColor;
 #endif
@@ -189,7 +200,7 @@ float readCloseness() {
 float readAbsorbed(vec3 worldPoint, float facing) {
   vec2 depthUv = (worldPoint.xz - waterDepthExtent.xy) / waterDepthExtent.zw;
   float depthMetres = texture2D(waterDepthMap, depthUv).r * ${DEPTH_MAP_MAX_METRES.toFixed(1)};
-  float pathFactor = 1.0 + 1.0 / max(facing, ${WATER_ABSORPTION.minFacing.toFixed(2)});
+  float pathFactor = 1.0 + 1.0 / pow(max(facing, ${WATER_ABSORPTION.minFacing.toFixed(2)}), ${WATER_ABSORPTION.grazingPower.toFixed(1)});
   return readCloseness() * (1.0 - exp(-${WATER_ABSORPTION.perMetre.toFixed(4)} * depthMetres * pathFactor));
 }
 `;
@@ -234,7 +245,7 @@ float reflectance = ${WATER_BASE_REFLECTANCE.toFixed(3)} + ${(1 - WATER_BASE_REF
 float absorbed = readAbsorbed(vWaterWorld, facing);
 // From the map's height the reflection is the approved map look's (its sky colour written as it was); close to the
 // water, the look's sky with the HDRI's clouds.
-vec3 skyReflection = mix(waterMapSkyColor, sRGBTransferOETF(vec4(readSkyReflection(reflect(-waterToEye, waterWorldNormal)), 1.0)).rgb, readCloseness());
+vec3 skyReflection = mix(waterMapSkyColor, sRGBTransferOETF(vec4(readSkyReflection(reflect(-waterToEye, waterWorldNormal), facing), 1.0)).rgb, readCloseness());
 vec3 columnEncoded = sRGBTransferOETF(vec4(waterColumnColor, 1.0)).rgb;
 gl_FragColor = vec4(skyReflection * reflectance + reflectedLight.directSpecular + columnEncoded * absorbed * (1.0 - reflectance), reflectance + absorbed * (1.0 - reflectance));`,
       );
