@@ -1,8 +1,10 @@
 import * as THREE from "three";
+import type { KelvinWakeMaterial, SceneMaterialKit } from "@/lib/render/scene-renderer";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
+import { WAVE_DETAIL_FADE } from "@/lib/seabed/scene/water-surface";
 import type { HullForm } from "@/lib/ships/hull-form";
 
-// The waves a ship makes, for the GPU tier: a patch of water in the ship's own frame carrying the bow wave and the
+// The waves a ship makes, for the GPU tiers: a patch of water in the ship's own frame carrying the bow wave and the
 // Kelvin wake of both the bow and the stern. In deep water every ship's wake is the same pattern scaled by its speed:
 // waves of wavenumber k0 = g / U^2 along the track, confined to a wedge of half angle asin(1/3) = 19.47 degrees
 // behind each source, with transverse waves across the track and divergent waves along the cusp lines (Kelvin's ship
@@ -13,6 +15,8 @@ import type { HullForm } from "@/lib/ships/hull-form";
 // steady in the ship's frame, so it needs no clock: it moves with the hull and changes only with speed.
 // The heights move the surface (vertex shader, the long bow wave only: the patch grid cannot carry a 6 m wavelength)
 // and the slopes tilt the normal in every pixel (fragment shader), which is what catches the sun.
+// The material comes from the renderer's kit: the GLSL below on WebGL, its TSL port on the WebGPU tier
+// (src/lib/render/webgpu/kelvin-wake-node-material.ts), both from KELVIN_PATTERN.
 
 const STANDARD_GRAVITY = 9.80665;
 // Patch extent in ship lengths: a little ahead of the bow, three lengths astern, 1.4 lengths to each side.
@@ -28,6 +32,42 @@ const MIN_WAKE_SPEED = 0.5;
 const HEIGHT_PER_SPEED_HEAD = 0.5;
 const MAX_HEIGHT_TO_DRAUGHT = 0.125;
 
+/** The numbers of the wake's pattern and shading, shared by the GLSL and TSL materials. */
+export const KELVIN_PATTERN = {
+  /** tan(19.47 deg) = 1 / sqrt(8): the cusp of the Kelvin wedge. */
+  cuspTangent: 0.35355339,
+  /** The wake decays over this many ship lengths astern. */
+  decayLengths: ASTERN_LENGTHS,
+  /** Bow wave crest: how far behind the stem (share of length), its length and width scales, and its height. */
+  bowCrestBehindShare: 0.06,
+  bowCrestLengthShare: 0.07,
+  bowCrestWidthShare: 0.35,
+  bowCrestHeight: 1.4,
+  /** Weights of the transverse and divergent waves, the divergent phase shift (pi / 4) and the band it fades in over. */
+  transverseWeight: 0.5,
+  divergentWeight: 0.65,
+  divergentPhaseShift: 0.785398,
+  divergentFadeIn: [0.03, 0.12],
+  /** The cusp's amplitude rise is capped where the discriminant falls under this. */
+  cuspFloor: 0.2,
+  /** The wedge fades from this share of the cusp out to the cusp. */
+  wedgeEdgeShare: 0.85,
+  /** The stern's Kelvin pattern, against the bow's, and the slope step (share of a wavelength over 2 pi). */
+  sternWeight: 0.45,
+  slopeStepWavelengths: 0.12,
+  /** Foam between these shares of the wave height, the hull's cut-out (share of half beam) and the colour weights. */
+  foamBand: [0.6, 1.2],
+  hullCutoutShare: 0.92,
+  crestLightening: 0.5,
+  opacityPerHeight: 0.8,
+  maxOpacity: 0.95,
+} as const;
+
+const PATTERN = KELVIN_PATTERN;
+
+/** One hull's wake in its own frame (metres): where the bow and stern sources sit, its half beam and length. */
+export type KelvinWakeShape = { bowX: number; sternX: number; halfBeam: number; lengthMetres: number };
+
 const WAKE_UNIFORMS = /* glsl */ `
 uniform float wakeWavenumber;
 uniform float wakeAmplitude;
@@ -39,16 +79,16 @@ varying vec2 vWakeLocal;
 
 // The bow wave: a crest that climbs the bow on both sides and runs out along the hull.
 float readBowWave(vec2 point) {
-  float along = (point.x - (wakeBowX - 0.06 * wakeLength)) / (0.07 * wakeLength);
-  float across = (abs(point.y) - wakeHalfBeam) / (0.35 * wakeHalfBeam + 1.0);
-  return 1.4 * exp(-along * along - across * across);
+  float along = (point.x - (wakeBowX - ${PATTERN.bowCrestBehindShare.toFixed(2)} * wakeLength)) / (${PATTERN.bowCrestLengthShare.toFixed(2)} * wakeLength);
+  float across = (abs(point.y) - wakeHalfBeam) / (${PATTERN.bowCrestWidthShare.toFixed(2)} * wakeHalfBeam + 1.0);
+  return ${PATTERN.bowCrestHeight.toFixed(1)} * exp(-along * along - across * across);
 }
 `;
 
 // Fragment shader only: fwidth keeps the waves from aliasing.
 const KELVIN_GLSL = /* glsl */ `
 // tan(19.47 deg) = 1 / sqrt(8): the cusp of the Kelvin wedge.
-const float KELVIN_CUSP = 0.35355339;
+const float KELVIN_CUSP = ${PATTERN.cuspTangent.toFixed(8)};
 
 // One source's Kelvin pattern at a point (metres, ship frame), as a share of the amplitude, and its two phases.
 float readKelvin(vec2 point, float sourceX) {
@@ -63,41 +103,29 @@ float readKelvin(vec2 point, float sourceX) {
   float transversePhase = wakeWavenumber * behind * (1.0 + transverseTan * tanTheta) * sqrt(1.0 + transverseTan * transverseTan);
   float divergentPhase = wakeWavenumber * behind * (1.0 + divergentTan * tanTheta) * sqrt(1.0 + divergentTan * divergentTan);
   // Waves fade where a pixel spans more than half a wavelength, instead of turning into moire.
-  float transverseDetail = 1.0 - smoothstep(1.5, 3.0, fwidth(transversePhase));
-  float divergentDetail = (1.0 - smoothstep(1.5, 3.0, fwidth(divergentPhase))) * smoothstep(0.03, 0.12, tanTheta);
+  float transverseDetail = 1.0 - smoothstep(${WAVE_DETAIL_FADE[0].toFixed(1)}, ${WAVE_DETAIL_FADE[1].toFixed(1)}, fwidth(transversePhase));
+  float divergentDetail = (1.0 - smoothstep(${WAVE_DETAIL_FADE[0].toFixed(1)}, ${WAVE_DETAIL_FADE[1].toFixed(1)}, fwidth(divergentPhase))) * smoothstep(${PATTERN.divergentFadeIn[0].toFixed(2)}, ${PATTERN.divergentFadeIn[1].toFixed(2)}, tanTheta);
   // The amplitude rises toward the cusp lines and falls with distance (as 1 / sqrt(r)) and with age.
-  float cuspRise = inversesqrt(max(discriminant, 0.2));
-  float decay = inversesqrt(1.0 + behind / wakeLength) * exp(-behind / (${ASTERN_LENGTHS.toFixed(1)} * wakeLength));
-  float wedgeEdge = 1.0 - smoothstep(0.85 * KELVIN_CUSP, KELVIN_CUSP, tanTheta);
-  return decay * wedgeEdge * (0.5 * transverseDetail * cos(transversePhase) + 0.65 * cuspRise * divergentDetail * cos(divergentPhase + 0.785398));
+  float cuspRise = inversesqrt(max(discriminant, ${PATTERN.cuspFloor.toFixed(1)}));
+  float decay = inversesqrt(1.0 + behind / wakeLength) * exp(-behind / (${PATTERN.decayLengths.toFixed(1)} * wakeLength));
+  float wedgeEdge = 1.0 - smoothstep(${PATTERN.wedgeEdgeShare.toFixed(2)} * KELVIN_CUSP, KELVIN_CUSP, tanTheta);
+  return decay * wedgeEdge * (${PATTERN.transverseWeight.toFixed(1)} * transverseDetail * cos(transversePhase) + ${PATTERN.divergentWeight.toFixed(2)} * cuspRise * divergentDetail * cos(divergentPhase + ${PATTERN.divergentPhaseShift.toFixed(6)}));
 }
 
 float readWakeHeight(vec2 point) {
-  return wakeAmplitude * (readKelvin(point, wakeBowX) - 0.45 * readKelvin(point, wakeSternX) + readBowWave(point));
+  return wakeAmplitude * (readKelvin(point, wakeBowX) - ${PATTERN.sternWeight.toFixed(2)} * readKelvin(point, wakeSternX) + readBowWave(point));
 }
 `;
 
-export type KelvinWake = {
-  mesh: THREE.Mesh;
-  /** Sets the ship's speed through the water (m/s); below about a knot the patch hides. */
-  setSpeed: (speedMetresPerSecond: number) => void;
-};
-
-/** The wake patch for one hull, in its frame (metres, waterline y = 0). Add it to the ship's group. */
-export function createKelvinWake(form: HullForm): KelvinWake {
-  const lengthMetres = form.lengthMetres;
-  const fromX = -form.halfLength - ASTERN_LENGTHS * lengthMetres;
-  const toX = form.bowX + AHEAD_LENGTHS * lengthMetres;
-  const geometry = new THREE.PlaneGeometry(toX - fromX, 2 * SIDE_LENGTHS * lengthMetres, GRID_ALONG, GRID_ACROSS);
-  geometry.rotateX(-Math.PI / 2);
-  geometry.translate((fromX + toX) / 2, 0, 0);
+/** The wake's GLSL material for the WebGL hardware tier: the pattern patched into a standard water material. */
+export function createKelvinWakeGlslMaterial(shape: KelvinWakeShape): KelvinWakeMaterial {
   const uniforms = {
     wakeWavenumber: { value: 1 },
     wakeAmplitude: { value: 0 },
-    wakeBowX: { value: form.bowX - 0.02 * lengthMetres },
-    wakeSternX: { value: -form.halfLength },
-    wakeHalfBeam: { value: form.halfBeam },
-    wakeLength: { value: lengthMetres },
+    wakeBowX: { value: shape.bowX },
+    wakeSternX: { value: shape.sternX },
+    wakeHalfBeam: { value: shape.halfBeam },
+    wakeLength: { value: shape.lengthMetres },
   };
   const material = new THREE.MeshStandardMaterial({ color: SCENE_COLORS.water, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.9, depthWrite: false });
   material.onBeforeCompile = (shader) => {
@@ -110,7 +138,7 @@ export function createKelvinWake(form: HullForm): KelvinWake {
       .replace(
         "#include <normal_fragment_begin>",
         /* glsl */ `#include <normal_fragment_begin>
-float wakeStep = 0.12 / wakeWavenumber;
+float wakeStep = ${PATTERN.slopeStepWavelengths.toFixed(2)} / wakeWavenumber;
 float wakeHeight = readWakeHeight(vWakeLocal);
 float wakeSlopeX = (readWakeHeight(vWakeLocal + vec2(wakeStep, 0.0)) - wakeHeight) / wakeStep;
 float wakeSlopeZ = (readWakeHeight(vWakeLocal + vec2(0.0, wakeStep)) - wakeHeight) / wakeStep;
@@ -122,14 +150,38 @@ normal = normalize(normalMatrix * vec3(-wakeSlopeX, 1.0, -wakeSlopeZ));`,
 // Crests catch the light (lighter), troughs hold the water's colour, foam breaks on the bow wave and the highest
 // crests. Where the sea is flat the patch is fully clear, so its edges never show.
 float wakeShare = readWakeHeight(vWakeLocal) / max(wakeAmplitude, 1e-4);
-float foam = smoothstep(0.6, 1.2, wakeShare);
-float insideHull = step(abs(vWakeLocal.y), wakeHalfBeam * 0.92) * step(wakeSternX, vWakeLocal.x) * step(vWakeLocal.x, wakeBowX);
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), clamp(0.5 * max(wakeShare, 0.0) + foam, 0.0, 1.0));
-diffuseColor.a *= clamp(0.8 * abs(wakeShare) + foam, 0.0, 0.95) * (1.0 - insideHull);`,
+float foam = smoothstep(${PATTERN.foamBand[0].toFixed(1)}, ${PATTERN.foamBand[1].toFixed(1)}, wakeShare);
+float insideHull = step(abs(vWakeLocal.y), wakeHalfBeam * ${PATTERN.hullCutoutShare.toFixed(2)}) * step(wakeSternX, vWakeLocal.x) * step(vWakeLocal.x, wakeBowX);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), clamp(${PATTERN.crestLightening.toFixed(1)} * max(wakeShare, 0.0) + foam, 0.0, 1.0));
+diffuseColor.a *= clamp(${PATTERN.opacityPerHeight.toFixed(1)} * abs(wakeShare) + foam, 0.0, ${PATTERN.maxOpacity.toFixed(2)}) * (1.0 - insideHull);`,
       );
   };
   material.customProgramCacheKey = () => "ship-kelvin-wake";
-  const mesh = new THREE.Mesh(geometry, material);
+  return {
+    material,
+    setWave(wavenumber, amplitudeMetres) {
+      uniforms.wakeWavenumber.value = wavenumber;
+      uniforms.wakeAmplitude.value = amplitudeMetres;
+    },
+  };
+}
+
+export type KelvinWake = {
+  mesh: THREE.Mesh;
+  /** Sets the ship's speed through the water (m/s); below about a knot the patch hides. */
+  setSpeed: (speedMetresPerSecond: number) => void;
+};
+
+/** The wake patch for one hull, in its frame (metres, waterline y = 0). Add it to the ship's group. */
+export function createKelvinWake(form: HullForm, kit: SceneMaterialKit): KelvinWake {
+  const lengthMetres = form.lengthMetres;
+  const fromX = -form.halfLength - ASTERN_LENGTHS * lengthMetres;
+  const toX = form.bowX + AHEAD_LENGTHS * lengthMetres;
+  const geometry = new THREE.PlaneGeometry(toX - fromX, 2 * SIDE_LENGTHS * lengthMetres, GRID_ALONG, GRID_ACROSS);
+  geometry.rotateX(-Math.PI / 2);
+  geometry.translate((fromX + toX) / 2, 0, 0);
+  const wakeMaterial = kit.createKelvinWakeMaterial({ bowX: form.bowX - 0.02 * lengthMetres, sternX: -form.halfLength, halfBeam: form.halfBeam, lengthMetres });
+  const mesh = new THREE.Mesh(geometry, wakeMaterial.material);
   // Over the water box (render order 2), under the foam trail (3).
   mesh.renderOrder = 2.5;
   mesh.frustumCulled = false;
@@ -140,8 +192,8 @@ diffuseColor.a *= clamp(0.8 * abs(wakeShare) + foam, 0.0, 0.95) * (1.0 - insideH
       const isMoving = speedMetresPerSecond >= MIN_WAKE_SPEED;
       mesh.visible = isMoving;
       if (!isMoving) return;
-      uniforms.wakeWavenumber.value = STANDARD_GRAVITY / (speedMetresPerSecond * speedMetresPerSecond);
-      uniforms.wakeAmplitude.value = Math.min((HEIGHT_PER_SPEED_HEAD * speedMetresPerSecond * speedMetresPerSecond) / STANDARD_GRAVITY, MAX_HEIGHT_TO_DRAUGHT * form.draught);
+      const wavenumber = STANDARD_GRAVITY / (speedMetresPerSecond * speedMetresPerSecond);
+      wakeMaterial.setWave(wavenumber, Math.min((HEIGHT_PER_SPEED_HEAD * speedMetresPerSecond * speedMetresPerSecond) / STANDARD_GRAVITY, MAX_HEIGHT_TO_DRAUGHT * form.draught));
     },
   };
 }

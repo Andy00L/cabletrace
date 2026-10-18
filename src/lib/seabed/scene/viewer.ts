@@ -1,10 +1,12 @@
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { detectRendererKind, type RendererKind } from "@/lib/diagnostics/webgl-renderer";
+import { detectRendererKind } from "@/lib/diagnostics/webgl-renderer";
+import { requestWebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
+import type { RenderTierName, SceneRenderer } from "@/lib/render/scene-renderer";
+import { createWebGlSceneRenderer, type DrawingBudget } from "@/lib/render/webgl-scene-renderer";
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { Result } from "@/lib/result";
 import { clampValue, easeOutCubic } from "@/lib/seabed/math";
-import { createCaustics } from "@/lib/seabed/scene/caustics";
 import { hideOverlappingLabels } from "@/lib/seabed/scene/labels";
 import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
 import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneTarget } from "@/lib/seabed/scene/overview";
@@ -47,12 +49,14 @@ const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
 const MIN_PROBED_WIDTH_DEVICE_PX = 2;
 
 /**
- * Drawing budget per renderer. On a CPU renderer (SwiftShader, llvmpipe: headless test browsers and machines
+ * Drawing budget per tier. On a CPU renderer (SwiftShader, llvmpipe: headless test browsers and machines
  * without a usable GPU) an overview frame drawn as for a GPU took 0.9 to 1.6 s and froze the page; without
  * antialiasing and shadows, at half the terrain grid and a low pixel ratio it takes about 0.12 s
- * (docs/PERFORMANCE.md, "For the lead: 3D replay").
+ * (docs/PERFORMANCE.md, "For the lead: 3D replay"). The WebGPU tier draws as the GPU tier and adds its own
+ * post-processing (src/lib/render/webgpu/webgpu-scene-renderer.ts).
  */
-const RENDER_TIERS: Record<RendererKind, { antialias: boolean; shadows: boolean; maxPixelRatio: number; terrainStep: number }> = {
+const RENDER_TIERS: Record<RenderTierName, DrawingBudget & { terrainStep: number }> = {
+  webgpu: { antialias: true, shadows: true, maxPixelRatio: 2, terrainStep: 1 },
   hardware: { antialias: true, shadows: true, maxPixelRatio: 2, terrainStep: 1 },
   software: { antialias: false, shadows: false, maxPixelRatio: 0.75, terrainStep: 2 },
 };
@@ -116,6 +120,28 @@ function disposeObjectTree(root: THREE.Object3D) {
   });
 }
 
+/**
+ * The renderer for this browser: the WebGPU tier when the browser offers a real GPU adapter (its code loads only
+ * then), else WebGL on the GPU or on the CPU, as before. A WebGPU tier that fails to start falls back to WebGL, so the
+ * canvas never reports `webgpu` for anything but a WebGPU backend.
+ */
+async function createSceneRenderer(): Promise<Result<SceneRenderer>> {
+  const webGpuDevice = await requestWebGpuDevice();
+  if (webGpuDevice.ok) {
+    try {
+      const webGpuModule = await import("@/lib/render/webgpu/webgpu-scene-renderer");
+      const created = await webGpuModule.createWebGpuSceneRenderer({ device: webGpuDevice.value.device, budget: RENDER_TIERS.webgpu });
+      if (created.ok) return created;
+      console.warn(`[createSceneRenderer] the WebGPU tier did not start on ${webGpuDevice.value.adapterName}, drawing with WebGL: ${created.reason}`);
+    } catch (error) {
+      console.warn(`[createSceneRenderer] the WebGPU tier did not load, drawing with WebGL: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    webGpuDevice.value.device.destroy();
+  }
+  const kind = detectRendererKind();
+  return createWebGlSceneRenderer(kind, RENDER_TIERS[kind]);
+}
+
 function createLabelLayer(container: HTMLElement): CSS2DRenderer {
   const labels = new CSS2DRenderer();
   labels.domElement.style.position = "absolute";
@@ -135,33 +161,22 @@ function fitOverviewFov(aspect: number): number {
 /**
  * Builds the overview inside `container` (the close-up on first use) and draws. Ambient motion (the running
  * signal, caustics, drifting silt) is off for reduced motion and on CPU renderers; the scene is then "calm" and
- * a frame is drawn only when the replay moment, the camera, the view or the size changes. Never throws.
+ * a frame is drawn only when the replay moment, the camera, the view or the size changes. The renderer tier is chosen
+ * first (createSceneRenderer), which is why this waits. Never throws.
  */
-export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer> {
+export async function createSeabedViewer(options: ViewerOptions): Promise<Result<SeabedViewer>> {
   const { container, data, input, readTimeMs, prefersReducedMotion, onTargetPick } = options;
-  const rendererKind = detectRendererKind();
-  const tier = RENDER_TIERS[rendererKind];
-  const isCalm = prefersReducedMotion || rendererKind === "software";
-  let renderer: THREE.WebGLRenderer;
-  try {
-    renderer = new THREE.WebGLRenderer({ antialias: tier.antialias, alpha: true, powerPreference: "high-performance" });
-  } catch (error) {
-    return { ok: false, reason: `WebGL 2 is not available: ${error instanceof Error ? error.message : String(error)}` };
-  }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, tier.maxPixelRatio));
-  renderer.setClearColor(0x000000, 0);
-  renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.toneMappingExposure = 1.02;
-  renderer.shadowMap.enabled = tier.shadows;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.domElement.style.display = "block";
-  renderer.domElement.style.outline = "none";
-  // The software tier draws at a lower pixel ratio and the browser scales the canvas up. Scaled smoothly, a 2 px data
-  // line would blend into the seabed and lose its exact colour; scaled by nearest pixel it keeps it (and the tier has
-  // no antialiasing to lose).
-  if (rendererKind === "software") renderer.domElement.style.imageRendering = "pixelated";
-  renderer.domElement.dataset.renderer = rendererKind;
-  container.appendChild(renderer.domElement);
+  const createdRenderer = await createSceneRenderer();
+  if (!createdRenderer.ok) return createdRenderer;
+  const renderer = createdRenderer.value;
+  const tier = RENDER_TIERS[renderer.tier];
+  const isGpuTier = renderer.tier !== "software";
+  const isCalm = prefersReducedMotion || !isGpuTier;
+  const canvas = renderer.canvas;
+  canvas.style.display = "block";
+  canvas.style.outline = "none";
+  canvas.dataset.renderer = renderer.tier;
+  container.appendChild(canvas);
   const overviewLabels = createLabelLayer(container);
   const closeUpLabels = createLabelLayer(container);
   closeUpLabels.domElement.hidden = true;
@@ -172,30 +187,30 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   const projection = createProjection(features.region);
   const sampleElevationMetres = createElevationSampler(elevations, grid.grid, projection);
   const softDot = createSoftDotTexture();
-  // The sand-ripple detail (GPU tier only): a CC0 normal map from Poly Haven (docs/LOOKDEV.md, Credits) that arrives
+  // The sand-ripple detail (GPU tiers only): a CC0 normal map from Poly Haven (docs/LOOKDEV.md, Credits) that arrives
   // after the first frame. The canvas says how many such assets are still loading, so a screenshot tool can wait.
   let pendingAssetCount = 0;
-  renderer.domElement.dataset.pendingAssets = "0";
+  canvas.dataset.pendingAssets = "0";
   function settleAsset() {
     pendingAssetCount -= 1;
-    renderer.domElement.dataset.pendingAssets = String(pendingAssetCount);
+    canvas.dataset.pendingAssets = String(pendingAssetCount);
     markDirty();
   }
   let rippleNormalMap: THREE.Texture | null = null;
-  if (rendererKind === "hardware") {
+  if (isGpuTier) {
     pendingAssetCount += 1;
-    renderer.domElement.dataset.pendingAssets = String(pendingAssetCount);
+    canvas.dataset.pendingAssets = String(pendingAssetCount);
     rippleNormalMap = new THREE.TextureLoader().load(RIPPLE_NORMAL_MAP_URL, settleAsset, undefined, () => {
       console.error(`[createSeabedViewer] the sand-ripple map ${RIPPLE_NORMAL_MAP_URL} did not load`);
       settleAsset();
     });
     rippleNormalMap.wrapS = THREE.RepeatWrapping;
     rippleNormalMap.wrapT = THREE.RepeatWrapping;
-    rippleNormalMap.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    rippleNormalMap.anisotropy = renderer.maxAnisotropy;
   }
   const overview = buildOverview({
-    renderer,
-    domElement: renderer.domElement,
+    kit: renderer.kit,
+    domElement: canvas,
     features,
     elevations,
     projection,
@@ -203,7 +218,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     input,
     softDot,
     prefersReducedMotion: isCalm,
-    isHighDetail: rendererKind === "hardware",
+    isHighDetail: isGpuTier,
     rippleNormalMap,
   });
 
@@ -219,7 +234,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   function ensureCloseUp(): CloseUpScene {
     if (closeUp) return closeUp;
     const built = buildCloseUp({
-      domElement: renderer.domElement,
+      domElement: canvas,
       sampleElevationMetres,
       cutScene: overview.primaryCutScene,
       trackDirection: overview.trackDirection,
@@ -227,7 +242,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       cableLabel: input.cuts[0].label,
       environment: overview.scene.environment,
       softDot,
-      caustics: createCaustics(),
+      caustics: renderer.kit.createCaustics(),
       prefersReducedMotion: isCalm,
       chainShape: overview.primaryCutChain,
     });
@@ -368,7 +383,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     if (activeView === "closeup") return { kind: "not-drawn" };
     const located = overview.locateTarget(target);
     if (!located) return { kind: "not-drawn" };
-    const canvasRect = renderer.domElement.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
     const screenPoint = projectToClient(located.position, canvasRect);
     if (!screenPoint) return { kind: "off-view" };
     const isInClearPart =
@@ -396,7 +411,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   /** The target drawn nearest a client point, within `radiusPx` of its point or on its name; null when there is none. */
   function findTargetAt(clientX: number, clientY: number, radiusPx: number): SceneTarget | null {
     if (activeView === "closeup") return null;
-    const canvasRect = renderer.domElement.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
     let nearest: { target: SceneTarget; distancePx: number } | null = null;
     for (const pickable of overview.readPickables()) {
       const screenPoint = projectToClient(pickable.position, canvasRect);
@@ -433,12 +448,12 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     const isOverTarget = findTargetAt(event.clientX, event.clientY, MOUSE_PICK_RADIUS_PX) !== null;
     if (isOverTarget === isPointerOverTarget) return;
     isPointerOverTarget = isOverTarget;
-    renderer.domElement.style.cursor = isOverTarget ? "pointer" : "";
+    canvas.style.cursor = isOverTarget ? "pointer" : "";
   };
-  renderer.domElement.addEventListener("pointerdown", handlePointerDown);
-  renderer.domElement.addEventListener("pointerup", handlePointerUp);
-  renderer.domElement.addEventListener("pointercancel", handlePointerCancel);
-  renderer.domElement.addEventListener("pointermove", handlePointerMove);
+  canvas.addEventListener("pointerdown", handlePointerDown);
+  canvas.addEventListener("pointerup", handlePointerUp);
+  canvas.addEventListener("pointercancel", handlePointerCancel);
+  canvas.addEventListener("pointermove", handlePointerMove);
 
   let frameHandle = 0;
   let isDisposed = false;
@@ -452,7 +467,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
   // (scripts/lookdev) can wait until the picture it asked for has been drawn and has stopped changing.
   function recordDrawnFrame(atMs: number) {
     drawnFrameCount += 1;
-    const canvasData = renderer.domElement.dataset;
+    const canvasData = canvas.dataset;
     canvasData.frameCount = String(drawnFrameCount);
     if (canvasData.drawnView !== activeView) canvasData.drawnView = activeView;
     const drawnAt = String(Math.round(atMs));
@@ -463,7 +478,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     const hasCameraMoved = closeUpScene.controls.update();
     if (isCalm && !isDirty && !hasCameraMoved) return;
     closeUpScene.update(nowSeconds, deltaSeconds);
-    renderer.render(closeUpScene.scene, closeUpScene.camera);
+    renderer.draw(closeUpScene.scene, closeUpScene.camera);
     closeUpLabels.render(closeUpScene.scene, closeUpScene.camera);
     isDirty = false;
     recordDrawnFrame(readTimeMs());
@@ -503,24 +518,24 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     // The vessel moved with the replay, so the follow camera has a new target: one more frame after this one.
     isDirty = activeView === "vessel" && hasTimeChanged;
     lastDrawnAtMs = atMs;
-    renderer.render(overview.scene, overview.camera);
+    renderer.draw(overview.scene, overview.camera);
     overviewLabels.render(overview.scene, overview.camera);
     hideOverlappingLabels(overviewLabels.domElement);
     recordDrawnFrame(atMs);
-    if (renderer.domElement.dataset.lookdev === "on") recordColorProbes();
+    if (canvas.dataset.lookdev === "on") recordColorProbes();
   }
 
   // Lookdev hook (scripts/lookdev sets data-lookdev="on" on the canvas): where each data line is on this frame, in
   // canvas px, so the harness can check those pixels hold the exact data colour. Skips points under the rail.
   function recordColorProbes() {
-    const canvasRect = renderer.domElement.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
     const cameraRight = new THREE.Vector3().setFromMatrixColumn(overview.camera.matrixWorld, 0);
     const probes = overview.readColorProbes(overview.camera.position).flatMap((probe) => {
       const screenPoint = projectToClient(probe.position, canvasRect);
       if (!screenPoint) return [];
       if (probe.widthKm !== null) {
         const edgePoint = projectToClient(probe.position.clone().addScaledVector(cameraRight, probe.widthKm), canvasRect);
-        const widthDevicePx = edgePoint ? Math.hypot(edgePoint.clientX - screenPoint.clientX, edgePoint.clientY - screenPoint.clientY) * renderer.getPixelRatio() : 0;
+        const widthDevicePx = edgePoint ? Math.hypot(edgePoint.clientX - screenPoint.clientX, edgePoint.clientY - screenPoint.clientY) * renderer.readPixelRatio() : 0;
         if (widthDevicePx < MIN_PROBED_WIDTH_DEVICE_PX) return [];
       }
       const canvasX = screenPoint.clientX - canvasRect.left;
@@ -528,7 +543,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       const isInClearPart = canvasX >= 0 && canvasX <= canvasRect.width - rightInsetPx && canvasY >= 0 && canvasY <= canvasRect.height;
       return isInClearPart ? [{ tone: probe.tone, x: Math.round(canvasX * 10) / 10, y: Math.round(canvasY * 10) / 10 }] : [];
     });
-    renderer.domElement.dataset.colorProbes = JSON.stringify(probes);
+    canvas.dataset.colorProbes = JSON.stringify(probes);
     const seabedProbes = overview.readSeabedProbes(overview.camera.position).flatMap((probe) => {
       const screenPoint = projectToClient(probe.position, canvasRect);
       if (!screenPoint) return [];
@@ -537,7 +552,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
       const isInClearPart = canvasX >= 0 && canvasX <= canvasRect.width - rightInsetPx && canvasY >= 0 && canvasY <= canvasRect.height;
       return isInClearPart ? [{ hex: probe.expectedHex, x: Math.round(canvasX * 10) / 10, y: Math.round(canvasY * 10) / 10 }] : [];
     });
-    renderer.domElement.dataset.seabedProbes = JSON.stringify(seabedProbes);
+    canvas.dataset.seabedProbes = JSON.stringify(seabedProbes);
   }
 
   function renderFrame(now: number) {
@@ -561,7 +576,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
     object.visible = true;
   });
   renderer
-    .compileAsync(overview.scene, overview.camera)
+    .compile(overview.scene, overview.camera)
     .catch((error: unknown) => console.error(`[createSeabedViewer] shader compile failed: ${error instanceof Error ? error.message : String(error)}`))
     .finally(() => {
       hiddenObjects.forEach((object) => {
@@ -596,10 +611,10 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
         if (switchTimer !== null) clearTimeout(switchTimer);
         resizeObserver.disconnect();
         visibilityObserver.disconnect();
-        renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
-        renderer.domElement.removeEventListener("pointerup", handlePointerUp);
-        renderer.domElement.removeEventListener("pointercancel", handlePointerCancel);
-        renderer.domElement.removeEventListener("pointermove", handlePointerMove);
+        canvas.removeEventListener("pointerdown", handlePointerDown);
+        canvas.removeEventListener("pointerup", handlePointerUp);
+        canvas.removeEventListener("pointercancel", handlePointerCancel);
+        canvas.removeEventListener("pointermove", handlePointerMove);
         overview.controls.removeEventListener("start", stopCameraMove);
         overview.controls.removeEventListener("change", markDirty);
         overview.controls.dispose();
@@ -613,9 +628,7 @@ export function createSeabedViewer(options: ViewerOptions): Result<SeabedViewer>
         softDot.dispose();
         rippleNormalMap?.dispose();
         renderer.dispose();
-        // Frees the GPU context now instead of at garbage collection.
-        renderer.forceContextLoss();
-        renderer.domElement.remove();
+        canvas.remove();
         overviewLabels.domElement.remove();
         closeUpLabels.domElement.remove();
       },

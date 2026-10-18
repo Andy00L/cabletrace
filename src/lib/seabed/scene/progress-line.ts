@@ -1,13 +1,15 @@
 import * as THREE from "three";
-import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
-import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { keepDataColorExact } from "@/lib/render/data-colors";
+import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
 
 export type ProgressLine = {
-  line: Line2;
+  /** The drawn line: three.js Line2 on WebGL, its WebGPU twin on the WebGPU tier (the renderer's kit picks). */
+  line: THREE.Mesh;
   /** Draws the line from its start up to `fraction` (0 to 1) of its length. */
   setFraction: (fraction: number) => void;
+  /** How many of its points the line reaches at the last fraction set. */
+  readRevealedPointCount: () => number;
 };
 
 type ProgressLineOptions = {
@@ -16,6 +18,7 @@ type ProgressLineOptions = {
   color: string | readonly string[];
   widthPx: number;
   opacity?: number;
+  kit: SceneMaterialKit;
 };
 
 /**
@@ -24,7 +27,7 @@ type ProgressLineOptions = {
  * the vessel. Expects points spaced evenly by distance, so a fraction of segments is a fraction of length.
  */
 export function createProgressLine(options: ProgressLineOptions): ProgressLine {
-  const { points, color, widthPx, opacity = 1 } = options;
+  const { points, color, widthPx, opacity = 1, kit } = options;
   const geometry = new LineGeometry();
   geometry.setPositions(points.flatMap((point) => [point.x, point.y, point.z]));
   const segmentCount = Math.max(0, points.length - 1);
@@ -33,22 +36,16 @@ export function createProgressLine(options: ProgressLineOptions): ProgressLine {
     const pointColor = new THREE.Color();
     geometry.setColors(points.flatMap((_point, index) => pointColor.set(color[index] ?? color[color.length - 1] ?? "#000000").toArray()));
   }
+  const line = kit.createScreenLine(geometry, { color: isPerPoint ? "#FFFFFF" : color, hasVertexColors: isPerPoint, widthPx, opacity });
   // Its colours are data colours: no tone mapping (src/lib/render/data-colors.ts).
-  const material = keepDataColorExact(
-    new LineMaterial({
-      color: isPerPoint ? "#FFFFFF" : color,
-      vertexColors: isPerPoint,
-      linewidth: widthPx,
-      opacity,
-      worldUnits: false,
-    }),
-  );
-  const line = new Line2(geometry, material);
+  const materials = Array.isArray(line.material) ? line.material : [line.material];
+  materials.forEach((material) => keepDataColorExact(material));
   geometry.instanceCount = 0;
   return {
     line,
     setFraction(fraction) {
       geometry.instanceCount = Math.round(Math.min(1, Math.max(0, fraction)) * segmentCount);
     },
+    readRevealedPointCount: () => geometry.instanceCount + 1,
   };
 }

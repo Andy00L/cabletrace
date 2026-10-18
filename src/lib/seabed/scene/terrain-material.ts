@@ -13,8 +13,31 @@ import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 // On top: contour lines every 10 m with a stronger line every 50 m and the shoreline at 0 m (constant on-screen width,
 // fading where the slope packs them closer than a few pixels), and on the GPU tier a sand-ripple detail normal map.
 
-const MINOR_STEP_METRES = 10;
-const MAJOR_STEP_METRES = 50;
+/**
+ * The numbers of the terrain's shading, shared by this GLSL material (WebGL tiers) and its TSL port for the WebGPU tier
+ * (src/lib/render/webgpu/terrain-node-material.ts), so both draw the same contours and the same relief shade.
+ */
+export const TERRAIN_SHADING = {
+  minorStepMetres: 10,
+  majorStepMetres: 50,
+  /** How far each contour line pulls the colour toward its contour tone. */
+  minorLineWeight: 0.2,
+  majorLineWeight: 0.42,
+  /** Line half width in levels per pixel (about 1.2 px), and the bands that fade crowded lines and level terraces. */
+  lineWidthPixels: 1.2,
+  crowdedFade: [0.12, 0.3],
+  terraceFade: [0.002, 0.01],
+  /** The shoreline at 0 m: width in pixels, the slope band that fades it, and its weight. */
+  shorelineWidthPixels: 1.4,
+  shorelineFade: [0.02, 0.1],
+  shorelineWeight: 0.6,
+  /** A sunlit slope may be this much brighter than level ground: a tint of its band, never clipped to white. */
+  maxReliefBrightening: 1.08,
+  /** Strength of the sand-ripple detail normal map. */
+  rippleNormalScale: 0.35,
+} as const;
+
+const SHADING = TERRAIN_SHADING;
 
 const VERTEX_DECLARATIONS = /* glsl */ `
 attribute float elevation;
@@ -38,18 +61,18 @@ float readContour(float elevationMetres, float stepMetres) {
   float level = elevationMetres / stepMetres;
   float levelPerPixel = fwidth(level);
   float distanceToLine = abs(fract(level + 0.5) - 0.5);
-  float line = 1.0 - smoothstep(0.0, levelPerPixel * 1.2, distanceToLine);
-  return line * (1.0 - smoothstep(0.12, 0.3, levelPerPixel)) * smoothstep(0.002, 0.01, levelPerPixel);
+  float line = 1.0 - smoothstep(0.0, levelPerPixel * ${SHADING.lineWidthPixels.toFixed(1)}, distanceToLine);
+  return line * (1.0 - smoothstep(${SHADING.crowdedFade[0].toFixed(2)}, ${SHADING.crowdedFade[1].toFixed(1)}, levelPerPixel)) * smoothstep(${SHADING.terraceFade[0].toFixed(3)}, ${SHADING.terraceFade[1].toFixed(2)}, levelPerPixel);
 }
 `;
 
 const FRAGMENT_CONTOURS = /* glsl */ `
 bool isLand = vElevation >= 0.0;
-float minorLine = readContour(vElevation, ${MINOR_STEP_METRES.toFixed(1)});
-float majorLine = readContour(vElevation, ${MAJOR_STEP_METRES.toFixed(1)});
-diffuseColor.rgb = mix(diffuseColor.rgb, isLand ? landContourColor : seabedContourColor, max(minorLine * 0.2, majorLine * 0.42));
-float shoreline = (1.0 - smoothstep(0.0, fwidth(vElevation) * 1.4, abs(vElevation))) * smoothstep(0.02, 0.1, fwidth(vElevation));
-diffuseColor.rgb = mix(diffuseColor.rgb, shorelineColor, shoreline * 0.6);
+float minorLine = readContour(vElevation, ${SHADING.minorStepMetres.toFixed(1)});
+float majorLine = readContour(vElevation, ${SHADING.majorStepMetres.toFixed(1)});
+diffuseColor.rgb = mix(diffuseColor.rgb, isLand ? landContourColor : seabedContourColor, max(minorLine * ${SHADING.minorLineWeight.toFixed(1)}, majorLine * ${SHADING.majorLineWeight.toFixed(2)}));
+float shoreline = (1.0 - smoothstep(0.0, fwidth(vElevation) * ${SHADING.shorelineWidthPixels.toFixed(1)}, abs(vElevation))) * smoothstep(${SHADING.shorelineFade[0].toFixed(2)}, ${SHADING.shorelineFade[1].toFixed(1)}, fwidth(vElevation));
+diffuseColor.rgb = mix(diffuseColor.rgb, shorelineColor, shoreline * ${SHADING.shorelineWeight.toFixed(1)});
 `;
 
 // Replaces the Lambert sum: the token times the light here over the light on level ground (both include 1 / pi and
@@ -58,7 +81,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, shorelineColor, shoreline * 0.6);
 // materials with the scene's environment map (lights_fragment_end adds its irradiance), so the level reference adds
 // what that map gives a level surface; without it level ground came out 4 levels over its token.
 const FRAGMENT_RELIEF_SHADE = /* glsl */ `
-const float MAX_RELIEF_BRIGHTENING = 1.08;
+const float MAX_RELIEF_BRIGHTENING = ${SHADING.maxReliefBrightening.toFixed(2)};
 vec3 receivedLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;
 vec3 levelReference = levelIrradiance;
 #if defined( USE_ENVMAP ) && defined( ENVMAP_TYPE_CUBE_UV )
@@ -89,7 +112,7 @@ export function createTerrainMaterial(lighting: TerrainLighting, rippleNormalMap
   material.toneMapped = false;
   if (rippleNormalMap) {
     material.normalMap = rippleNormalMap;
-    material.normalScale.set(0.35, 0.35);
+    material.normalScale.set(SHADING.rippleNormalScale, SHADING.rippleNormalScale);
   }
   material.onBeforeCompile = (shader) => {
     shader.uniforms.seabedContourColor = { value: new THREE.Color(SCENE_COLORS.seabedContour) };

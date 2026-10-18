@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { clampValue, createSeededRandom, interpolate, sampleFractalNoise, smoothStep } from "@/lib/seabed/math";
-import type { Caustics } from "@/lib/seabed/scene/caustics";
+import type { Caustics } from "@/lib/render/scene-renderer";
 import type { ChainShape } from "@/lib/ships/anchor-chain";
 import { makeLabel, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { buildAnchorModel, buildStudLinkGeometry } from "@/lib/seabed/scene/models";
@@ -144,7 +144,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
     }
     geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geometry.computeVertexNormals();
-    const material = caustics.apply(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }), isIllustrated ? 0.45 : 0.2);
+    const material = caustics.createMaterial({ vertexColors: true, roughness: 1, metalness: 0 }, isIllustrated ? 0.45 : 0.2);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.receiveShadow = true;
     return mesh;
@@ -276,7 +276,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
     rockPositions.setXYZ(index, pointX * bulge, pointY * bulge * 0.62, pointZ * bulge);
   }
   rockGeometry.computeVertexNormals();
-  const rocks = new THREE.InstancedMesh(rockGeometry, caustics.apply(new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 }), 0.18), ROCK_COUNT);
+  const rocks = new THREE.InstancedMesh(rockGeometry, caustics.createMaterial({ roughness: 0.9, metalness: 0 }, 0.18), ROCK_COUNT);
   const rockColor = new THREE.Color();
   const rockMatrix = new THREE.Matrix4();
   const rockRotation = new THREE.Quaternion();
@@ -361,7 +361,7 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   setIllustrated(true);
 
   function update(nowSeconds: number, deltaSeconds: number) {
-    caustics.uniform.value = prefersReducedMotion ? 2 : nowSeconds;
+    caustics.setTime(prefersReducedMotion ? 2 : nowSeconds);
     for (const shaft of lightShafts) {
       shaft.mesh.rotation.set(0, Math.atan2(camera.position.x - shaft.mesh.position.x, camera.position.z - shaft.mesh.position.z), shaft.tilt);
       const shaftMaterial = shaft.mesh.material;
