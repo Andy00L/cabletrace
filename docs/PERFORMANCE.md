@@ -9,6 +9,7 @@ WSL2 machine (8 cores) in headless Chrome for Testing 156 (Playwright cache buil
 bun run build && PORT=3200 bun run start      # local production build
 bun run perf http://localhost:3200             # or: bun run perf https://cabletrace.vercel.app
 bun run perf <url> --runs 9 --chromium /path/to/chrome
+bun run perf <url> --profile 3g-phone          # a phone on 3G (section "Phones on 3G")
 ```
 
 `scripts/perf/measure-pages.ts` loads `/` and `/diagnostics` once per run in a fresh browser context (cold HTTP
@@ -250,7 +251,7 @@ loads, compressed (gzip from `next start`), headers excluded.
 - Mobile devices and GPUs other than one: the 3D figures above are SwiftShader, the lookdev's hardware tier ran on
   Mesa d3d12 over an RTX 3050, and the WebGPU tier on one AMD GCN 5 adapter through Windows Chrome (WebGPU tier
   section). No phone was measured.
-- Throttled networks for every page: only `/` was checked on a 150 ms, 1.6 Mbps profile (for the font shift).
+- Throttled networks beyond `/` and one case page: the 3g-phone profile covers those two (section "Phones on 3G").
 - Interaction latency (INP): the tool loads pages and does not click; long tasks are the proxy.
 - The live site after these changes: not deployed from here.
 
@@ -311,4 +312,35 @@ The WebGL check link no longer prefetches (PR 37): home loads 195.4 KB on produc
 
 `/api/health` reads Supabase three times a call, so its answer is cached at the CDN for 30 s (PR 35): the second
 request is `x-vercel-cache: HIT`.
+
+## Phones on 3G
+
+`bun run perf <url> --profile 3g-phone` measures a mid-range phone on 3G: a 390 x 844 viewport at device pixel ratio 3,
+1.6 Mbps down, 750 kbps up, a 300 ms round trip (Chromium's `Network.emulateNetworkConditions`) and the CPU slowed 4
+times (`Emulation.setCPUThrottlingRate`). It loads `/` and `/cases/eagle-s-2024` in a fresh context per run and counts
+the compressed bytes of the responses that ended before each moment. Chromium adds the emulated latency to the body,
+not to the headers, so TTFB under this profile reads as unthrottled; LCP and every "done at" time include it (a 117 KB
+file took 928 ms throttled against 182 ms without, the latency plus 117 KB at 200 KB/s).
+
+| Budget (plan/prompts/landing-and-sign-in.md and ui-console-2.md) | Limit |
+| --- | --- |
+| `/` first screen (LCP) | under 2,500 ms |
+| Bytes before the first screen | under 250 KB |
+| Console shell drawn (the 3D view's frame exists, still loading) | under 3,000 ms |
+| Console first 3D frame (`seabed-view` ready) | under 6,000 ms |
+| Bytes before the first 3D frame | under 1 MB |
+| CLS on both pages | under 0.05 |
+
+Baseline, live site, 18 Oct 2026, 3 runs, load average 0.6 (median, min-max):
+
+| Measure | Result |
+| --- | --- |
+| `/` first screen (LCP) | 1,260 ms (1,232-1,300), 80.1 KB before it: pass |
+| `/` CLS | 0.302 in two of three runs: fails. Today's home gets replaced by the landing page |
+| Console shell drawn | 2,705 ms (2,695-2,800): pass |
+| Console first 3D frame | 10,086 ms (9,695-10,967): over the 6,000 ms budget |
+| Bytes before the first 3D frame | 1,040.8 KB: over the 1 MB budget (427.6 KB of it JavaScript) |
+
+Not measured yet: frame rate while playing, interaction latency and long tasks while dragging, panning or scrubbing on
+the phone; they need a scripted interaction, which this tool does not run.
 

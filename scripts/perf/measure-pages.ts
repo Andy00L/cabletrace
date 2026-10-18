@@ -1,6 +1,7 @@
 // Measures load and runtime cost of the CableTrace pages in headless Chromium and checks them against the budgets below.
-// Usage: bun scripts/perf/measure-pages.ts <baseUrl> [--runs 5] [--chromium /path/to/chrome]
-// Every run opens a fresh browser context (cold HTTP cache) at a 1440 x 900 desktop viewport with no network throttling.
+// Usage: bun scripts/perf/measure-pages.ts <baseUrl> [--runs 5] [--chromium /path/to/chrome] [--profile desktop|3g-phone]
+// Every run opens a fresh browser context (cold HTTP cache). The desktop profile is 1440 x 900 with no throttling; the
+// 3g-phone profile is a 390 x 844 phone at device pixel ratio 3 on a throttled 3G link with the CPU slowed 4 times.
 // Exit codes: 0 every budget met, 1 a budget broken, 2 the pages could not be measured.
 // Headless Chromium draws WebGL with SwiftShader (on the CPU), so the 3D numbers are a slow-machine bound, not a GPU result.
 import { chromium, type Browser, type Page, type Request } from "playwright";
@@ -12,25 +13,69 @@ const LCP_BUDGET_MS = 1500;
 const CLS_BUDGET = 0.05;
 const HOME_JS_BUDGET_BYTES = 200 * 1024;
 const SCENE_MEASURED_BUDGET_MS = 6000;
+// Budgets on the 3g-phone profile (plan/prompts/landing-and-sign-in.md and ui-console-2.md, section 5 and 6): the first
+// screen readable under 2.5 s with under 250 KB transferred before it; the console's shell under 3 s and its first 3D
+// frame under 6 s with under 1 MB transferred before that frame.
+const PHONE_FIRST_SCREEN_BUDGET_MS = 2500;
+const PHONE_FIRST_SCREEN_BUDGET_BYTES = 250 * 1024;
+const PHONE_CONSOLE_SHELL_BUDGET_MS = 3000;
+const PHONE_FIRST_3D_FRAME_BUDGET_MS = 6000;
+const PHONE_FIRST_3D_FRAME_BUDGET_BYTES = 1024 * 1024;
 
 const DEFAULT_RUN_COUNT = 5;
-const VIEWPORT = { width: 1440, height: 900 };
 const NAVIGATION_TIMEOUT_MS = 30_000;
-// The 3D probe waits for the map, then times up to 3.5 s of frames; a busy machine stretches both.
+// The 3D probe waits for the map, then times up to 3.5 s of frames; a busy machine stretches both. A throttled phone
+// gets three times as long before a page counts as unmeasurable rather than slow.
 const PROBE_TIMEOUT_MS = 60_000;
+const PHONE_TIMEOUT_FACTOR = 3;
 // Quiet time after the page is done, so late layout shifts and LCP candidates are counted.
 const SETTLE_MS = 1000;
 // Prefix of the performance marks the init script writes when a [data-testid][data-state] element changes state.
 const STATE_MARK_PREFIX = "perf-state:";
 
-type CliOptions = { baseUrl: string; runCount: number; chromiumPath: string | null };
+type ProfileName = "desktop" | "3g-phone";
+type CliOptions = { baseUrl: string; runCount: number; chromiumPath: string | null; profile: MeasureProfile };
 
-type PageKind = "home" | "diagnostics";
+type PageKind = "home" | "diagnostics" | "console";
 type PageTarget = { kind: PageKind; route: string };
-const PAGE_TARGETS: PageTarget[] = [
-  { kind: "home", route: "/" },
-  { kind: "diagnostics", route: "/diagnostics" },
-];
+/** A throttled link, in the units Chromium's Network.emulateNetworkConditions takes (bytes per second). */
+type NetworkConditions = { latencyMs: number; downloadBytesPerSecond: number; uploadBytesPerSecond: number };
+type MeasureProfile = {
+  name: ProfileName;
+  viewport: { width: number; height: number };
+  deviceScaleFactor: number;
+  isMobile: boolean;
+  network: NetworkConditions | null;
+  cpuSlowdown: number;
+  targets: PageTarget[];
+};
+const PROFILES: Record<ProfileName, MeasureProfile> = {
+  desktop: {
+    name: "desktop",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    network: null,
+    cpuSlowdown: 1,
+    targets: [
+      { kind: "home", route: "/" },
+      { kind: "diagnostics", route: "/diagnostics" },
+    ],
+  },
+  // 1.6 Mbps down, 750 kbps up, 300 ms round trip (the prompts' 3G phone), a mid-range phone's CPU as 4x slower.
+  "3g-phone": {
+    name: "3g-phone",
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 3,
+    isMobile: true,
+    network: { latencyMs: 300, downloadBytesPerSecond: (1.6 * 1_000_000) / 8, uploadBytesPerSecond: (750 * 1_000) / 8 },
+    cpuSlowdown: 4,
+    targets: [
+      { kind: "home", route: "/" },
+      { kind: "console", route: "/cases/eagle-s-2024" },
+    ],
+  },
+};
 const HEALTH_ROUTE = "/api/health";
 
 /** What the page's own performance timeline reports, read in the browser after the page settles. */
@@ -49,6 +94,11 @@ type TransferTotals = { jsBytes: number; cssBytes: number; fontBytes: number; re
 type PageSample = {
   vitals: PageVitals;
   transfer: TransferTotals;
+  /** Bytes (compressed bodies) whose response ended before the LCP, and before the console's 3D view was ready. */
+  bytesBeforeLcp: number | null;
+  bytesBeforeSceneReady: number | null;
+  consoleShellMs: number | null;
+  sceneReadyMs: number | null;
   errorCount: number;
   contentEncoding: string;
   recorderCardMs: number | null;
@@ -72,6 +122,10 @@ function readFlagValue(argumentList: string[], flag: string): string | null {
   return argumentList[flagIndex + 1] ?? null;
 }
 
+function isProfileName(value: string): value is ProfileName {
+  return value === "desktop" || value === "3g-phone";
+}
+
 function parseCliOptions(argumentList: string[]): Result<CliOptions> {
   const baseUrl = argumentList.find((argument) => !argument.startsWith("--") && URL.canParse(argument));
   if (!baseUrl) return { ok: false, reason: "pass the base URL, for example http://localhost:3200" };
@@ -79,7 +133,9 @@ function parseCliOptions(argumentList: string[]): Result<CliOptions> {
   const runCount = runFlag === null ? DEFAULT_RUN_COUNT : Number(runFlag);
   if (!Number.isInteger(runCount) || runCount < 1) return { ok: false, reason: `--runs must be a positive integer, got ${runFlag}` };
   const chromiumPath = readFlagValue(argumentList, "--chromium") ?? process.env.PERF_CHROMIUM_PATH ?? null;
-  return { ok: true, value: { baseUrl: baseUrl.replace(/\/$/, ""), runCount, chromiumPath } };
+  const profileFlag = readFlagValue(argumentList, "--profile") ?? "desktop";
+  if (!isProfileName(profileFlag)) return { ok: false, reason: `--profile must be desktop or 3g-phone, got ${profileFlag}` };
+  return { ok: true, value: { baseUrl: baseUrl.replace(/\/$/, ""), runCount, chromiumPath, profile: PROFILES[profileFlag] } };
 }
 
 // Runs in the page before any of its scripts: marks the first time each probe reaches each state, so the timing
@@ -160,7 +216,7 @@ async function readPageVitals(markPrefix: string): Promise<PageVitals> {
   };
 }
 
-type TransferRecord = { category: "js" | "css" | "font" | "other"; encodedBytes: number; contentEncoding: string };
+type TransferRecord = { category: "js" | "css" | "font" | "other"; encodedBytes: number; contentEncoding: string; finishedAtEpochMs: number | null };
 // What Chromium sends, so a re-fetch gets the same compression the browser got.
 const BROWSER_ACCEPT_ENCODING = "gzip, deflate, br, zstd";
 
@@ -189,11 +245,22 @@ async function readTransfer(request: Request): Promise<TransferRecord> {
   const headers = response ? await response.allHeaders() : {};
   // A dedicated worker's script (MapLibre's) loads outside the page's network session, so Chromium reports 0 bytes for it.
   const isUnsizedSuccess = sizes.responseBodySize === 0 && response !== null && response.status() === 200 && request.method() === "GET";
+  // Playwright gives the request's start on the wall clock and the response's end relative to it (-1 when unknown).
+  const timing = request.timing();
   return {
     category: categorizeRequest(request, headers["content-type"] ?? ""),
     encodedBytes: isUnsizedSuccess ? await fetchEncodedSize(request.url()) : sizes.responseBodySize,
     contentEncoding: headers["content-encoding"] ?? "none",
+    finishedAtEpochMs: timing.responseEnd >= 0 ? timing.startTime + timing.responseEnd : null,
   };
+}
+
+/** Bytes of the responses that ended at or before `atMs` (ms from the page's time origin). */
+function sumBytesBefore(transfers: TransferRecord[], timeOriginEpochMs: number, atMs: number | null): number | null {
+  if (atMs === null) return null;
+  return transfers
+    .filter((transfer) => transfer.finishedAtEpochMs !== null && transfer.finishedAtEpochMs - timeOriginEpochMs <= atMs)
+    .reduce((sum, transfer) => sum + transfer.encodedBytes, 0);
 }
 
 function totalTransfers(transfers: TransferRecord[]): TransferTotals {
@@ -212,21 +279,38 @@ function findStateMarkMs(vitals: PageVitals, markPrefix: string): number | null 
   return vitals.stateMarks.find((stateMark) => stateMark.name.startsWith(markPrefix))?.startTime ?? null;
 }
 
-async function waitForPageDone(page: Page, kind: PageKind): Promise<void> {
+async function waitForPageDone(page: Page, kind: PageKind, timeoutFactor: number): Promise<void> {
   if (kind === "home") {
     // The live recorder card streams in after the static shell; its placeholder has no data-testid.
-    await page.waitForSelector('[data-testid="recorder-status"]', { timeout: NAVIGATION_TIMEOUT_MS });
+    await page.waitForSelector('[data-testid="recorder-status"]', { timeout: NAVIGATION_TIMEOUT_MS * timeoutFactor });
+  } else if (kind === "console") {
+    await page.waitForSelector('[data-testid="seabed-view"]:is([data-state="ready"], [data-state="failed"])', { timeout: PROBE_TIMEOUT_MS * timeoutFactor });
   } else {
-    await page.waitForSelector('[data-testid="map-probe"]:is([data-state="rendered"], [data-state="failed"])', { timeout: PROBE_TIMEOUT_MS });
-    await page.waitForSelector('[data-testid="scene-probe"]:is([data-state="measured"], [data-state="failed"])', { timeout: PROBE_TIMEOUT_MS });
+    await page.waitForSelector('[data-testid="map-probe"]:is([data-state="rendered"], [data-state="failed"])', { timeout: PROBE_TIMEOUT_MS * timeoutFactor });
+    await page.waitForSelector('[data-testid="scene-probe"]:is([data-state="measured"], [data-state="failed"])', { timeout: PROBE_TIMEOUT_MS * timeoutFactor });
   }
-  await page.waitForLoadState("networkidle", { timeout: NAVIGATION_TIMEOUT_MS });
+  await page.waitForLoadState("networkidle", { timeout: NAVIGATION_TIMEOUT_MS * timeoutFactor });
   await page.waitForTimeout(SETTLE_MS);
 }
 
-async function measurePage(browser: Browser, url: string, kind: PageKind): Promise<Result<PageSample>> {
-  const context = await browser.newContext({ viewport: VIEWPORT });
+async function measurePage(browser: Browser, url: string, kind: PageKind, profile: MeasureProfile): Promise<Result<PageSample>> {
+  const context = await browser.newContext({ viewport: profile.viewport, deviceScaleFactor: profile.deviceScaleFactor, isMobile: profile.isMobile, hasTouch: profile.isMobile });
   const page = await context.newPage();
+  // Throttling goes through the DevTools protocol, before the first request, so the whole load runs on the slow link.
+  if (profile.network !== null || profile.cpuSlowdown > 1) {
+    const devtools = await context.newCDPSession(page);
+    if (profile.network !== null) {
+      await devtools.send("Network.enable");
+      await devtools.send("Network.emulateNetworkConditions", {
+        offline: false,
+        latency: profile.network.latencyMs,
+        downloadThroughput: profile.network.downloadBytesPerSecond,
+        uploadThroughput: profile.network.uploadBytesPerSecond,
+      });
+    }
+    if (profile.cpuSlowdown > 1) await devtools.send("Emulation.setCPUThrottlingRate", { rate: profile.cpuSlowdown });
+  }
+  const timeoutFactor = profile.network === null ? 1 : PHONE_TIMEOUT_FACTOR;
   const pendingTransfers: Promise<TransferRecord>[] = [];
   let errorCount = 0;
   page.on("requestfinished", (request) => pendingTransfers.push(readTransfer(request)));
@@ -237,11 +321,13 @@ async function measurePage(browser: Browser, url: string, kind: PageKind): Promi
   page.on("pageerror", () => (errorCount += 1));
   try {
     await page.addInitScript(recordStateChanges, STATE_MARK_PREFIX);
-    const response = await page.goto(url, { waitUntil: "load", timeout: NAVIGATION_TIMEOUT_MS });
+    const response = await page.goto(url, { waitUntil: "load", timeout: NAVIGATION_TIMEOUT_MS * timeoutFactor });
     if (!response || !response.ok()) return { ok: false, reason: `${url} answered ${response ? response.status() : "nothing"}` };
-    await waitForPageDone(page, kind);
+    await waitForPageDone(page, kind, timeoutFactor);
     const vitals = await page.evaluate(readPageVitals, STATE_MARK_PREFIX);
+    const timeOriginEpochMs = await page.evaluate(() => performance.timeOrigin);
     const transfers = await Promise.all(pendingTransfers);
+    const sceneReadyMs = findStateMarkMs(vitals, "seabed-view:ready");
     const sceneProbe = page.locator('[data-testid="scene-probe"]');
     const isDiagnostics = kind === "diagnostics";
     return {
@@ -249,6 +335,11 @@ async function measurePage(browser: Browser, url: string, kind: PageKind): Promi
       value: {
         vitals,
         transfer: totalTransfers(transfers),
+        bytesBeforeLcp: sumBytesBefore(transfers, timeOriginEpochMs, vitals.lcpMs),
+        bytesBeforeSceneReady: sumBytesBefore(transfers, timeOriginEpochMs, sceneReadyMs),
+        // The console's shell is up when the 3D view's frame exists, still loading: header, stage, rail and dock are drawn.
+        consoleShellMs: findStateMarkMs(vitals, "seabed-view:"),
+        sceneReadyMs,
         errorCount,
         contentEncoding: transfers.find((transfer) => transfer.category === "js")?.contentEncoding ?? "none",
         recorderCardMs: findStateMarkMs(vitals, "recorder-status:"),
@@ -305,6 +396,36 @@ const formatShift = (value: number) => value.toFixed(3);
 
 type PageReport = { target: PageTarget; samples: PageSample[] };
 type BudgetCheck = { label: string; isMet: boolean; measured: string };
+
+/** A check that the median of a per-run value stays under its limit; a run without the value fails the check. */
+function checkMedianUnder(report: PageReport, label: string, limit: number, readValue: (sample: PageSample) => number | null, formatValue: (value: number) => string): BudgetCheck {
+  const values = report.samples.map(readValue);
+  const spread = summarizeSpread(collectNumbers(values));
+  const hasEveryRun = values.every((value) => value !== null);
+  return { label, isMet: hasEveryRun && spread !== null && spread.median < limit, measured: formatSpread(spread, formatValue) };
+}
+
+function checkPhoneBudgets(report: PageReport): BudgetCheck[] {
+  const { route, kind } = report.target;
+  const errorTotal = report.samples.reduce((sum, sample) => sum + sample.errorCount, 0);
+  const checks: BudgetCheck[] = [
+    checkMedianUnder(report, `${route} CLS < ${CLS_BUDGET}`, CLS_BUDGET, (sample) => sample.vitals.cls, formatShift),
+    { label: `${route} no failed requests or page errors`, isMet: errorTotal === 0, measured: `${errorTotal} over ${report.samples.length} runs` },
+  ];
+  if (kind === "console") {
+    checks.push(
+      checkMedianUnder(report, `${route} shell < ${PHONE_CONSOLE_SHELL_BUDGET_MS} ms`, PHONE_CONSOLE_SHELL_BUDGET_MS, (sample) => sample.consoleShellMs, formatMs),
+      checkMedianUnder(report, `${route} first 3D frame < ${PHONE_FIRST_3D_FRAME_BUDGET_MS} ms`, PHONE_FIRST_3D_FRAME_BUDGET_MS, (sample) => sample.sceneReadyMs, formatMs),
+      checkMedianUnder(report, `${route} < ${formatKb(PHONE_FIRST_3D_FRAME_BUDGET_BYTES)} KB before the 3D frame`, PHONE_FIRST_3D_FRAME_BUDGET_BYTES, (sample) => sample.bytesBeforeSceneReady, formatKb),
+    );
+  } else {
+    checks.push(
+      checkMedianUnder(report, `${route} first screen (LCP) < ${PHONE_FIRST_SCREEN_BUDGET_MS} ms`, PHONE_FIRST_SCREEN_BUDGET_MS, (sample) => sample.vitals.lcpMs, formatMs),
+      checkMedianUnder(report, `${route} < ${formatKb(PHONE_FIRST_SCREEN_BUDGET_BYTES)} KB before the first screen`, PHONE_FIRST_SCREEN_BUDGET_BYTES, (sample) => sample.bytesBeforeLcp, formatKb),
+    );
+  }
+  return checks;
+}
 
 function checkPageBudgets(report: PageReport): BudgetCheck[] {
   const { route, kind } = report.target;
@@ -368,13 +489,13 @@ function describePageRow(report: PageReport): string[] {
 
 async function runMeasurements(options: CliOptions, chromiumPath: string): Promise<Result<{ pages: PageReport[]; health: HealthSample[] }>> {
   const browser = await chromium.launch({ executablePath: chromiumPath });
-  const pages: PageReport[] = PAGE_TARGETS.map((target) => ({ target, samples: [] }));
+  const pages: PageReport[] = options.profile.targets.map((target) => ({ target, samples: [] }));
   const health: HealthSample[] = [];
   try {
     // Pages alternate inside each run, so warm-up and drift do not favor one page.
     for (let runIndex = 0; runIndex < options.runCount; runIndex += 1) {
       for (const report of pages) {
-        const sample = await measurePage(browser, `${options.baseUrl}${report.target.route}`, report.target.kind);
+        const sample = await measurePage(browser, `${options.baseUrl}${report.target.route}`, report.target.kind, options.profile);
         if (!sample.ok) return sample;
         report.samples.push(sample.value);
       }
@@ -393,7 +514,7 @@ async function measurePages(): Promise<number> {
   const options = parseCliOptions(process.argv.slice(2));
   if (!options.ok) {
     console.error(`[measurePages] ${options.reason}`);
-    console.error("[measurePages] usage: bun scripts/perf/measure-pages.ts <baseUrl> [--runs 5] [--chromium /path/to/chrome]");
+    console.error("[measurePages] usage: bun scripts/perf/measure-pages.ts <baseUrl> [--runs 5] [--chromium /path/to/chrome] [--profile desktop|3g-phone]");
     return 2;
   }
   const chromiumPath = resolveChromiumPath(options.value.chromiumPath);
@@ -401,7 +522,7 @@ async function measurePages(): Promise<number> {
     console.error(`[measurePages] ${chromiumPath.reason}`);
     return 2;
   }
-  console.log(`[measurePages] ${options.value.baseUrl}, ${options.value.runCount} runs per page, Chromium ${chromiumPath.value}`);
+  console.log(`[measurePages] ${options.value.baseUrl}, profile ${options.value.profile.name}, ${options.value.runCount} runs per page, Chromium ${chromiumPath.value}`);
   const measured = await runMeasurements(options.value, chromiumPath.value);
   if (!measured.ok) {
     console.error(`[measurePages] could not measure: ${measured.reason}`);
@@ -417,10 +538,23 @@ async function measurePages(): Promise<number> {
 
   const homeSamples = pages.find((report) => report.target.kind === "home")?.samples ?? [];
   const diagnosticsSamples = pages.find((report) => report.target.kind === "diagnostics")?.samples ?? [];
+  const consoleSamples = pages.find((report) => report.target.kind === "console")?.samples ?? [];
   const spreadAcross = (samples: PageSample[], readValue: (sample: PageSample) => number | null) =>
     formatSpread(summarizeSpread(collectNumbers(samples.map(readValue))), formatMs);
+  const isPhone = options.value.profile.name === "3g-phone";
   printReportLine("");
-  printTable(
+  if (isPhone) {
+    const kbAcross = (samples: PageSample[], readValue: (sample: PageSample) => number | null) =>
+      formatSpread(summarizeSpread(collectNumbers(samples.map(readValue))), formatKb);
+    printTable(
+      ["On the 3G phone", "Done at ms", "KB before"],
+      [
+        ["/ first screen (LCP)", spreadAcross(homeSamples, (sample) => sample.vitals.lcpMs), kbAcross(homeSamples, (sample) => sample.bytesBeforeLcp)],
+        ["console shell drawn", spreadAcross(consoleSamples, (sample) => sample.consoleShellMs), "n/a"],
+        ["console first 3D frame", spreadAcross(consoleSamples, (sample) => sample.sceneReadyMs), kbAcross(consoleSamples, (sample) => sample.bytesBeforeSceneReady)],
+      ],
+    );
+  } else printTable(
     ["Part drawn after the first paint", "Done at ms", "Detail"],
     [
       ["/ live recorder card streamed", spreadAcross(homeSamples, (sample) => sample.recorderCardMs), "Supabase read on the server"],
@@ -446,7 +580,7 @@ async function measurePages(): Promise<number> {
     isMet: health.every((sample) => sample.status === 200),
     measured: healthStatuses,
   };
-  const budgetChecks = [...pages.flatMap(checkPageBudgets), healthCheck];
+  const budgetChecks = [...pages.flatMap(isPhone ? checkPhoneBudgets : checkPageBudgets), healthCheck];
   printReportLine("");
   printTable(
     ["Budget", "Result", "Measured (median, min-max)"],
