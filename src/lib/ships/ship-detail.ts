@@ -4,6 +4,7 @@ import type { ShipModel } from "@/lib/ships/build-ship";
 import { buildHullPatch, buildRailings, readDeckHeight, readHalfBreadth, readKeelHeight, type HullForm } from "@/lib/ships/hull-form";
 import { SHIP_PAINT } from "@/lib/ships/ship-paint";
 import { addBox, addCylinder, addPipe, addRoundedBox, createShipParts, mergeParts, readDeckHalfWidth, readDeckY, type HouseLayout, type HouseLevel, type ShipParts } from "@/lib/ships/ship-parts";
+import { bakeContactShade, createFloorReader } from "@/lib/ships/ship-shading";
 
 // The ship's detail level, added after the first frame (the overview loads this module with a dynamic import, so its
 // code is not on the first frame's path): windows one by one on every level of the house, handrails along the decks
@@ -221,11 +222,18 @@ export function addShipDetail(model: ShipModel, name: string | null): THREE.Grou
   }
   const detail = new THREE.Group();
   detail.name = "ship-detail";
+  // The gear and funnel paints carry the contact shade in their vertices, as the silhouette level's do.
+  const readFloorBelow = createFloorReader(form, house);
+  const mergeShaded = (partList: ShipParts[keyof ShipParts]) => {
+    const merged = mergeParts(partList);
+    bakeContactShade(merged, readFloorBelow);
+    return merged;
+  };
   const meshes = [
-    new THREE.Mesh(mergeParts(parts.equipment), materials.equipment),
+    new THREE.Mesh(mergeShaded(parts.equipment), materials.equipment),
     new THREE.Mesh(mergeParts(parts.glass), materials.glass),
-    new THREE.Mesh(mergeParts(parts.funnel), materials.funnel),
-    new THREE.Mesh(mergeParts(parts.band), materials.band),
+    new THREE.Mesh(mergeShaded(parts.funnel), materials.funnel),
+    new THREE.Mesh(mergeShaded(parts.band), materials.band),
     new THREE.Mesh(mergeParts(parts.lifeboat), materials.lifeboat),
   ];
   meshes.forEach((mesh) => {

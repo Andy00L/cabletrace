@@ -73,6 +73,12 @@ function buildTankerDeck(frame: DeckFrame, parts: ShipParts) {
   }
   // The catwalk's handrails.
   for (const side of [-1, 1]) addCylinder(parts.equipment, 0.04, rackLength, [rackCenter, deckY + 4.0, -0.2 * across + side * 0.55], "x", 4);
+  // Along each side: the spill coaming at the deck edge and the fire main on its supports inside it, the low band of
+  // gear the photograph shows over the whole cargo deck.
+  for (const side of [-1, 1]) {
+    addBox(parts.equipment, [rackLength, 0.35, 0.12], [rackCenter, deckY + 0.175, side * (readDeckHalfWidth(form, rackCenter) - 0.6)]);
+    addCylinder(parts.pipes, 0.22, rackLength, [rackCenter, deckY + 0.75, side * (readDeckHalfWidth(form, rackCenter) - 1.4)], "x", 6);
+  }
   // The manifold: crossover pipes from the rack out to both sides, with valves and drip trays at the rail.
   const manifoldX = readXFromBow(form, 0.47);
   for (const offset of [-2.4, -0.8, 0.8, 2.4]) {
@@ -81,19 +87,30 @@ function buildTankerDeck(frame: DeckFrame, parts: ShipParts) {
     for (const side of [-1, 1]) addBox(parts.equipment, [0.9, 0.9, 0.9], [pipeX, deckY + 1.6, side * (readDeckHalfWidth(form, pipeX) - 3)]);
   }
   for (const side of [-1, 1]) addBox(parts.equipment, [11 * along, 0.4, 2.2], [manifoldX, deckY + 0.2, side * (readDeckHalfWidth(form, manifoldX) - 1.6)]);
-  // The hose crane, as the photograph shows it: a pedestal at 43% of the length from the stem, its jib level about 9.5 m
-  // over the deck from 40% aft to 51.5%, a strut from the jib's aft end down to the deck, and the manifold control
-  // house beside the pedestal.
-  const pedestalX = readXFromBow(form, 0.43);
-  const jibForeX = readXFromBow(form, 0.4);
-  const jibAftX = readXFromBow(form, 0.515);
-  const jibY = deckY + 9.6 * along;
-  addCylinder(parts.structure, 0.7 * along + 0.1, jibY - deckY, [pedestalX, deckY + (jibY - deckY) / 2, 0], "y", 12);
-  addBox(parts.structure, [2.6 * along, 2.2 * along, 2.4 * along], [pedestalX, jibY - 0.4, 0]);
-  addBox(parts.structure, [jibForeX - jibAftX, 0.9 * along, 0.8 * along], [(jibForeX + jibAftX) / 2, jibY + 0.3, 0]);
-  addPipe(parts.structure, [new THREE.Vector3(jibAftX + 0.5, jibY, 0), new THREE.Vector3(readXFromBow(form, 0.49), deckY + 2.5 * along, 0)], 0.3 * along + 0.05, 6);
-  addBox(parts.structure, [1.0 * along, 1.6 * along, 1.0 * along], [jibAftX + 0.5, jibY - 0.6 * along, 0]);
-  addBox(parts.structure, [5.5 * along, 3.2 * along, 4.4 * across], [readXFromBow(form, 0.445), deckY + 1.6 * along, 5.5 * across]);
+  // The hose crane, as the photograph shows it (shares of the length from the stem): its control house on the deck
+  // from 43.1% to 45.6%, 3.6 m high, the crane pillar rising out of it at 44.5%, a pair of lattice posts at 43%, a level
+  // jib 1.3 m deep about 7.6 m over the deck from 39.5% to 50.8%, a block hanging 2.8 m under its aft end and a strut
+  // from the jib down to that block.
+  const controlHouseFore = readXFromBow(form, 0.431);
+  const controlHouseAft = readXFromBow(form, 0.456);
+  const controlHouseHeight = 3.6 * along;
+  const jibForeX = readXFromBow(form, 0.395);
+  const jibAftX = readXFromBow(form, 0.508);
+  const jibY = deckY + 7.6 * along;
+  const jibDepth = 1.3 * along;
+  addBox(parts.structure, [controlHouseFore - controlHouseAft, controlHouseHeight, 4.4 * across], [(controlHouseFore + controlHouseAft) / 2, deckY + controlHouseHeight / 2, 0]);
+  const pillarX = readXFromBow(form, 0.445);
+  const pillarFootY = deckY + controlHouseHeight;
+  addBox(parts.structure, [1.4 * along, jibY - pillarFootY, 1.4 * along], [pillarX, (pillarFootY + jibY) / 2, 0]);
+  addBox(parts.structure, [2.6 * along, 2.6 * along, 2.4 * along], [pillarX, jibY + 0.5 * along, 0]);
+  const postX = readXFromBow(form, 0.43);
+  for (const side of [-1, 1]) addCylinder(parts.equipment, 0.25 * along, jibY - deckY, [postX, deckY + (jibY - deckY) / 2, side * 1.2 * across], "y", 6);
+  // The jib rises about 1 m from its forward tip to its aft end.
+  const jibRise = Math.atan2(1.0 * along, jibForeX - jibAftX);
+  addBox(parts.structure, [jibForeX - jibAftX, jibDepth, 0.9 * along], [(jibForeX + jibAftX) / 2, jibY, 0], new THREE.Euler(0, 0, -jibRise));
+  const blockHeight = 2.8 * along;
+  addBox(parts.structure, [1.2 * along, blockHeight, 1.0 * along], [jibAftX + 0.6 * along, jibY - jibDepth / 2 - blockHeight / 2 + 0.2, 0]);
+  addPipe(parts.structure, [new THREE.Vector3(readXFromBow(form, 0.483), jibY - jibDepth / 2, 0), new THREE.Vector3(jibAftX + 1.0 * along, jibY - jibDepth / 2 - blockHeight + 0.4, 0)], 0.25 * along + 0.05, 6);
   // Kingposts with deck lights.
   for (const share of [0.275, 0.54, 0.705]) {
     const postX = readXFromBow(form, share);

@@ -24,6 +24,10 @@ export const SHIP_PAINT = {
   rust: "#6B4632",
   // Draught marks and the ship's name: white paint.
   marking: "#ECEBE6",
+  // Eagle S's funnel, sampled off its photograph (Wikimedia Commons, by MKFI; scripts/lookdev/photo-match): a slate
+  // blue-grey (#35465C in the shade, lifted to its lit tone) with a darker panel band (#202B39) low on the stack.
+  tankerFunnel: "#45556A",
+  tankerFunnelBand: "#222C3A",
 } as const;
 
 /** `suspect`: the case ship, ink topsides (the suspect's data colour). `context`: any other ship, in the `ship` grey. */
@@ -93,8 +97,12 @@ export type ShipMaterials = {
   painted: THREE.MeshStandardMaterial;
 };
 
-/** The ship's materials. `isDetailed` adds the plating's bump relief and the paint's roughness variation (GPU tiers). */
-export function createShipMaterials(tone: ShipTone, isDetailed: boolean, sky: THREE.Texture | null): ShipMaterials {
+/**
+ * The ship's materials. `isDetailed` adds the plating's bump relief and the paint's roughness variation (GPU tiers);
+ * `isEagleS` paints the funnel in its photograph's colours. The house, gear, funnel and pipes multiply their colour by
+ * the contact shade baked into their vertices (ship-shading.ts).
+ */
+export function createShipMaterials(tone: ShipTone, isDetailed: boolean, sky: THREE.Texture | null, isEagleS: boolean): ShipMaterials {
   const toneColors = TONE_TOPSIDES[tone];
   const plating = createHullPlatingTexture();
   const roughness = isDetailed ? createPaintRoughnessTexture() : null;
@@ -110,14 +118,14 @@ export function createShipMaterials(tone: ShipTone, isDetailed: boolean, sky: TH
     transom: standard(toneColors.topside, { metalness: 0.2, roughnessMap: roughness }),
     bulwark: standard(toneColors.topside, { metalness: 0.2, side: THREE.DoubleSide }),
     deck: standard(SCENE_COLORS.tankerDeck, { roughness: 0.85, metalness: 0.02, side: THREE.DoubleSide }),
-    structure: standard(SCENE_COLORS.tankerSuperstructure, { roughness: 0.55, roughnessMap: roughness }),
-    equipment: standard(SCENE_COLORS.tankerEquipment, { roughness: 0.5, metalness: 0.35 }),
+    structure: standard(SCENE_COLORS.tankerSuperstructure, { roughness: 0.55, roughnessMap: roughness, vertexColors: true }),
+    equipment: standard(SCENE_COLORS.tankerEquipment, { roughness: 0.5, metalness: 0.35, vertexColors: true }),
     // Bridge glass: smooth and dark, so it mirrors the sky like a window and not like paint.
     glass: standard(SCENE_COLORS.tankerGlass, { roughness: 0.08, metalness: 0.7 }),
-    funnel: standard(SCENE_COLORS.tankerFunnel, { roughness: 0.6, roughnessMap: roughness }),
-    band: standard(SCENE_COLORS.tankerFunnelBand, { roughness: 0.6 }),
+    funnel: standard(isEagleS ? SHIP_PAINT.tankerFunnel : SCENE_COLORS.tankerFunnel, { roughness: 0.6, roughnessMap: roughness, vertexColors: true }),
+    band: standard(isEagleS ? SHIP_PAINT.tankerFunnelBand : SCENE_COLORS.tankerFunnelBand, { roughness: 0.6, vertexColors: true }),
     lifeboat: standard(SHIP_PAINT.lifeboat, { roughness: 0.45 }),
-    pipes: standard(SHIP_PAINT.pipes, { roughness: 0.55, metalness: 0.2 }),
+    pipes: standard(SHIP_PAINT.pipes, { roughness: 0.55, metalness: 0.2, vertexColors: true }),
     painted: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.15 }),
   };
   if (sky) {

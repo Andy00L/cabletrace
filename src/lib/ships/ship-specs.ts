@@ -7,7 +7,7 @@ import type { ShipKind } from "@/lib/replay/replay-scene";
 // of any one hull, except the tanker: it is Eagle S (IMO 9329760, 228.6 by 32.3 m), read off the public-domain side
 // photograph "Eagle S Emasalo 2025-01-12 1" (Wikimedia Commons, by MKFI) as shares of its length: a raked stem
 // overhanging the waterline by 3% of the length, a low forecastle with a bulwark, a freeboard of about 9.3 m at the
-// photograph's draught, the house front 20% of the length from the stern and its aft end at 5%, the bridge roof about
+// photograph's draught, the house front 19% of the length from the stern and its aft end at 4%, the bridge roof about
 // 24 m above the water, the funnel 8 to 10% from the stern. The photo match (scripts/lookdev/photo-match) judges the
 // built hull against that photograph.
 
@@ -54,13 +54,13 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     bulbToBeam: 0.096,
     bowEntranceShare: 0.45,
     sternRunShare: 0.55,
-    stemRakeToDepth: 0.3,
+    stemRakeToDepth: 0.42,
     forecastleRiseToDepth: 0.05,
     sheerForwardToDepth: 0.02,
     sheerAftToDepth: 0.01,
     counterToLength: 0.022,
-    bulwarkMetres: 1.2,
-    superstructure: { placement: "aft", frontFromSternShare: 0.2, lengthShare: 0.15, tiers: 4 },
+    bulwarkMetres: 0.8,
+    superstructure: { placement: "aft", frontFromSternShare: 0.19, lengthShare: 0.15, tiers: 4 },
   },
   "bulk-carrier": {
     beamToLength: 0.143,

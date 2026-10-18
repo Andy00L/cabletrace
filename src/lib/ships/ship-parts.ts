@@ -90,6 +90,21 @@ export function readDeckHalfWidth(form: HullForm, positionX: number): number {
   return readHalfBreadth(form, positionX, readDeckHeight(form, positionX));
 }
 
+// The house's proportions, read off Eagle S's photograph and held for every type: the poop and the bridge as shares of
+// a tier's height, the share of the house's length each tier above the first steps back from its aft end, the deck
+// slabs' thickness and overhang (m, the shadow line between tiers), how far the bridge front rakes out at the roof (m),
+// the radar mast's and the funnel's sizes as shares of the ship's length.
+const POOP_HEIGHT_TIERS = 0.78;
+// The open aft mooring deck behind the poop, as a share of the length from the stern (4.5% on Eagle S).
+const POOP_AFT_TO_LENGTH = 0.045;
+const BRIDGE_HEIGHT_TIERS = 0.88;
+const TIER_STEP_BACK_SHARE = 0.06;
+const SLAB_THICKNESS_METRES = 0.25;
+const SLAB_OVERHANG_METRES = 0.45;
+const BRIDGE_FRONT_RAKE_METRES = 0.7;
+const MAST_HEIGHT_TO_LENGTH = 0.056;
+const FUNNEL_LENGTH_TO_LENGTH = 0.034;
+
 // Accommodation tiers (m): 2.9 on seagoing ships, 2.5 on small craft under 60 m.
 export function readTierHeight(form: HullForm): number {
   return form.lengthMetres < 60 ? 2.5 : 2.9;
@@ -130,14 +145,20 @@ export type HouseLayout = {
 
 export type FunnelLayout = { x: number; baseY: number; topY: number; lengthAlong: number; width: number };
 
+/** Where a funnel's band sits on its stack and how tall it is (shares of the stack's height from its foot). */
+export type FunnelBand = { atShare: number; heightShare: number };
+
+/** A light band near the top of the stack, as most lines paint it. */
+export const DEFAULT_FUNNEL_BAND: FunnelBand = { atShare: 0.72, heightShare: 0.12 };
+
 type BlockOptions = {
   frontX: number;
   lengthAlongShip: number;
   tiers: number;
   baseY: number;
   withLifeboat: boolean;
-  /** The funnel's centre (m, hull x) and how high it rises above the bridge roof, or null for none. */
-  funnel: { x: number; riseAboveBridge: number } | null;
+  /** The funnel's centre (m, hull x), how high it rises above the bridge roof and its band, or null for none. */
+  funnel: { x: number; riseAboveBridge: number; band: FunnelBand } | null;
   /** An aft house stands on a poop: a raised deck from the house front to the stern, the full width of the hull. */
   hasPoop: boolean;
 };
@@ -154,9 +175,10 @@ export function addAccommodationBlock(form: HullForm, parts: ShipParts, options:
   const levels: HouseLevel[] = [];
   let floorY = options.baseY;
   if (hasPoop) {
-    // The poop: from 1 m inside the transom to the house front, inside the hull's side by 0.2 m.
-    const sternX = -form.halfLength + 1;
-    const poopHeight = tierHeight * 0.9;
+    // The poop: from the aft mooring deck (left open on the main deck at the stern) to the house front, inside the
+    // hull's side by 0.2 m.
+    const sternX = -form.halfLength + POOP_AFT_TO_LENGTH * form.lengthMetres;
+    const poopHeight = tierHeight * POOP_HEIGHT_TIERS;
     const steps = 8;
     for (let step = 0; step < steps; step += 1) {
       const fromX = sternX + ((frontX - sternX) * step) / steps;
@@ -168,25 +190,31 @@ export function addAccommodationBlock(form: HullForm, parts: ShipParts, options:
     floorY += poopHeight;
   }
   const houseTiers = hasPoop ? Math.max(1, tiers - 1) : tiers;
+  // The top tier stops at the funnel's aft side, as on Eagle S's photograph (addFunnel sizes the funnel the same way).
+  const funnelAftX = options.funnel ? options.funnel.x - (Math.max(2.5, FUNNEL_LENGTH_TO_LENGTH * form.lengthMetres) / 2) : null;
   for (let tier = 0; tier < houseTiers; tier += 1) {
-    // Upper tiers step back from the front a little and narrow by a frame, as house decks do.
-    const lengthAlong = lengthAlongShip * (1 - tier * 0.05);
+    // Upper tiers step back from the aft end (the funnel casing and boat decks stand behind them) and from the front by
+    // a little, and narrow by a frame, as house decks do.
+    const steppedLength = lengthAlongShip * (1 - tier * TIER_STEP_BACK_SHARE);
+    const isTopTier = tier === houseTiers - 1 && houseTiers > 1;
+    const lengthAlong = isTopTier && funnelAftX !== null ? Math.min(steppedLength, frontX - tier * 0.15 - funnelAftX) : steppedLength;
     const tierWidth = width * (1 - tier * 0.02);
     const tierFrontX = frontX - tier * 0.15;
-    addBox(parts.structure, [lengthAlong, tierHeight - 0.12, tierWidth], [tierFrontX - lengthAlong / 2, floorY + (tierHeight - 0.12) / 2, 0]);
-    // The deck slab of the level above overhangs by 0.3 m all round: the dark line between tiers.
-    addBox(parts.structure, [lengthAlong + 0.5, 0.18, tierWidth + 0.5], [tierFrontX - lengthAlong / 2, floorY + tierHeight - 0.06, 0]);
-    levels.push({ frontX: tierFrontX, lengthAlong, width: tierWidth, floorY, roofY: floorY + tierHeight - 0.12 });
+    addBox(parts.structure, [lengthAlong, tierHeight - SLAB_THICKNESS_METRES, tierWidth], [tierFrontX - lengthAlong / 2, floorY + (tierHeight - SLAB_THICKNESS_METRES) / 2, 0]);
+    // The deck slab of the level above overhangs all round: the shadow line between tiers.
+    addBox(parts.structure, [lengthAlong + 2 * SLAB_OVERHANG_METRES, SLAB_THICKNESS_METRES, tierWidth + 2 * SLAB_OVERHANG_METRES], [tierFrontX - lengthAlong / 2, floorY + tierHeight - SLAB_THICKNESS_METRES / 2, 0]);
+    levels.push({ frontX: tierFrontX, lengthAlong, width: tierWidth, floorY, roofY: floorY + tierHeight - SLAB_THICKNESS_METRES });
     floorY += tierHeight;
   }
-  // The bridge: a deep deck across the full beam (the wings reach the ship's sides), its front window band leaning out.
+  // The bridge: a deep deck across the full beam (the wings reach the ship's sides), its front raked out at the top.
   const bridgeDepth = Math.max(4, 0.42 * lengthAlongShip);
-  const bridgeHeight = tierHeight * 1.05;
+  const bridgeHeight = tierHeight * BRIDGE_HEIGHT_TIERS;
   const bridgeWidth = Math.min(2 * form.halfBeam * 0.98, width * 1.04);
   const bridgeFrontX = frontX - houseTiers * 0.15;
   const bridgeCenterX = bridgeFrontX - bridgeDepth / 2;
   addBox(parts.structure, [bridgeDepth, bridgeHeight, bridgeWidth], [bridgeCenterX, floorY + bridgeHeight / 2, 0]);
-  addBox(parts.structure, [bridgeDepth * 1.08, 0.35, bridgeWidth * 1.02], [bridgeCenterX - 0.1, floorY + bridgeHeight + 0.17, 0]);
+  addRakedFront(parts, { frontX: bridgeFrontX, floorY, roofY: floorY + bridgeHeight, width: bridgeWidth });
+  addBox(parts.structure, [bridgeDepth * 1.08 + BRIDGE_FRONT_RAKE_METRES, 0.35, bridgeWidth * 1.02], [bridgeCenterX - 0.1 + BRIDGE_FRONT_RAKE_METRES / 2, floorY + bridgeHeight + 0.17, 0]);
   const wingHalfSpan = Math.max(bridgeWidth / 2, readDeckHalfWidth(form, bridgeFrontX) + 0.4);
   // The wings: a deck and a plated front reaching out to the ship's sides on both sides.
   for (const side of [-1, 1]) {
@@ -200,17 +228,23 @@ export function addAccommodationBlock(form: HullForm, parts: ShipParts, options:
   }
   const bridge = { frontX: bridgeFrontX, lengthAlong: bridgeDepth, width: bridgeWidth, floorY, roofY: floorY + bridgeHeight, wingHalfSpan };
   // The radar mast on the bridge roof: a tapered post, its platform and yard.
-  const mastHeight = Math.max(4, 0.04 * form.lengthMetres);
-  const mastX = bridgeFrontX - 0.85 * bridgeDepth;
+  const mastHeight = Math.max(4, MAST_HEIGHT_TO_LENGTH * form.lengthMetres);
+  const mastX = bridgeFrontX - 0.89 * bridgeDepth;
   const mastBaseY = bridge.roofY + 0.35;
   // A tapered tower, wide at the foot, with a platform for each scanner (Eagle S's photograph shows a tower about 3 m
-  // across at the foot carrying two platforms).
+  // across at the foot carrying two platforms, the lower one reaching forward under the radar scanner).
   const mastFootRadius = Math.max(0.45, 0.0065 * form.lengthMetres);
-  addCylinder(parts.equipment, mastFootRadius, mastHeight, [mastX, mastBaseY + mastHeight / 2, 0], "y", 8, mastFootRadius * 0.35);
+  // The tower to 60% of the height, then a pole set back toward the stern by half the tower's foot to the top.
+  const towerHeight = 0.6 * mastHeight;
+  addCylinder(parts.equipment, mastFootRadius, towerHeight, [mastX, mastBaseY + towerHeight / 2, 0], "y", 8, mastFootRadius * 0.55);
+  const poleX = mastX - mastFootRadius * 0.5;
+  addCylinder(parts.equipment, mastFootRadius * 0.4, mastHeight - towerHeight + 0.4, [poleX, mastBaseY + (towerHeight + mastHeight) / 2 - 0.2, 0], "y", 6, mastFootRadius * 0.2);
   addBox(parts.equipment, [mastFootRadius * 3.2, 0.25, mastFootRadius * 4], [mastX, mastBaseY + mastHeight * 0.38, 0]);
-  addBox(parts.equipment, [mastFootRadius * 2.4, 0.2, mastFootRadius * 3], [mastX, mastBaseY + mastHeight * 0.62, 0]);
-  addBox(parts.equipment, [0.3, 0.3, Math.min(7, bridgeWidth * 0.3)], [mastX, mastBaseY + mastHeight * 0.85, 0]);
-  const funnel = options.funnel ? addFunnel(form, parts, { x: options.funnel.x, baseY: options.baseY, topY: bridge.roofY + options.funnel.riseAboveBridge, width: width * 0.36 }) : null;
+  // The radar scanner's housing, reaching forward off the tower's top platform.
+  addBox(parts.equipment, [mastFootRadius * 1.7, 1.4, mastFootRadius * 0.8], [mastX + mastFootRadius * 0.85, mastBaseY + towerHeight - 0.5, 0]);
+  addBox(parts.equipment, [mastFootRadius * 2.4, 0.2, mastFootRadius * 3], [mastX, mastBaseY + towerHeight, 0]);
+  addBox(parts.equipment, [0.3, 0.3, Math.min(7, bridgeWidth * 0.3)], [poleX, mastBaseY + mastHeight * 0.85, 0]);
+  const funnel = options.funnel ? addFunnel(form, parts, { x: options.funnel.x, baseY: options.baseY, topY: bridge.roofY + options.funnel.riseAboveBridge, width: width * 0.36, band: options.funnel.band }) : null;
   return { levels, bridge, mast: { x: mastX, baseY: mastBaseY, topY: mastBaseY + mastHeight }, funnel, withLifeboats: options.withLifeboat };
 }
 
@@ -218,29 +252,49 @@ export function addAccommodationBlock(form: HullForm, parts: ShipParts, options:
  * A funnel: the engine casing up from `baseY`, then a round-cornered stack raked a few degrees aft up to `topY`, with
  * a light band near its top and two exhaust uptakes turning aft over the rim (the goosenecks of Eagle S's funnel).
  */
-export function addFunnel(form: HullForm, parts: ShipParts, options: { x: number; baseY: number; topY: number; width: number }): FunnelLayout {
-  const { x, baseY, topY, width } = options;
+export function addFunnel(form: HullForm, parts: ShipParts, options: { x: number; baseY: number; topY: number; width: number; band: FunnelBand }): FunnelLayout {
+  const { x, baseY, topY, width, band } = options;
   const scale = Math.min(1, form.lengthMetres / 228);
-  const lengthAlong = Math.max(2.5, 0.034 * form.lengthMetres);
+  const lengthAlong = Math.max(2.5, FUNNEL_LENGTH_TO_LENGTH * form.lengthMetres);
   const casingTopY = baseY + (topY - baseY) * 0.55;
   addBox(parts.structure, [lengthAlong * 1.1, casingTopY - baseY, width * 1.25], [x, (baseY + casingTopY) / 2, 0]);
   const stackHeight = topY - casingTopY;
   const rake = new THREE.Euler(0, 0, 0.06);
   addRoundedBox(parts.funnel, [lengthAlong, stackHeight, width], [x - 0.2, casingTopY + stackHeight / 2, 0], Math.min(1.2, width * 0.2), rake);
-  addRoundedBox(parts.band, [lengthAlong + 0.08, 0.12 * stackHeight, width + 0.08], [x - 0.2 - 0.06 * stackHeight * 0.7, casingTopY + 0.72 * stackHeight, 0], Math.min(1.2, width * 0.2), rake);
-  // Two uptakes rise out of the top and bend aft.
+  const bandCentreShare = band.atShare + band.heightShare / 2;
+  addRoundedBox(parts.band, [lengthAlong + 0.08, band.heightShare * stackHeight, width + 0.08], [x - 0.2 - 0.06 * stackHeight * (bandCentreShare - 0.5), casingTopY + bandCentreShare * stackHeight, 0], Math.min(1.2, width * 0.2), rake);
+  // Two uptakes rise just clear of the top over its forward half and bend aft (Eagle S's photograph: about 1 m over
+  // the rim).
   for (const side of [-1, 1]) {
     const pipeRadius = 0.55 * scale + 0.15;
-    const startX = x - 0.1 * lengthAlong;
+    const startX = x + 0.15 * lengthAlong;
     const pipeZ = side * width * 0.2;
     addPipe(
       parts.funnel,
-      [new THREE.Vector3(startX, topY - 0.5, pipeZ), new THREE.Vector3(startX, topY + 1.6 * scale + 0.4, pipeZ), new THREE.Vector3(startX - 0.8 * scale - 0.3, topY + 2.3 * scale + 0.5, pipeZ), new THREE.Vector3(startX - 1.6 * scale - 0.6, topY + 2.2 * scale + 0.45, pipeZ)],
+      [new THREE.Vector3(startX, topY - 0.5, pipeZ), new THREE.Vector3(startX, topY + 1.0 * scale + 0.3, pipeZ), new THREE.Vector3(startX - 0.8 * scale - 0.3, topY + 1.5 * scale + 0.35, pipeZ), new THREE.Vector3(startX - 1.6 * scale - 0.6, topY + 1.4 * scale + 0.3, pipeZ)],
       pipeRadius,
       8,
     );
   }
   return { x, baseY, topY, lengthAlong, width };
+}
+
+/**
+ * A bridge front raked out at the top, as bridge windows are to keep the glare off them: a wedge across the bridge
+ * from 35% of its height up to the roof, leaning BRIDGE_FRONT_RAKE_METRES forward, glazed on its sloping face.
+ */
+function addRakedFront(parts: ShipParts, bridge: { frontX: number; floorY: number; roofY: number; width: number }) {
+  const footY = bridge.floorY + 0.35 * (bridge.roofY - bridge.floorY);
+  const profile = new THREE.Shape([new THREE.Vector2(0, footY), new THREE.Vector2(BRIDGE_FRONT_RAKE_METRES, bridge.roofY), new THREE.Vector2(0, bridge.roofY)]);
+  const wedge = new THREE.ExtrudeGeometry(profile, { depth: bridge.width, bevelEnabled: false });
+  wedge.translate(bridge.frontX, 0, -bridge.width / 2);
+  parts.structure.push(wedge.toNonIndexed());
+  wedge.dispose();
+  // The glazing on the sloping face, set just proud of it, with a frame band left above and below.
+  const slopeLength = Math.hypot(BRIDGE_FRONT_RAKE_METRES, bridge.roofY - footY);
+  const lean = Math.atan2(BRIDGE_FRONT_RAKE_METRES, bridge.roofY - footY);
+  const centreShare = 0.55;
+  addBox(parts.glass, [0.08, slopeLength * 0.62, bridge.width * 0.96], [bridge.frontX + BRIDGE_FRONT_RAKE_METRES * centreShare + 0.05, footY + (bridge.roofY - footY) * centreShare, 0], new THREE.Euler(0, 0, -lean));
 }
 
 /** Forecastle gear every ship carries: two windlasses, mooring bitts, a breakwater and a foremast. */
