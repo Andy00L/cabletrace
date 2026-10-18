@@ -306,6 +306,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       domElement: canvas,
       sampleElevationMetres,
       cutScene: overview.primaryCutScene,
+      cutAtMs: input.cuts[0].atMs,
+      sky: skyMap,
       trackDirection: overview.trackDirection,
       cableDirection: overview.cableDirection,
       cableLabel: input.cuts[0].label,
@@ -546,8 +548,12 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   function renderCloseUp(closeUpScene: CloseUpScene, nowSeconds: number, deltaSeconds: number) {
     if (cameraOverride) applyCameraOverride(cameraOverride, closeUpScene.camera, closeUpScene.controls.target);
     const hasCameraMoved = cameraOverride ? false : closeUpScene.controls.update();
-    if (isCalm && !isDirty && !hasCameraMoved) return;
-    closeUpScene.update(nowSeconds, deltaSeconds);
+    // The cut plays out on the replay's clock, so a new moment is a new frame.
+    const atMs = readTimeMs();
+    const hasTimeChanged = atMs !== lastDrawnAtMs;
+    if (isCalm && !isDirty && !hasCameraMoved && !hasTimeChanged) return;
+    lastDrawnAtMs = atMs;
+    closeUpScene.update(atMs, nowSeconds, deltaSeconds);
     renderer.draw(closeUpScene.scene, closeUpScene.camera);
     closeUpLabels.render(closeUpScene.scene, closeUpScene.camera);
     isDirty = false;
