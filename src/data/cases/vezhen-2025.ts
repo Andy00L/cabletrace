@@ -473,7 +473,7 @@ export const VEZHEN_2025: CableCase = {
       title: "Investigation into Cable Damage in the Baltic Sea Continues",
       url: "https://www.mil.lv/lv/node/6118",
       publishedOn: "2025-01-27",
-      archivedUrl: null,
+      archivedUrl: "https://web.archive.org/web/20261017155502/https://www.mil.lv/lv/node/6118",
     },
     {
       id: 11,
@@ -481,7 +481,7 @@ export const VEZHEN_2025: CableCase = {
       title: "Transport Accident and Incident Investigation Bureau initiates preliminary assessment of damaged submarine cable in the Baltic Sea",
       url: "https://www.taiib.gov.lv/en/article/transport-accident-and-incident-investigation-bureau-initiates-preliminary-assessment-damaged-submarine-cable-baltic-sea",
       publishedOn: "2025-06-21",
-      archivedUrl: null,
+      archivedUrl: "https://web.archive.org/web/20261017155655/https://www.taiib.gov.lv/en/article/transport-accident-and-incident-investigation-bureau-initiates-preliminary-assessment-damaged-submarine-cable-baltic-sea",
     },
     {
       id: 12,

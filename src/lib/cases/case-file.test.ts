@@ -74,10 +74,31 @@ describe("findCaseProblems", () => {
     expect(problems).toContain("fix 2: 2024-12-25T13:00:00Z is outside the replay window");
   });
 
-  test("accepts a Wayback capture as the archived copy and rejects any other address", () => {
-    const archived = { ...FIXTURE.sources[0], archivedUrl: "https://web.archive.org/web/20241226000000/https://example.org" };
-    expect(findCaseProblems({ ...FIXTURE, sources: [archived] })).toEqual([]);
-    const elsewhere = { ...FIXTURE.sources[0], archivedUrl: "https://archive.example/abc" };
-    expect(findCaseProblems({ ...FIXTURE, sources: [elsewhere] })).toContain("source 1: archived copy is not a Wayback Machine capture");
+  test("accepts a Wayback capture or an archive.today snapshot of the cited page as the archived copy", () => {
+    const withArchive = (archivedUrl: string) => findCaseProblems({ ...FIXTURE, sources: [{ ...FIXTURE.sources[0], archivedUrl }] });
+    expect(withArchive("https://web.archive.org/web/20241226000000/https://example.org")).toEqual([]);
+    expect(withArchive("https://web.archive.org/web/20241226093000/http://www.example.org/")).toEqual([]);
+    const escapedSource = { ...FIXTURE.sources[0], url: "https://example.org/data.aspx?id=TNDM%2c114" };
+    expect(findCaseProblems({ ...FIXTURE, sources: [{ ...escapedSource, archivedUrl: "https://web.archive.org/web/20241226093000/https://example.org/data.aspx?id=TNDM%2C114" }] })).toEqual([]);
+    const quotedSource = { ...FIXTURE.sources[0], url: "https://example.org/Products?$filter=Name%20eq%20'S2B'" };
+    expect(findCaseProblems({ ...FIXTURE, sources: [{ ...quotedSource, archivedUrl: "https://web.archive.org/web/20241226093000/https://example.org/Products?$filter=Name%20eq%20%27S2B%27" }] })).toEqual([]);
+    expect(withArchive("https://archive.ph/Ab3dE")).toEqual([]);
+    expect(withArchive("https://archive.today/2024.12.26-093000/https://example.org")).toEqual([]);
+  });
+
+  test("rejects an archived copy that is not a snapshot, shows another page or predates the page", () => {
+    const withArchive = (archivedUrl: string) => findCaseProblems({ ...FIXTURE, sources: [{ ...FIXTURE.sources[0], archivedUrl }] });
+    expect(withArchive("https://archive.example/abc")).toEqual(["source 1: archived copy is not a Wayback Machine or archive.today snapshot"]);
+    // A Wayback address without a capture time redirects to whatever capture is newest, not the page as cited.
+    expect(withArchive("https://web.archive.org/web/https://example.org")).toEqual(["source 1: archived copy is not a Wayback Machine or archive.today snapshot"]);
+    expect(withArchive("https://web.archive.org/web/20241226000000/https://example.org/other")).toEqual(["source 1: archived copy is a snapshot of https://example.org/other, not of the cited page"]);
+    expect(withArchive("https://web.archive.org/web/20170201134931/https://example.org/")).toEqual(["source 1: archived copy from 2017-02-01 predates the page (2024-12-26)"]);
+    // The page is dated 26 December in its local time zone, which can be the 25th in UTC.
+    expect(withArchive("https://web.archive.org/web/20241225230000/https://example.org")).toEqual([]);
+  });
+
+  test("reports a source id used twice", () => {
+    const [source] = FIXTURE.sources;
+    expect(findCaseProblems({ ...FIXTURE, sources: [source, { ...source, title: "Another title" }] })).toContain("source 1: id used twice");
   });
 });

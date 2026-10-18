@@ -395,9 +395,11 @@ export const EAGLE_S_2024: CableCase = {
       id: 15,
       publisher: "Nord Pool market message, published by Fingrid",
       title: "Estlink 2 unavailability",
-      url: "https://umm.nordpoolgroup.com/#/messages/79210ee1-3395-4f75-a972-7b03888b107a/5",
+      // The message itself from Nord Pool's UMM API: the umm.nordpoolgroup.com page is a single-page app that archives
+      // empty. The capture holds "eventStart":"2024-12-25T10:26:00.0000000Z" (checked 17 Oct 2026).
+      url: "https://ummapi.nordpoolgroup.com/messages/79210ee1-3395-4f75-a972-7b03888b107a",
       publishedOn: "2024-12-25",
-      archivedUrl: "https://web.archive.org/web/20170201134931/https://umm.nordpoolgroup.com/",
+      archivedUrl: "https://web.archive.org/web/20261017160918/https://ummapi.nordpoolgroup.com/messages/79210ee1-3395-4f75-a972-7b03888b107a",
     },
     {
       id: 19,
@@ -413,7 +415,7 @@ export const EAGLE_S_2024: CableCase = {
       title: "Charges have been brought in the case concerning the cutting of submarine cables in the Gulf of Finland during Christmas 2024",
       url: "https://www.syyttajalaitos.fi/en/news/news-archive/charges-have-been-brought-in-the-case-concerning-the-cutting-of-submarine-cables-in-the-gulf-of-finland-during-christmas-2024/",
       publishedOn: "2025-08-11",
-      archivedUrl: null,
+      archivedUrl: "https://web.archive.org/web/20261017155844/https://www.syyttajalaitos.fi/en/news/news-archive/charges-have-been-brought-in-the-case-concerning-the-cutting-of-submarine-cables-in-the-gulf-of-finland-during-christmas-2024/",
     },
     {
       id: 27,
@@ -472,6 +474,6 @@ export const EAGLE_S_2024: CableCase = {
       publishedOn: "2025-08-26",
       archivedUrl: "https://web.archive.org/web/20250826115354/https://yle.fi/a/74-20179391",
     },
-    { id: 54, publisher: "VesselFinder", title: "EAGLES, Crude Oil Tanker, IMO 9329760", url: "https://www.vesselfinder.com/vessels/details/9329760", publishedOn: "2026-10-17", archivedUrl: null },
+    { id: 54, publisher: "VesselFinder", title: "EAGLES, Crude Oil Tanker, IMO 9329760", url: "https://www.vesselfinder.com/vessels/details/9329760", publishedOn: "2026-10-17", archivedUrl: "https://web.archive.org/web/20261017160021/https://www.vesselfinder.com/vessels/details/9329760" },
   ],
 };

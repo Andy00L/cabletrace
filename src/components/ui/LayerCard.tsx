@@ -2,8 +2,9 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
-import { useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Icon } from "@/components/icons/Icon";
+import { useReturnFocusToOpener } from "@/components/ui/use-return-focus";
 
 /** Anything the card can sit next to: a control's element, or a point projected from the 3D view. */
 export type LayerAnchor = { getBoundingClientRect: () => DOMRect };
@@ -55,14 +56,7 @@ export function LayerCard({
   testId,
   children,
 }: LayerCardProps) {
-  const openerRef = useRef<HTMLElement | null>(null);
-  const rememberOpener = () => {
-    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  };
-  const returnFocus = (event: Event) => {
-    event.preventDefault();
-    openerRef.current?.focus();
-  };
+  const { rememberOpener, returnFocus } = useReturnFocusToOpener();
 
   if (presentation === "sheet") {
     // Not modal, like the popover: the scene and the dock stay usable under it; Esc and the close button close it.

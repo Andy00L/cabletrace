@@ -195,6 +195,14 @@ Evidence:
   probes and all 170 alarm probes land within 2 levels of their token (0 of 457 cable probes did before). When the
   GEBCO seabeds were smoothed and the two trawlers got fishing hulls, the software tier failed exactly the 9 frames
   those changes moved and passed the other 15 (`docs/LOOKDEV.md`).
+- **Every source still answers.** `bun run check:sources` resolves all 127 sources and their 119 archived copies (all
+  live); the 8 that cannot be archived (multi-gigabyte AIS zips, an API query, pages that refuse archiving) are listed
+  with their reasons. Its first run caught a moved Danish AIS file and an archive of the wrong page, both fixed.
+- **Nothing is buried, and the keyboard works.** `bun run check:evidence` searches every path of up to two clicks or
+  keys for each source, quote, translation, placement note and credit; `bun run check:keyboard` opens and closes every
+  layer with Tab, Enter and Esc. Their first runs caught quotes three clicks deep and three dialogs that dropped
+  focus on close; both are fixed (`docs/EVIDENCE_CHECKS.md`). `bun run check:links` reopens 89 shared links across
+  the ten cases at the right minute, view and card.
 
 ## 🧪 Reproduce it
 
@@ -222,7 +230,7 @@ bun test src
 bun run build
 ```
 
-Success: each exits 0; `bun test src` runs 276 tests.
+Success: each exits 0; `bun test src` runs 328 tests.
 
 Check a case file from the live site (it touches nothing):
 

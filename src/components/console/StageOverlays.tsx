@@ -7,6 +7,7 @@ import { StatusIsland } from "@/components/console/StatusIsland";
 import { Icon, type IconName } from "@/components/icons/Icon";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
 import type { SeabedDetail } from "@/lib/console/console-state";
+import { LAND_CREDIT } from "@/lib/seabed/scene-credits";
 import { CLOSE_UP_SCALE_NOTES, describeOverviewScale, type SceneExaggeration } from "@/lib/seabed/scene-scales";
 import type { SeabedViewName } from "@/lib/seabed/scene/viewer";
 
@@ -33,12 +34,10 @@ const LEGEND_ITEMS = [
   { label: "Cable", stroke: "var(--color-cable)", width: 2.5 },
   { label: "Pipeline", stroke: "var(--color-pipeline)", width: 3 },
 ] as const;
-// Credits for the data drawn in the view (docs/UI_DESIGN_SYSTEM.md, Map sources and credits). Every seabed area takes
-// its land from Copernicus, so its lines are fixed: the notice and the liability sentence its licence requires for
-// modified data. Depth, cables and pipelines come from each area's seabed file (scripts/seabed/build-seabed.ts writes
-// them): an area outside Europe has its depth from another grid, and a route traced off a published map names it.
-const LAND_CREDIT =
-  "Land: produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved. The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.";
+// Credits for the data drawn in the view (docs/UI_DESIGN_SYSTEM.md, Map sources and credits). The land line is fixed
+// (src/lib/seabed/scene-credits.ts). Depth, cables and pipelines come from each area's seabed file
+// (scripts/seabed/build-seabed.ts writes them): an area outside Europe has its depth from another grid, and a route
+// traced off a published map names it.
 // The Gulf of Finland's credits and scale, for an area whose seabed file could not be read.
 const DEFAULT_SCENE_SUMMARY: SceneSummary = {
   depth: "EMODnet Bathymetry Consortium, EMODnet Digital Bathymetry (DTM 2024), CC BY 4.0",
@@ -87,6 +86,8 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
   const isCloseUp = view === "closeup";
   const { depth, cables, pipelines, exaggeration } = sceneSummary ?? DEFAULT_SCENE_SUMMARY;
   const scaleNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail] : describeOverviewScale(exaggeration);
+  // At the cut, both modes' sentences show, the current one first, so neither needs a switch to read.
+  const otherCloseUpNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail === "measured" ? "illustrated" : "measured"] : null;
   const clearRight = isRailFloating ? railWidthPx : 16;
   const sceneCredits = [`Depth: ${depth}.`, LAND_CREDIT, `Cables: ${cables}. Pipelines: ${pipelines}. OpenStreetMap data is under the ODbL.`];
 
@@ -169,6 +170,7 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
               <p className="text-small" data-testid="scale-note">
                 {scaleNote}
               </p>
+              {otherCloseUpNote && <p className="text-caption font-normal text-muted">{otherCloseUpNote}</p>}
               <ul className="flex flex-col gap-1.5 text-caption font-normal text-muted">
                 {sceneCredits.map((credit) => (
                   <li key={credit}>{credit}</li>

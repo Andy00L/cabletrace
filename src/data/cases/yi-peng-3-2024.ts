@@ -393,7 +393,8 @@ export const YI_PENG_3_2024: CableCase = {
       id: 10,
       publisher: "Danish Maritime Authority",
       title: "AIS data archive, aisdk-2024-11-18.zip",
-      url: "https://s3.eu-central-1.amazonaws.com/aisdata.ais.dk/aisdk-2024-11-18.zip",
+      // The archive moved its 2024 files into a year folder; the old address answers 404 (checked 17 Oct 2026).
+      url: "https://s3.eu-central-1.amazonaws.com/aisdata.ais.dk/2024/aisdk-2024-11-18.zip",
       publishedOn: "2025-07-21",
       archivedUrl: null,
     },
