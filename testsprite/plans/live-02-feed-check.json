@@ -1,0 +1,25 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "The live page says whether the two AIS feeds agree",
+  "description": "Validates the feed check on /live: each region both feeds cover gets one line whose verdict text matches its data-state, with the measured shares and their 90% and 95% targets.",
+  "priority": "p2",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /live and wait up to 60 seconds for the card \"This moment\" (data-testid live-moment) to show at least one feed check line (data-testid live-feed-check)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert each feed check line has data-state \"agree\" or \"disagree\", and reads \"Feeds agree in the\" when it is agree and \"Feeds disagree in the\" when it is disagree"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert each line says what share \"of aisstream's moving class A ships are also in Digitraffic (target 90%)\" and what share of the shared positions \"lie within 250 m (target 95%)\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert one of the lines names the Gulf of Finland"
+    }
+  ]
+}

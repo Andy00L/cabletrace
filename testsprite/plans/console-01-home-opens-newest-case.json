@@ -1,0 +1,37 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Open the newest case replay from the home page",
+  "description": "Validates the home page (title, live recorder card, the two newest cases) and that a case card opens that case's replay console with its 3D view drawn.",
+  "priority": "p0",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to the home page /"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page heading reads \"Ship traffic over subsea cables\" and the live recorder card (data-testid recorder-status) is shown with a data-state of recording, failing, stale, never-ran or unreachable; unless it is unreachable, its ship count (data-testid recorder-ships) is a whole number"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the newest cases list (data-testid latest-cases) holds exactly 2 case cards, each a link whose data-testid starts with case-card-"
+    },
+    {
+      "type": "action",
+      "description": "Note the heading of the first case card and its data-testid (case-card-<slug>), then click that card"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /cases/<slug> for the noted slug, the replay console (data-testid replay-console) is shown, and the case switcher button (data-testid case-switcher) reads the noted card heading"
+    },
+    {
+      "type": "action",
+      "description": "Then wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert no card saying \"The 3D view did not load\" is shown"
+    }
+  ]
+}

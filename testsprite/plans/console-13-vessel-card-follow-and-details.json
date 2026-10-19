@@ -1,0 +1,37 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Open the vessel card, follow the ship and read its details",
+  "description": "Validates the vessel card opened from the ship's name: its figures at the replay moment and their basis, Follow switching to the Vessel view, and Ship details opening Ship mode with the ship's identity.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024?t=2024-12-25T14:00Z and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "action",
+      "description": "Click the ship's name \"Eagle S\" (data-testid open-vessel-card) in the panel on the right of the 3D view (click \"Show panel\" first if it is folded)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert a card (data-testid vessel-card) opens with \"Eagle S\" and \"Oil tanker, 228.6 m, Cook Islands flag\", shows a speed in kn and a course, says \"Between two placed positions\", and the URL query has layer=vessel"
+    },
+    {
+      "type": "action",
+      "description": "Click \"Follow\" (data-testid vessel-card-follow) in the card"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert that button now reads \"Stop following\" and is pressed, \"Vessel\" is pressed in the view switch (data-testid view-switch), and the camera button \"Follow the ship\" is pressed"
+    },
+    {
+      "type": "action",
+      "description": "Click \"Ship details\" in the vessel card"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the vessel card closes, \"Ship\" is pressed in the mode switch (data-testid mode-switch), and the ship card (data-testid ship-card) lists IMO 9329760, MMSI 518998865 and flag Cook Islands"
+    }
+  ]
+}

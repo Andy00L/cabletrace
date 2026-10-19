@@ -1,0 +1,41 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Jump through the night from the minute-by-minute list (console)",
+  "description": "Validates that clicking an event in the minute-by-minute list moves the replay to its minute, marks that row's list item as the current step, updates the anchor status, and writes the minute into the URL.",
+  "priority": "p0",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "action",
+      "description": "In the list headed \"25 December, minute by minute\" (data-testid event-list) in the panel on the right of the 3D view (click \"Show panel\" first if it is folded), click the row \"Cinia detects a fault on C-Lion1\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock (data-testid replay-clock) reads \"16:44 UTC\" and the anchor status (data-testid replay-anchor-status) reads \"Anchor dragging on the seabed\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the list item (the li element, not the button inside it) that holds the row \"Cinia detects a fault on C-Lion1\" has aria-current=\"step\", and it is the only li in the list with aria-current"
+    },
+    {
+      "type": "action",
+      "description": "Click the row \"Police and Border Guard board the tanker from helicopters\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock reads \"22:28 UTC\", the line right under it reads \"26 Dec 2024, 00:28 in Helsinki\", and the anchor status reads \"Drag ended at 16:45\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the li holding \"Police and Border Guard board the tanker from helicopters\" now has aria-current=\"step\" and the li holding \"Cinia detects a fault on C-Lion1\" has no aria-current attribute"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL query has t=2024-12-25T22:28Z"
+    }
+  ]
+}

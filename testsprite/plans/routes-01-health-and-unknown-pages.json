@@ -1,0 +1,33 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Health endpoint answers and unknown pages return 404",
+  "description": "Validates the public routes as a browser shows them: /api/health answers JSON with the app up and the recorder, collector and feed check states, refuses a query string, and an unknown case slug shows the 404 page instead of a broken console. The health check's status codes are checked by testsprite/backend/health_endpoint.py.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /api/health"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the response is JSON with \"app\": \"up\", a \"status\" of \"ok\" or \"degraded\", \"recorder\" and \"collector\" objects, and a \"crossSource\" list"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /api/health?probe=1"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page shows the JSON {\"ok\":false,\"reason\":\"the health check takes no query string\"} and no health report (no \"app\" or \"recorder\" field)"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /cases/not-a-real-case"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page shows \"404\" and \"This page could not be found.\", and no replay console (data-testid replay-console) is shown"
+    }
+  ]
+}

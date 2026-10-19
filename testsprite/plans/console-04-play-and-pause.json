@@ -1,0 +1,41 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Play and pause the Eagle S replay (console)",
+  "description": "Validates that Play moves the replay clock forward and changes the button to Pause, that Pause holds the clock still, and that the anchor status always matches the minute on the clock.",
+  "priority": "p0",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024?t=2024-12-25T10:00Z and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock (data-testid replay-clock) reads \"10:00 UTC\" and the anchor status (data-testid replay-anchor-status) has data-state \"before\" and reads \"Drag starts at 10:26\""
+    },
+    {
+      "type": "action",
+      "description": "Click the button labelled \"Play replay\" (data-testid replay-play)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the same button is now labelled \"Pause replay\" and the replay clock shows a time later than 10:00 UTC"
+    },
+    {
+      "type": "action",
+      "description": "Wait 5 seconds, then click the button labelled \"Pause replay\" and note the time on the replay clock"
+    },
+    {
+      "type": "action",
+      "description": "Wait 3 seconds"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock still shows the noted time and the button is labelled \"Play replay\" again"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the anchor status matches the noted time: it reads \"Anchor dragging on the seabed\" when the noted time is between 10:26 and 16:45 UTC, and \"Drag ended at 16:45\" when it is later than 16:45 UTC"
+    }
+  ]
+}

@@ -293,11 +293,38 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
 ## 🏆 TestSprite
 
 The TestSprite GitHub App tests every pull request: when Vercel reports the pull request's preview ready, TestSprite
-runs the project's 9 portal tests against that preview and reports on the pull request. The replay flows are also
-kept in `testsprite/plans`: 7 plans covering opening a case from home, play and pause, jumping from the event list,
-views and the scale note, sources and placement, the mixed AIS and reconstructed track, and the case list. A manual
-run against any URL is `.github/workflows/testsprite.yml`, started from the Actions tab. Screens expose stable `data-testid` and `data-state` hooks for them, such as
-`replay-console`, `seabed-view` (loading, ready, failed), `replay-scrubber`, `live-globe` and `download-case-file`.
+runs every portal test against that preview, reports the "TestSprite V3" check and comments its report. The 17
+browser tests in `testsprite/plans` are the suite's core; four earlier portal tests cover the home recorder card and
+the WebGL check. Each plan asserts what a reader sees, through `data-testid`, `data-state`, `aria-pressed` and
+`aria-current` hooks and the console's own wording, never pixel positions.
+
+| Plan | Flow | What a regression there would break |
+| --- | --- | --- |
+| `console-01` | Home, the two newest cases, open one | The way in: a card that opens the wrong case or a 3D view that never loads |
+| `console-02` | Case list grouped by region, open Yi Peng 3 | Region grouping, sketches, the track-evidence line on each card |
+| `console-03` | Eagle S opens on its first position | The opening minute (10:26, not the window start), defaults, anchor status |
+| `console-04` | Play and pause | The clock moving, Pause holding it, the anchor status matching the minute |
+| `console-05` | Jump from the minute-by-minute list | Seeking, the current row (`aria-current="step"` on its item), `t` in the URL |
+| `console-06` | Views, Measured and Illustrated, the scale note | The disclosure of how much larger than life each view is drawn |
+| `console-07` | Evidence mode: placed positions, sources sheet, filter | The path from a position to its sources, links opening in a new tab |
+| `console-08` | Case file row | The download link and the 12 shown characters of its full SHA-256 |
+| `console-09` | Yi Peng 3, placed then recorded AIS over two days | Day labels, the "from AIS" or "derived" basis, the recorded stretch and its archive |
+| `console-10` | Rubymar, a 12-day window with three cuts | Cut labels on a long timeline, the cut card, Go to the close-up |
+| `console-11` | Scrubber arrow keys | One minute per key on the native slider, clock and spoken value agreeing |
+| `console-12` | Shared links | A link restoring minute, view, mode and card; unknown values falling back |
+| `console-13` | Vessel card, Follow, Ship details | The vessel's figures and basis, the Vessel view, the ship's identity |
+| `console-14` | Keyboard shortcuts | Event jumps, view keys, Space to play and pause, the shortcuts dialog |
+| `live-01` | Live globe, the Eagle S incident, Fly to the seabed | The recorded day loading, and the dive landing on the cut's minute and card |
+| `live-02` | Feed check on `/live` | The verdict text matching its state, with the 90% and 95% targets |
+| `routes-01` | `/api/health`, refused query strings, an unknown case | The health contract and 404s instead of a broken console |
+
+Every plan starts from its own URL and depends on no other, so a sign-in step can go in front of each one when the
+app moves behind sign-in. Before upload, each plan's steps and assertions were run with Playwright against
+cabletrace.vercel.app, at 1280 x 720 and 1440 x 900. `testsprite/backend` holds four API tests in TestSprite's Python
+format (health, the case file hash recomputed from its canonical form, the ship-frames route, the watchlist's
+refusals); they pass with `python3 testsprite/backend/<file>.py` against the live app and wait for a TestSprite backend
+project, since this one is a frontend project. A manual run against any URL is `.github/workflows/testsprite.yml`,
+started from the Actions tab.
 
 ## 📚 Data sources and licences
 

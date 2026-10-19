@@ -1,0 +1,37 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Open a cut from the timeline of the 12-day Rubymar replay",
+  "description": "Validates a multi-day case: the Rubymar window runs from 18 February to 2 March 2024, its three cuts sit on the timeline with their times, a cut label opens the cut's card, and Go to the close-up moves time and view and writes both into the URL.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/rubymar-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the event list (data-testid event-list) heading reads \"18 February to 2 March, minute by minute\" and the line under the replay clock ends with \"in Sanaa\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the timeline under the clock shows three cut labels, in order: \"Seacom, 09:30\" (data-testid timeline-cut-0), \"AAE-1, 09:45\" (timeline-cut-1) and \"EIG, 21:00\" (timeline-cut-2)"
+    },
+    {
+      "type": "action",
+      "description": "Click the label \"EIG, 21:00\" (data-testid timeline-cut-2)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert a card (data-testid cut-card) titled \"EIG cut\" opens showing \"21:00\" and \"UTC, 24 Feb\", and the URL query has layer=cut-eig"
+    },
+    {
+      "type": "action",
+      "description": "Click \"Go to the close-up\" in that card"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock reads \"21:00 UTC\", the line under it starts with \"25 Feb 2024, 00:00\", \"At the cut\" is pressed in the view switch (data-testid view-switch), and the URL query has view=closeup and t=2024-02-24T21:00Z"
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Yi Peng 3 replay separates placed positions from recorded AIS",
+  "description": "Validates the two-day Yi Peng 3 case, whose track is placed from statements until 06:01 UTC on 18 November and recorded AIS after: the list carries a date on the first row of each day, Ship mode says which basis the numbers rest on, and Evidence mode lists the recorded stretch and its archive.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/yi-peng-3-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the case switcher (data-testid case-switcher) reads \"Yi Peng 3 anchor drag\" and the event list (data-testid event-list) heading reads \"17 and 18 November, minute by minute\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the first row of the event list shows the date \"17 Nov\" under its time and a later row shows \"18 Nov\""
+    },
+    {
+      "type": "action",
+      "description": "Click the row \"Slows from 7.6 knots to under 1 and holds position for 75 minutes\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock (data-testid replay-clock) reads \"08:24 UTC\" and the line right under it reads \"18 Nov 2024, 09:24 in Stockholm\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Ship\" in the mode switch (data-testid mode-switch)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the card \"Derived at this moment\" is headed \"At 08:24 UTC\", is marked \"from AIS\", and says \"Speed as the ship broadcast it\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Replay\" in the mode switch, click the row \"C-Lion1 stops carrying traffic\", then click \"Ship\" again"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the card \"Derived at this moment\" is headed \"At 02:00 UTC\", is marked \"derived\", and says the speed is \"never a recorded speed\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Evidence\" in the mode switch"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the entry with data-testid recorded-track-entry contains \"Recorded AIS from 06:01 to 10:59, 114 positions\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"All sources\" (data-testid open-sources)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the sources sheet (data-testid source-list) lists \"AIS data archive, aisdk-2024-11-18.zip\" from the Danish Maritime Authority"
+    }
+  ]
+}

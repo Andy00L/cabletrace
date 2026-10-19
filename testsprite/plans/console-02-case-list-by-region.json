@@ -1,0 +1,33 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Find a case on the case list by region and open it",
+  "description": "Validates the case list: cases grouped under their region headings, each with its map sketch and how its track is known, and a card opens the replay.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page heading reads \"Cases\" and the list (data-testid case-list) has region headings \"Gulf of Finland\", \"Central Baltic\", \"Norway and Svalbard\", \"Taiwan Strait\" and \"Red Sea\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the Gulf of Finland group (data-testid case-region-gulf-of-finland) holds the card case-card-eagle-s-2024, whose text includes \"Reconstructed from statements\", and the Central Baltic group (data-testid case-region-central-baltic) holds the card case-card-yi-peng-3-2024, whose text includes \"Reconstructed, then AIS from 06:01 UTC\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert every case card in the list contains a map image (an svg with role img)"
+    },
+    {
+      "type": "action",
+      "description": "Click the Yi Peng 3 card (data-testid case-card-yi-peng-3-2024)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /cases/yi-peng-3-2024 and the case switcher button (data-testid case-switcher) reads \"Yi Peng 3 anchor drag\""
+    }
+  ]
+}

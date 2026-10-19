@@ -1,0 +1,25 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Case file row links the download and shows the start of its SHA-256",
+  "description": "Validates the case file row in Evidence mode: it links /cases/eagle-s-2024/case-file as a download named cabletrace-eagle-s-2024.json, and the 12 characters it shows are the start of the full SHA-256 in its tooltip. The downloaded file itself is checked by testsprite/backend/case_file_checksum.py, which recomputes the hash.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024?mode=evidence and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the \"Case file\" row (data-testid download-case-file) is a link with href \"/cases/eagle-s-2024/case-file\" and a download attribute \"cabletrace-eagle-s-2024.json\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the row shows a 12 character lowercase hexadecimal hash, and that element's title attribute reads \"SHA-256 \" followed by 64 lowercase hexadecimal characters that start with the 12 shown"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the row reads \"Case file\" and \"JSON with every position, quote and source\""
+    }
+  ]
+}

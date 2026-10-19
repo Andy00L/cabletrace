@@ -1,0 +1,37 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Fly from the live globe into the Eagle S case",
+  "description": "Validates /live: the recorded day loads on the 3D globe with its frames, ship count and clock, the Eagle S incident opens its card, and Fly to the seabed lands on the case console at the cut's minute with the cut card open.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /live and wait up to 60 seconds for the globe (data-testid live-globe-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the stage (data-testid live-globe) has a data-frame-count of at least 1 and shows the label \"A recorded day of ships, not real time\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert, within 60 seconds, the ship count (data-testid live-ship-count) shows a whole number above 0 and the clock (data-testid live-clock) reads a time in the form HH:MM UTC"
+    },
+    {
+      "type": "action",
+      "description": "In the card \"Cable cuts on file\" (data-testid live-incidents), click the Eagle S row (data-testid live-incident-eagle-s-2024)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the incident card (data-testid live-incident-card) opens with data-slug \"eagle-s-2024\", reads \"Eagle S anchor drag\", names the cut \"Estlink 2\" and the time \"10:26 UTC\", and the Eagle S row has aria-current=\"true\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Fly to the seabed\" (data-testid live-incident-dive) and wait up to 60 seconds for the page to change"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /cases/eagle-s-2024 with t=2024-12-25T10:26Z and layer=cut-estlink-2 in the query, the replay console (data-testid replay-console) is shown, and a card (data-testid cut-card) titled \"Estlink 2 cut\" is open"
+    }
+  ]
+}

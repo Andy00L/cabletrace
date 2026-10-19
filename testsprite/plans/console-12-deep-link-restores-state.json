@@ -1,0 +1,37 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "A shared replay link restores its moment, view, mode and card",
+  "description": "Validates the URL state: a link with t, view, mode and layer reopens that exact state, Escape closes the card and drops only the layer from the URL, and a link with unknown values falls back to the defaults instead of failing.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024?t=2024-12-25T16:44Z&view=top&mode=evidence&layer=cut-c-lion1 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock (data-testid replay-clock) reads \"16:44 UTC\", \"From above\" is pressed in the view switch (data-testid view-switch), and \"Evidence\" is pressed in the mode switch (data-testid mode-switch)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert a card (data-testid cut-card) titled \"C-Lion1 cut\" is open"
+    },
+    {
+      "type": "action",
+      "description": "Press Escape"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the cut card is closed and the URL query still has t=2024-12-25T16:44Z, view=top and mode=evidence but no layer"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024?t=yesterday&view=sideways&mode=cinema&layer=cut-nowhere and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page shows the replay console with no error, the replay clock reads \"10:26 UTC\", \"Overview\" and \"Replay\" are pressed, and no cut card is open"
+    }
+  ]
+}

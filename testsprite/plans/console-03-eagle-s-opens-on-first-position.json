@@ -1,0 +1,33 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Eagle S replay opens on the ship's first position (console)",
+  "description": "Validates that a replay link without a time opens on the ship's first known position (10:26 UTC for Eagle S, not the window start at 10:00), with the default view and mode and an anchor status that matches that minute.",
+  "priority": "p0",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert no card saying \"The 3D view did not load\" is shown"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock (data-testid replay-clock) reads \"10:26 UTC\" and the line right under it reads \"25 Dec 2024, 12:26 in Helsinki\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the anchor status button (data-testid replay-anchor-status) has data-state \"dragging\" and reads \"Anchor dragging on the seabed\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert \"Overview\" is pressed (aria-pressed true) in the view switch (data-testid view-switch) and \"Replay\" is pressed in the mode switch (data-testid mode-switch)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL is /cases/eagle-s-2024 with no query string"
+    }
+  ]
+}

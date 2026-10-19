@@ -1,0 +1,61 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Switch views and read the scale disclosure (console)",
+  "description": "Validates the view switch, the Measured and Illustrated switch at the cut, and that the stage's info popover always states how much larger than life the current view is drawn.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "action",
+      "description": "Click the round info button at the bottom left of the 3D view (data-testid scale-info, labelled \"Scale and data credits\")"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the popover titled \"How the view is drawn\" shows a note (data-testid scale-note) containing \"Depth is drawn 20 times deeper\" and \"the anchor 30 times\""
+    },
+    {
+      "type": "action",
+      "description": "Press Escape to close the popover, then click \"At the cut\" in the view switch (data-testid view-switch)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert a \"Seabed detail\" switch (data-testid detail-switch) with \"Measured\" and \"Illustrated\" appears and \"Illustrated\" is pressed (aria-pressed true)"
+    },
+    {
+      "type": "action",
+      "description": "Open the info popover again (data-testid scale-info)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the note (data-testid scale-note) starts with \"Close-up: the anchor is drawn 2 times its size\""
+    },
+    {
+      "type": "action",
+      "description": "Press Escape, then click \"Measured\" in the Seabed detail switch and open the info popover again"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the note (data-testid scale-note) contains \"only the depth grid under the cut\" and the URL query has view=closeup and detail=measured"
+    },
+    {
+      "type": "action",
+      "description": "Press Escape, then click \"From above\" in the view switch"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the Seabed detail switch is gone, \"From above\" is pressed, and the URL query has view=top"
+    },
+    {
+      "type": "action",
+      "description": "Open the info popover again"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the note (data-testid scale-note) again contains \"Depth is drawn 20 times deeper\""
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Drive the replay console with its keyboard shortcuts",
+  "description": "Validates the console's shortcuts with focus on the page (they are ignored inside the slider and text fields by design): an arrow key jumps to the next event, 2 picks From above, Space plays and pauses, and ? opens the shortcuts dialog that Escape closes.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024?t=2024-12-25T12:00Z and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "action",
+      "description": "Click the plain heading \"25 December, minute by minute\" in the panel on the right of the 3D view (click \"Show panel\" first if it is folded) so the keyboard focus is on the page, not on a button, slider or input; keep it there for every key press below"
+    },
+    {
+      "type": "action",
+      "description": "Press the ArrowRight key"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock (data-testid replay-clock) jumps to the next event, \"12:20 UTC\" (\"Back on its westbound route\")"
+    },
+    {
+      "type": "action",
+      "description": "Press the 2 key"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert \"From above\" is pressed (aria-pressed true) in the view switch (data-testid view-switch)"
+    },
+    {
+      "type": "action",
+      "description": "Press the Space key"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the play button (data-testid replay-play) is labelled \"Pause replay\""
+    },
+    {
+      "type": "action",
+      "description": "Press the Space key again"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the play button is labelled \"Play replay\""
+    },
+    {
+      "type": "action",
+      "description": "Press the ? key (Shift and the / key)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the dialog \"Keyboard shortcuts\" (data-testid shortcuts-dialog) opens and lists \"Play or pause\""
+    },
+    {
+      "type": "action",
+      "description": "Press Escape"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the shortcuts dialog is closed"
+    }
+  ]
+}
