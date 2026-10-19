@@ -292,10 +292,11 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
 
 ## 🏆 TestSprite
 
-The TestSprite suite and its GitHub pull request check go live once TestSprite enables the account for this
-project. Until then, the replay flows written so far are in `testsprite/plans`: 7 plans covering opening a case from
-home, play and pause, jumping from the event list, views and the scale note, sources and placement, the mixed AIS and
-reconstructed track, and the case list. Screens expose stable `data-testid` and `data-state` hooks for them, such as
+The TestSprite GitHub App tests every pull request: when Vercel reports the pull request's preview ready, TestSprite
+runs the project's 9 portal tests against that preview and reports on the pull request. The replay flows are also
+kept in `testsprite/plans`: 7 plans covering opening a case from home, play and pause, jumping from the event list,
+views and the scale note, sources and placement, the mixed AIS and reconstructed track, and the case list. A manual
+run against any URL is `.github/workflows/testsprite.yml`, started from the Actions tab. Screens expose stable `data-testid` and `data-state` hooks for them, such as
 `replay-console`, `seabed-view` (loading, ready, failed), `replay-scrubber`, `live-globe` and `download-case-file`.
 
 ## 📚 Data sources and licences
