@@ -1,7 +1,8 @@
-# Runs the TestSprite suite against a URL, started by hand from the Actions tab. Pull requests do
-# not trigger it: the hackathon wants the TestSprite GitHub App to test each pull request, and that
-# trigger needs a paid TestSprite plan, so until then main requires no TestSprite check. Once the
-# App trigger is set up in the TestSprite portal, its check becomes the required one.
+# Runs the TestSprite suite against any URL, started by hand from the Actions tab. Pull requests do
+# not use it: the TestSprite GitHub App tests each pull request itself. Its trigger (set in the
+# TestSprite portal, GitHub Action page) fires when the "Vercel" commit status succeeds and tests
+# https://cabletrace-git-{branch-slug}-andys-projects-b4ce5499.vercel.app, the pull request's preview.
+# Keep branch names to 24 characters or fewer: Vercel shortens longer preview hostnames.
 #
 # The TestSprite Free plan allows one environment per workspace, so a run against another URL
 # points the project's default environment there and back at production afterwards.
