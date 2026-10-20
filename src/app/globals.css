@@ -154,8 +154,17 @@ body {
 @utility art-dissolve {
   mask-image: linear-gradient(to bottom, transparent 0, #000 14%, #000 82%, transparent 100%);
 }
+/* The hull at the top of the furrow engraving sits close to its edge, so its top fade is short. */
+@utility art-dissolve-short {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 5%, #000 84%, transparent 100%);
+}
 @utility art-dissolve-top {
   mask-image: linear-gradient(to bottom, transparent 0, #000 22%);
+}
+
+/* Type set straight onto an engraving keeps a soft paper glow, so a hatch line never runs through a letter. */
+@utility paper-halo {
+  text-shadow: 0 0 2px var(--color-paper), 0 0 6px var(--color-paper), 0 0 14px var(--color-paper);
 }
 
 /* One focus treatment for every interactive element (docs/UI_DESIGN_SYSTEM.md, focus-ring). */

@@ -237,24 +237,18 @@ The whole app sits behind sign-in (Andy, 17 Oct 2026). Public: the landing, the 
 
 ## Landing
 
-The public front door (`src/app/page.tsx`, board 13, approved 19 Oct 2026). On `paper`, Andy's three engravings (one print medium: Prussian blue ink, one vermilion accent that marks the incident; "Art generated with Google Nano Banana") dissolve into the page top and bottom instead of sitting in boxes (`art-dissolve`, `art-dissolve-top` in `src/app/globals.css`). Every number on it is read from the recorder or the case files.
+The public front door (`src/app/page.tsx`, board 13, approved 19 Oct 2026, redesigned 20 Oct after Andy's reference: a print whose footer is set into its own sky). On `paper`, Andy's three engravings (one print medium: Prussian blue ink, one vermilion accent that marks the incident; "Art generated with Google Nano Banana") are the layout, not pictures on it: the type sits in their empty sky and water, and the pictures fade into the page top and bottom (`art-dissolve`, `art-dissolve-short`, `art-dissolve-top`). No cards on this page. Type set onto an engraving carries `paper-halo`, a soft paper glow, so a hatch line never runs through a letter.
 
 | Section | 1024 px and up | Under 1024 px |
 |---|---|---|
-| First screen | The `hero` headline, one sentence, the ink pill "Open the console" (the Eagle S replay) and a "Sign in" text button, on the sky of engraving 1 (the gulf at anchor). The live watch card floats in that sky on the right. | Headline, sentence, buttons, then the live watch card, then the engraving: the live numbers are the phone's first screen. |
-| Newest case | Engraving 2 (the furrow) with the newest case on file as a plate on its left: sketch, place and date, title, cut and evidence, "Open the replay". | The plate over the bottom of the engraving. |
+| First screen | Engraving 1 (the gulf at anchor). In its sky: the `hero` headline, one sentence, the ink pill "Open the console" (the Eagle S replay) and a "Sign in" text button on the left; the live watch set as type on the right, clear of the tanker. | The headline in the phone cut's sky; the live watch follows the picture. |
 | On file | Four figures printed on the paper between hairlines: cases and sources, lines watched, regions, positions in the last hour. | Two by two. |
-| Evidence | Engraving 3 (the threads) with the C-Lion1 placement as a plate: Cinia's words, their page and archived copy, how the point was placed, "See it in the replay". | The plate over the bottom of the engraving. |
-| Close | One line and the same ink pill; the data credits, the repository and the hackathon line. | Same. |
+| Newest case and evidence | Engraving 2 (the furrow). From 1,280 px the newest case sits in the open water left of the chain and the C-Lion1 placement (Cinia's words, their page and archived copy, how the point was placed) in the water right of it. | Both above the picture, two columns from 768 px. |
+| Close and footer | Engraving 3 (the threads). In its sky above the globe: the closing line and ink pill, then the footer: mark and one line, link columns (Console, Data, Project), the data credits and the hackathon line. | Same order, stacked. |
 
-Andy asked for fewer plain white cards on these pages, so they have two card styles of their own, both from the print medium and only approved colors:
+The live watch shows ships within 3 km of a cable in the last hour (`recorder_summary`), which regions the recorder heard in the last 15 minutes, and the three latest passes within 150 m of a cable: the line, the flag the MMSI implies, speed and distance, never a ship's name. It reads at most once a minute for every visitor together (`src/lib/landing/landing-live.ts`, `use cache` with a 60 s life) and says "as of" the read time. States: recording, last run failed, behind by N minutes, not started, unreachable; no pass in the hour; a read that failed.
 
-- **The ink card** (live watch): `ink` with `paper` text at 100, 80, 70 or 60% opacity, a plate line inset 8 px (`paper` at 15%), live dots in `live`. 60% `paper` on `ink` measures 6.5:1, 50% (the quiet regions) 4.8:1.
-- **The plate** (`src/components/landing/Plate.tsx`, also the sign-in form): `paper` on `paper`, lifted by `shadow-raised`, framed by a fine `ink` rule at 20% with a second one inset 6 px at 10%, like the plate mark around an engraving.
-
-The live card shows ships within 3 km of a cable in the last hour (`recorder_summary`), which regions the recorder heard in the last 15 minutes, and the three latest passes within 150 m of a cable: the line, the flag the MMSI implies, speed and distance, never a ship's name. It reads at most once a minute for every visitor together (`src/lib/landing/landing-live.ts`, `use cache` with a 60 s life) and says "as of" the read time. States: recording, last run failed, behind by N minutes, not started, unreachable; no pass in the hour; a read that failed.
-
-The art is cropped inside its printed plate mark, its paper moved onto `paper`, and served as AVIF and WebP at 960, 1,600 and 2,400 px (600 and 1,200 px for the 4:5 phone cuts under 768 px) by `scripts/art/build-landing-art.ts`. Swapping a piece means replacing its file and rerunning the script; the layout reads the sizes from the generated manifest. No blurred placeholder: a blur of fine lines turns grey, and the bare paper is the right color to wait on.
+The art is cropped inside its printed plate mark, its paper moved onto `paper`, and served as AVIF and WebP at 960, 1,600 and 2,400 px (600 and 1,200 px for the 4:5 phone cuts under 768 px) by `scripts/art/build-landing-art.ts`. Swapping a piece means replacing its file and rerunning the script; the layout reads the sizes from the generated manifest. Where type sits on a piece is set in percentages of the picture in `src/app/page.tsx`; a new piece needs those checked. No blurred placeholder: a blur of fine lines turns grey, and the bare paper is the right color to wait on.
 
 ## Live globe
 

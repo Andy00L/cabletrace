@@ -72,44 +72,37 @@ function LiveDot({ isLive }: { isLive: boolean }) {
 }
 
 /**
- * The landing's live card (board 13), printed in ink on the paper: ships near cables in the last hour, the regions
- * heard in the last 15 minutes, and the three latest close passes. Every figure comes from the recorder, read at most
- * once a minute; the card says when.
+ * The landing's live watch, set straight into the sky of the first engraving like the type on a print (no card):
+ * ships near cables in the last hour, the regions heard in the last 15 minutes, and the three latest close passes.
+ * Every figure comes from the recorder, read at most once a minute; it says when. The positions' credit sits in the
+ * footer of the same page (src/components/landing/LandingFooter.tsx).
  */
-export function LiveWatchCard({ live }: { live: LandingLive }) {
+export function LiveWatch({ live }: { live: LandingLive }) {
   const { recorder, crossings, heardRegionIds, readAt } = live;
   const heardIds = new Set(heardRegionIds.ok ? heardRegionIds.value : []);
   const state = recorder.ok ? recorder.value.health.kind : "unreachable";
   return (
-    <section
-      className="relative flex flex-col gap-5 rounded-card bg-ink p-6 text-paper shadow-raised sm:p-7"
-      data-testid="recorder-status"
-      data-state={state}
-      aria-labelledby="live-watch-title"
-    >
-      {/* The plate line of the engravings, pressed into the card. */}
-      <span className="pointer-events-none absolute inset-2 rounded-[18px] border border-paper/15" aria-hidden="true" />
-      <div className="flex items-center justify-between gap-4">
+    <section className="paper-halo flex flex-col gap-4 text-ink" data-testid="recorder-status" data-state={state} aria-labelledby="live-watch-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-ink/20 pb-2">
         <h2 id="live-watch-title" className="text-label">Live watch</h2>
-        <span className="flex items-center gap-2 text-caption text-paper/80" data-testid="recorder-state">
+        <span className="flex items-center gap-2 text-caption text-muted" data-testid="recorder-state">
           <LiveDot isLive={state === "recording"} />
-          {recorder.ok ? describeHealth(recorder.value.health) : "Unavailable"}
-          <span className="text-paper/60">as of {formatUtcTime(readAt)}</span>
+          {recorder.ok ? describeHealth(recorder.value.health) : "Unavailable"}, as of {formatUtcTime(readAt)}
         </span>
       </div>
       {recorder.ok ? (
-        <div className="flex flex-col gap-1">
+        <div className="flex items-end gap-4">
           <p className="text-display tabular-nums" data-testid="recorder-ships">{recorder.value.summary.shipsLastHour.toLocaleString("en-US")}</p>
-          <p className="text-small text-paper/70">ships within {NEAR_CABLE_KILOMETRES} km of a cable in the last hour</p>
+          <p className="max-w-[200px] pb-1 text-small text-muted">ships within {NEAR_CABLE_KILOMETRES} km of a cable in the last hour</p>
         </div>
       ) : (
-        <p className="text-body text-paper/70">The recorder could not be read just now. The next read is within a minute.</p>
+        <p className="text-body text-muted">The recorder could not be read just now. The next read is within a minute.</p>
       )}
-      <ul className="flex flex-wrap gap-x-3.5 gap-y-1.5" aria-label="Watched regions" data-testid="live-regions">
+      <ul className="grid grid-cols-2 gap-x-6 gap-y-1" aria-label="Watched regions" data-testid="live-regions">
         {REGIONS.map((region) => {
           const isHeard = heardIds.has(region.id);
           return (
-            <li key={region.id} className={`flex items-center gap-1.5 text-caption ${isHeard ? "text-paper" : "text-paper/50"}`} data-state={isHeard ? "heard" : "quiet"}>
+            <li key={region.id} className={`flex items-center gap-2 text-caption ${isHeard ? "text-ink" : "text-muted"}`} data-state={isHeard ? "heard" : "quiet"}>
               <LiveDot isLive={isHeard} />
               {REGION_SHORT_NAMES[region.id] ?? region.name}
               {!isHeard && <span className="sr-only">, quiet in the last 15 minutes</span>}
@@ -117,19 +110,19 @@ export function LiveWatchCard({ live }: { live: LandingLive }) {
           );
         })}
       </ul>
-      <div className="flex flex-col border-t border-paper/15 pt-4" data-testid="live-crossings">
-        <h3 className="text-micro text-paper/60">Closest passes, within {CLOSE_PASS_METRES} m of a cable</h3>
-        {!crossings.ok && <p className="mt-2 text-small text-paper/70">The latest passes could not be read just now.</p>}
-        {crossings.ok && crossings.value.length === 0 && <p className="mt-2 text-small text-paper/70">No ship came this close in the last hour.</p>}
+      <div className="flex flex-col" data-testid="live-crossings">
+        <h3 className="border-b border-ink/20 pb-2 text-caption text-muted">Closest passes, within {CLOSE_PASS_METRES} m of a cable</h3>
+        {!crossings.ok && <p className="mt-2 text-small text-muted">The latest passes could not be read just now.</p>}
+        {crossings.ok && crossings.value.length === 0 && <p className="mt-2 text-small text-muted">No ship came this close in the last hour.</p>}
         {crossings.ok && crossings.value.length > 0 && (
-          <ol className="mt-1 flex flex-col">
+          <ol className="flex flex-col">
             {crossings.value.map((crossing) => (
-              <li key={`${crossing.mmsi}-${crossing.cableName}`} className="flex items-baseline justify-between gap-4 border-b border-paper/10 py-2.5 last:border-b-0">
+              <li key={`${crossing.mmsi}-${crossing.cableName}`} className="flex items-baseline justify-between gap-4 border-b border-ink/10 py-2">
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate text-label">{crossing.cableName.replace(OSM_WAY_SUFFIX, "")}</span>
-                  <span className="text-caption font-normal text-paper/60">{describeCrossing(crossing)}</span>
+                  <span className="text-caption font-normal text-muted">{describeCrossing(crossing)}</span>
                 </span>
-                <time dateTime={crossing.observedAt.toISOString()} className="flex-none text-caption text-paper/60 tabular-nums">
+                <time dateTime={crossing.observedAt.toISOString()} className="flex-none text-caption text-muted tabular-nums">
                   {formatUtcTime(crossing.observedAt)}
                 </time>
               </li>
@@ -137,7 +130,6 @@ export function LiveWatchCard({ live }: { live: LandingLive }) {
           </ol>
         )}
       </div>
-      <p className="text-micro text-paper/60">Positions: Fintraffic Digitraffic (CC BY 4.0) and aisstream.io</p>
     </section>
   );
 }
