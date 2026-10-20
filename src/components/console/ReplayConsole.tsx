@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CaseSketchMap } from "@/components/cases/CaseCard";
 import { ConsoleControllerContext, type ConsoleController } from "@/components/console/console-context";
 import { ConsoleDock } from "@/components/console/ConsoleDock";
@@ -9,19 +9,27 @@ import { ConsoleLayers } from "@/components/console/ConsoleLayers";
 import { ConsoleRail } from "@/components/console/ConsoleRail";
 import { ConsoleTopBar, type CaseSwitcherItem } from "@/components/console/ConsoleTopBar";
 import { StageOverlays, type SceneSummary } from "@/components/console/StageOverlays";
+import { REPLAY_SCRUBBER_ID } from "@/components/replay/ReplayTimeline";
 import { SeabedView } from "@/components/replay/SeabedView";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
 import type { ConsoleCase } from "@/lib/cases/case-console";
 import type { CaseSeries } from "@/lib/cases/case-series";
-import { formatConsoleState, parseConsoleState, type ConsoleContext, type ConsoleLayer, type ConsoleMode, type SeabedDetail } from "@/lib/console/console-state";
+import { formatConsoleState, parseConsoleState, shouldWriteReplayTime, type ConsoleContext, type ConsoleLayer, type ConsoleMode, type SeabedDetail } from "@/lib/console/console-state";
+import { classifyKeyTarget, type KeyTargetKind } from "@/lib/console/keyboard-target";
 import { createReplayClock } from "@/lib/replay/replay-clock";
 import { progressToTimeMs, timeMsToProgress, type ReplaySceneInput } from "@/lib/replay/replay-scene";
+import { readReplayPace } from "@/lib/seabed/scene/director/replay-pace";
+import { buildShotList, pickShotAt, readShotView } from "@/lib/seabed/scene/director/shots";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewer, SeabedViewName } from "@/lib/seabed/scene/viewer";
 
-// A full replay takes this long to play, whatever span of time the case window covers.
+// A full replay takes this long to play at normal pace, whatever span of time the case window covers; the stretch
+// around each cut plays slower (replay-pace.ts), which makes Eagle S's whole window about 67 s.
 const REPLAY_DURATION_SECONDS = 40;
+// A press on the 3D view that moves further than this (CSS px) is the user taking the camera, which stops the director.
+// The same slop tells a click from an orbit in the viewer (src/lib/seabed/scene/viewer.ts, CLICK_SLOP_PX).
+const CAMERA_GRAB_SLOP_PX = 6;
 // The rail's width and its inset from the stage edge (docs/UI_DESIGN_SYSTEM.md, Console, Layout), in CSS px.
 const RAIL_WIDTH_PX = 360;
 const RAIL_INSET_PX = 16;
@@ -75,8 +83,10 @@ function toTargetLayer(target: SceneTarget): ConsoleLayer {
   }
 }
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+/** What the element a key landed on keeps for itself (keyboard-target.ts); the page and `window` keep nothing. */
+function readKeyTargetKind(target: EventTarget | null): KeyTargetKind {
+  if (!(target instanceof HTMLElement)) return "other";
+  return classifyKeyTarget({ tagName: target.tagName, inputType: target instanceof HTMLInputElement ? target.type : null, isContentEditable: target.isContentEditable });
 }
 
 /**
@@ -99,14 +109,23 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   );
   const [initialState] = useState(() => parseConsoleState(searchParams, urlContext));
   const [clock] = useState(() => {
+    const cutTimesMs = input.cuts.map((cut) => cut.atMs);
     const created = createReplayClock({
       durationSeconds: REPLAY_DURATION_SECONDS,
       scheduler: { request: (callback) => window.requestAnimationFrame(callback), cancel: (handle) => window.cancelAnimationFrame(handle) },
+      readPace: (progress) => readReplayPace(cutTimesMs, progressToTimeMs(input, progress)),
     });
     created.seek(timeMsToProgress(input, initialState.atMs));
     return created;
   });
   const [ui, setUi] = useState<UiState>({ view: initialState.view, mode: initialState.mode, detail: initialState.detail, layer: initialState.layer });
+  // A link that names a view or a moment opens exactly that; a plain link to the case hands the camera to the director.
+  const [isDirectorOn, setIsDirectorOn] = useState(() => !searchParams.has("view") && !searchParams.has("t"));
+  const shots = useMemo(() => buildShotList(input), [input]);
+  // The director's view at the replay moment; re-renders only when the shot changes, not on every frame.
+  const readDirectedView = useCallback(() => readShotView(pickShotAt(shots, progressToTimeMs(input, clock.getSnapshot().progress))), [shots, input, clock]);
+  const directedView = useSyncExternalStore(clock.subscribe, readDirectedView, readDirectedView);
+  const drawnView = isDirectorOn ? directedView : ui.view;
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   // The console renders only in the browser (it reads the URL behind a Suspense boundary), so the first render can
   // ask the media queries directly and the layout does not jump once the effect below subscribes.
@@ -122,12 +141,14 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   const writeUrl = useCallback(
     (state: UiState, entry: "push" | "replace") => {
       const atMs = progressToTimeMs(input, clock.getSnapshot().progress);
-      const query = formatConsoleState({ ...state, atMs }, urlContext);
+      // While the director directs, a shared link names the view on screen, so it opens on the same picture.
+      const view = isDirectorOn ? readDirectedView() : state.view;
+      const query = formatConsoleState({ ...state, view, atMs }, urlContext);
       const url = `${window.location.pathname}${query ? `?${query}` : ""}`;
       if (entry === "push") window.history.pushState(null, "", url);
       else window.history.replaceState(null, "", url);
     },
-    [input, clock, urlContext],
+    [input, clock, urlContext, isDirectorOn, readDirectedView],
   );
   const updateUi = useCallback(
     (change: Partial<UiState>, entry: "push" | "replace") => {
@@ -139,7 +160,23 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
     [writeUrl],
   );
 
-  const setView = useCallback((view: SeabedViewName) => updateUi({ view }, "replace"), [updateUi]);
+  // The user always wins: picking a view takes the camera from the director.
+  const setView = useCallback(
+    (view: SeabedViewName) => {
+      setIsDirectorOn(false);
+      updateUi({ view }, "replace");
+    },
+    [updateUi],
+  );
+  const setDirectorOn = useCallback(
+    (isOn: boolean) => {
+      if (isOn === isDirectorOn) return;
+      setIsDirectorOn(isOn);
+      // Taken back, the camera stays on the view the director was drawing, and the link says which.
+      if (!isOn) updateUi({ view: readDirectedView() }, "replace");
+    },
+    [isDirectorOn, updateUi, readDirectedView],
+  );
   const setMode = useCallback(
     (mode: ConsoleMode) => {
       setIsRailOpen(true);
@@ -169,14 +206,12 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   // clock, an external store.
   useEffect(() => {
     let writeTimer: ReturnType<typeof setTimeout> | null = null;
-    let lastProgress = clock.getSnapshot().progress;
+    let lastSnapshot = clock.getSnapshot();
     const unsubscribe = clock.subscribe(() => {
       const snapshot = clock.getSnapshot();
-      if (snapshot.isPlaying || snapshot.progress === lastProgress) {
-        lastProgress = snapshot.progress;
-        return;
-      }
-      lastProgress = snapshot.progress;
+      const shouldWrite = shouldWriteReplayTime(lastSnapshot, snapshot);
+      lastSnapshot = snapshot;
+      if (!shouldWrite) return;
       if (writeTimer !== null) clearTimeout(writeTimer);
       writeTimer = setTimeout(() => writeUrl(ui, "replace"), URL_TIME_WRITE_DELAY_MS);
     });
@@ -221,10 +256,47 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
     };
   }, []);
 
+  // Dragging, pinching or scrolling the 3D view takes the camera from the director; the Director toggle gives it back.
+  // Listens to pointer and wheel events on the stage, which React does not own.
+  useEffect(() => {
+    if (!stageElement || !isDirectorOn) return;
+    let press: { clientX: number; clientY: number } | null = null;
+    // Only the picture counts: a press on a control or a card over it is not a camera move.
+    const isOnPicture = (target: EventTarget | null) => target instanceof Element && target.closest('[data-testid="seabed-view"]') !== null && target.closest("button, a, [role='dialog']") === null;
+    const handlePointerDown = (event: PointerEvent) => {
+      press = isOnPicture(event.target) ? { clientX: event.clientX, clientY: event.clientY } : null;
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!press || event.buttons === 0) return;
+      if (Math.hypot(event.clientX - press.clientX, event.clientY - press.clientY) <= CAMERA_GRAB_SLOP_PX) return;
+      press = null;
+      setDirectorOn(false);
+    };
+    const handlePointerEnd = () => {
+      press = null;
+    };
+    const handleWheel = (event: WheelEvent) => {
+      if (isOnPicture(event.target)) setDirectorOn(false);
+    };
+    stageElement.addEventListener("pointerdown", handlePointerDown);
+    stageElement.addEventListener("pointermove", handlePointerMove);
+    stageElement.addEventListener("pointerup", handlePointerEnd);
+    stageElement.addEventListener("pointercancel", handlePointerEnd);
+    stageElement.addEventListener("wheel", handleWheel, { passive: true });
+    return () => {
+      stageElement.removeEventListener("pointerdown", handlePointerDown);
+      stageElement.removeEventListener("pointermove", handlePointerMove);
+      stageElement.removeEventListener("pointerup", handlePointerEnd);
+      stageElement.removeEventListener("pointercancel", handlePointerEnd);
+      stageElement.removeEventListener("wheel", handleWheel);
+    };
+  }, [stageElement, isDirectorOn, setDirectorOn]);
+
   // Keyboard shortcuts (the shortcuts dialog lists them). Listens on the window, which React does not own.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
+      const targetKind = readKeyTargetKind(event.target);
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || targetKind === "text-entry") return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       const isOnControl = target !== null && target.closest("button, a, [role='dialog']") !== null;
       if (event.key === " " && !isOnControl) {
@@ -232,7 +304,8 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
         clock.toggle();
         return;
       }
-      if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !isOnControl) {
+      // On the scrubber the arrows step it one minute, natively; everywhere else they jump between events.
+      if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !isOnControl && targetKind !== "slider") {
         event.preventDefault();
         const atMs = progressToTimeMs(input, clock.getSnapshot().progress);
         const events = consoleCase.events;
@@ -262,14 +335,24 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   const rightInsetPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
 
   const controller = useMemo<ConsoleController>(
-    () => ({ input, consoleCase, series, clock, ...ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256 }),
-    [input, consoleCase, series, clock, ui, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256],
+    () => ({ input, consoleCase, series, clock, ...ui, view: drawnView, isDirectorOn, setDirectorOn, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256 }),
+    [input, consoleCase, series, clock, ui, drawnView, isDirectorOn, setDirectorOn, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256],
   );
 
   return (
     <ConsoleControllerContext.Provider value={controller}>
         <div className="flex h-dvh flex-col overflow-hidden" data-testid="replay-console">
           <h1 className="sr-only">{consoleCase.title}</h1>
+          {/* The first stop of the Tab key: the scrubber otherwise sits behind the top bar, the stage controls and
+              every row of the rail. Hidden until focused. */}
+          <button
+            type="button"
+            onClick={() => document.getElementById(REPLAY_SCRUBBER_ID)?.focus()}
+            className="sr-only z-(--layer-toast) rounded-full bg-ink text-label whitespace-nowrap text-card focus:not-sr-only focus:absolute focus:top-2 focus:left-4 focus:flex focus:h-10 focus:items-center focus:px-4"
+            data-testid="skip-to-timeline"
+          >
+            Skip to the replay timeline
+          </button>
           <ConsoleTopBar switcherCases={switcherCases} />
           {/* On a phone the folded bottom sheet covers the screen's last SHEET_PEEK_PX, so the dock stops above it. */}
           <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4" style={isPhone ? { paddingBottom: SHEET_PEEK_PX + 16 } : undefined}>
@@ -282,7 +365,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
               <SeabedView
                 input={input}
                 clock={clock}
-                view={ui.view}
+                view={drawnView}
                 isIllustrated={ui.detail === "illustrated"}
                 rightInsetPx={rightInsetPx}
                 onViewerChange={setViewer}

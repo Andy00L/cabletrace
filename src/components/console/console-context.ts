@@ -15,10 +15,16 @@ export type ConsoleController = {
   consoleCase: ConsoleCase;
   series: CaseSeries | null;
   clock: ReplayClock;
+  /** The view on screen: the director's shot while it directs, the view picked by the user otherwise. */
   view: SeabedViewName;
+  /** True while the director picks the camera from the replay time (src/lib/seabed/scene/director). */
+  isDirectorOn: boolean;
+  /** Hands the camera to the director, or takes it back where the director left it. */
+  setDirectorOn: (isOn: boolean) => void;
   mode: ConsoleMode;
   detail: SeabedDetail;
   layer: ConsoleLayer;
+  /** Picks a view; the user picking one turns the director off. */
   setView: (view: SeabedViewName) => void;
   setMode: (mode: ConsoleMode) => void;
   setDetail: (detail: SeabedDetail) => void;

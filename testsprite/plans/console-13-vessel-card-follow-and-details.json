@@ -39,7 +39,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert that button now reads \"Stop following\" and is pressed, \"Vessel\" is pressed in the view switch (data-testid view-switch), and the camera button \"Follow the ship\" is pressed"
+      "description": "Assert that button now reads \"Stop following\" and is pressed, \"Vessel\" is pressed in the view switch (data-testid view-switch), and the \"Director\" button (data-testid director-toggle) has data-state \"off\", since following the ship takes the camera from the director"
     },
     {
       "type": "action",

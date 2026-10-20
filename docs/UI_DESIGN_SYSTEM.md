@@ -170,7 +170,15 @@ The case replay is one screen (boards 6 to 11 on the style board canvas). The do
 | 768 to 1023 px | The rail becomes a sheet over the stage's right side, opened from a button on the stage. The dock keeps the transport and the timeline; the charts move into Ship mode. |
 | Under 768 px | The stage takes the top of the screen, the transport and the timeline sit under it, and the rail's content lives in a bottom sheet with two snap points: folded, its handle and the mode switch (96 px); open, 85% of the screen with its content scrolling inside. Drag the header or press the handle; picking a mode, or a link that names one, opens it. Popovers become bottom sheets. The page never scrolls. 16 px gutter, 44 px targets. |
 
-Inside the stage, inset 16 px: the view switch top left (with Measured and Illustrated under it at the cut), the anchor status top centre, the legend and the scale button bottom left, the camera controls (reset, follow, full screen) bottom right of the clear part.
+Inside the stage, inset 16 px: the view switch top left (with Measured and Illustrated under it at the cut), the anchor status top centre, the legend and the scale button bottom left, the camera controls (Director, reset, full screen; board 22) bottom right of the clear part. While the replay plays, the anchor status also counts down to the next event in replay time ("next event in 38 min", from 640 px).
+
+### Director
+
+The camera director (`src/lib/seabed/scene/director/`, board 21) picks the shot from the replay time: establishing until the ship's first known position, follow while it sails, approach in the 6 minutes before a cut it can be watched reaching, the cut's close-up for 2 minutes after it, then the aftermath. A plain link to a case starts with the director on; a link that names a view or a moment opens exactly that, with the director off. Picking a view, a view key, Follow, or dragging, pinching or scrolling the picture takes the camera from the director; the Director button (`director-toggle`, `data-state` on or off, the stage's one ink control while it directs) gives it back. The view switch always shows the view on screen. Between shots the camera flies for `duration-hero` on `ease-standard` and cuts into and out of the close-up; reduced motion cuts everywhere, with the same shots.
+
+The replay clock runs 30 times slower from 6 minutes before each cut to 2 minutes after it, easing in and out over 2 minutes of replay time on each side (`replay-pace.ts`): Eagle S's C-Lion1 cut plays in about 12 s (14 s with the ramps), the whole window in about 67 s instead of 40 s.
+
+While the 3D view loads, the stage shows one progress line in two parts, the seabed and then the ship and scene (`stage-loading`, `data-state` seabed or ship); the console's skeleton draws the same card at its first step.
 
 ### Layers
 
@@ -178,6 +186,7 @@ One named stack, low to high: `stage` (0), `stage-controls` (10), `rail` and `do
 
 - One layer open at a time; a source popover opened from inside the sources sheet is the one exception.
 - Evidence is never more than two interactions from the console's first state (`scripts/checks/evidence-reach.ts`): each row of the sources sheet keeps its page and archive links visible under the row (its quotes fold inside it), each step of What followed shows its quotes beside its source numbers, and at the cut the scale popover gives both the illustrated and the measured sentence, the current one first.
+- The console's first Tab stop is "Skip to the replay timeline" (`skip-to-timeline`), hidden until focused, which moves focus to the scrubber. Shortcuts work everywhere except in a field that takes typing; on the scrubber the arrow keys keep their one-minute step and the other shortcuts still work.
 - Every layer gives focus back to the control that opened it when it closes (`useReturnFocusToOpener`, `scripts/checks/keyboard-path.ts`).
 - Content is visible by default: no layer and no text waits for an animation to appear.
 - Sheets and dialogs trap focus and return it to their trigger; Esc closes the top layer; every layer opens from the keyboard, because each object in the 3D view also has a rail row or a button that opens the same layer.
@@ -197,7 +206,7 @@ One named stack, low to high: `stage` (0), `stage-controls` (10), `rail` and `do
 | `detail` | `measured`, `illustrated` (close-up only) | `illustrated` |
 | `layer` | `vessel`, `cut-<cut slug>`, `placement-<index>`, `source-<id>`, `sources`, `aftermath`, `shortcuts` | none |
 
-Following the ship is the `vessel` view, so it has no key of its own.
+Following the ship is the `vessel` view, so it has no key of its own. The director has no key either: it is on when the link names neither `view` nor `t`. While it directs, the `view` written into the link is the view on screen.
 
 The codec is `src/lib/console/console-state.ts`. Opening a layer pushes a history entry, so Back closes it; time, view and mode replace the current entry. While the replay plays the URL is left alone; pausing or seeking writes `t`.
 

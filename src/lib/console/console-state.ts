@@ -1,3 +1,4 @@
+import type { ReplaySnapshot } from "@/lib/replay/replay-clock";
 import type { SeabedViewName } from "@/lib/seabed/scene/viewer";
 
 // The replay console keeps its state in the URL, so a shared link reopens the same moment, view, mode and open
@@ -141,6 +142,15 @@ export function parseConsoleState(params: Readonly<Record<string, string | strin
     detail: pickOne(DETAILS, read("detail"), DEFAULT_DETAIL),
     layer: parseLayer(read("layer"), context),
   };
+}
+
+/**
+ * Whether a change of the replay clock should write the replay minute into the link: when the replay pauses (the
+ * moment it stopped on) and when the hand moves while paused (a seek, an event click). While it plays the link is
+ * left alone. Compares the clock's last two snapshots.
+ */
+export function shouldWriteReplayTime(previous: ReplaySnapshot, next: ReplaySnapshot): boolean {
+  return !next.isPlaying && (previous.isPlaying || next.progress !== previous.progress);
 }
 
 /** Writes the state as a query string, leaving out every value that equals its default. */

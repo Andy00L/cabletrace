@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { formatConsoleState, formatMinute, parseConsoleState, toCutSlug, type ConsoleContext, type ConsoleState } from "./console-state";
+import { createReplayClock } from "@/lib/replay/replay-clock";
+import { formatConsoleState, formatMinute, parseConsoleState, shouldWriteReplayTime, toCutSlug, type ConsoleContext, type ConsoleState } from "./console-state";
 
 const CONTEXT: ConsoleContext = {
   windowStartMs: Date.parse("2024-12-25T10:00:00Z"),
@@ -70,5 +71,48 @@ describe("formatConsoleState", () => {
 
   test("writes minutes in UTC", () => {
     expect(formatMinute(Date.parse("2024-12-25T16:44:59Z"))).toBe("2024-12-25T16:44Z");
+  });
+});
+
+describe("shouldWriteReplayTime", () => {
+  test("writes the minute when a playing replay is paused, after many ticks while it played", () => {
+    // A scheduler stepped by hand: the pending frame runs when the test says so.
+    const frames: { pending: ((timeMs: number) => void) | null } = { pending: null };
+    const clock = createReplayClock({
+      durationSeconds: 40,
+      scheduler: {
+        request(callback) {
+          frames.pending = callback;
+          return 1;
+        },
+        cancel() {
+          frames.pending = null;
+        },
+      },
+    });
+    let previous = clock.getSnapshot();
+    const writes: number[] = [];
+    clock.subscribe(() => {
+      const next = clock.getSnapshot();
+      if (shouldWriteReplayTime(previous, next)) writes.push(next.progress);
+      previous = next;
+    });
+    clock.play();
+    for (let frame = 0; frame < 10; frame += 1) {
+      const runFrame = frames.pending;
+      frames.pending = null;
+      runFrame?.(frame * 16);
+    }
+    expect(clock.getSnapshot().progress).toBeGreaterThan(0);
+    expect(writes).toEqual([]);
+    clock.pause();
+    expect(writes).toEqual([clock.getSnapshot().progress]);
+  });
+
+  test("writes a seek while paused, and nothing when the snapshot did not move", () => {
+    const paused = { progress: 0.2, isPlaying: false };
+    expect(shouldWriteReplayTime(paused, { progress: 0.3, isPlaying: false })).toBe(true);
+    expect(shouldWriteReplayTime(paused, paused)).toBe(false);
+    expect(shouldWriteReplayTime(paused, { progress: 0.3, isPlaying: true })).toBe(false);
   });
 });
