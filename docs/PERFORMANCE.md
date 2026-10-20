@@ -246,6 +246,75 @@ loads, compressed (gzip from `next start`), headers excluded.
   SwiftShader). Headless Chromium has no real WebGPU adapter, so the perf tool and every headless test runner stay on
   the software tier.
 
+## Case page load
+
+`bun run perf <url> --profile case-click` opens `/cases` on the GPU (the lookdev harness's hardware tier, Mesa d3d12
+on the RTX 3050), clicks each of Eagle S, Yi Peng 3 and Hong Tai 58 in turn, in a fresh signed-in context per click,
+and times from the click to the console drawn and to the 3D view's first frame; "usable" is the later of the two. The
+viewer's own load steps are performance marks (`seabed:data-and-code`, `seabed:renderer`, `seabed:overview`,
+`seabed:first-frame`), printed per case. The budget is 2,000 ms on desktop.
+
+Main (824842b) and this branch, local production builds on ports 3412 and 3411, alternating, 5 runs each, median
+(min-max) in ms from the click, cold HTTP cache:
+
+| Case | Main, load 1.3 | Main, load 1.0 | Branch, load 1.0 | Branch, load 0.6 to 1.4 |
+| --- | --- | --- | --- | --- |
+| Eagle S | 2,473 (2,442-2,702) | 2,511 (2,481-2,754) | **1,025** (1,017-1,108) | **1,201** (1,070-1,279) |
+| Yi Peng 3 | 2,497 (2,443-2,604) | 2,531 (2,520-2,615) | **1,072** (1,051-1,093) | **1,256** (1,225-1,276) |
+| Hong Tai 58 | 1,792 (1,764-1,842) | 1,800 (1,778-1,878) | **780** (775-834) | **905** (792-1,062) |
+
+The console draws 340 to 355 ms after the click on both. Before the sign-in gate, with the old tool (whose sign-in tab
+warmed the cache, below), main measured 5,072, 4,839 and 3,585 ms at a load of 5.6 to 9.7.
+
+Where the time went on main (profiled on the GPU tier): 49 shader programs linked on the first draw, about 100 ms each
+(this ANGLE on d3d12 has no `KHR_parallel_shader_compile`, so a link resolves when three.js first queries the program,
+4.5 s in all); the relief occlusion bake, 1.0 s; the page's first WebGL context, 0.7 s, opened twice (a probe context,
+then the renderer's); the PMREM environment, 0.55 s; the overview build, 2.5 s; and every step after the one before.
+
+What changed (`src/lib/seabed/scene/`, `src/lib/render/`, `src/components/replay/SeabedView.tsx`):
+
+- **A terrain worker per area** (`terrain-worker.ts`, served as a Bun bundle at `public/seabed/terrain-worker.js`,
+  since Turbopack 16.4 ships `new Worker(new URL(...))` as the TypeScript source). It starts fetching the area's files
+  while the console renders (`warmSeabedArea`), decodes them, and builds the terrain's arrays (grid, normals, colours,
+  occlusion) at the grid step the renderer tier asks for, then transfers them without a copy. The worker and each built
+  step stay for the page's life, so another case on the same area, or a client navigation back, neither fetches nor
+  builds again. Where workers fail, the main thread builds.
+- **Relief occlusion 4 times faster** (`relief-occlusion.ts`): the sample offsets and distances are precomputed in
+  typed arrays; the output is identical.
+- **One WebGL context, opened early** (`src/lib/render/webgl-canvas.ts`): after the console's first paint, while the
+  data downloads; it tells a CPU renderer from a GPU and is the context the renderer draws on. A browser with a WebGPU
+  device opens none.
+- **A first frame of four programs.** The block, its lines, labels and markers draw first. The vessel, the wakes, the
+  anchor rig, the water and the signal (the refinement) compile one program per task afterwards
+  (`compileProgramByProgram`, `src/lib/render/webgl-scene-renderer.ts`: each link is forced in its own task, so the
+  page stays responsive) and appear about 3.5 s later. The ship's detail level loads with a dynamic import. Hidden
+  objects are compiled too, so the cut does not stall.
+- **The sky's PMREM** waits for the sky texture and gets its own compile, after the first frame.
+
+On the 3G phone profile (SwiftShader, CPU slowed 4 times) the software tier used to wait for a full-grid build it then
+threw away, because the area was warmed at the GPU tier's step before the tier was known. The worker now fetches first
+and builds only the step asked for: the first 3D frame moved from 7.1 to 8.2 s to 4.0 to 5.3 s in the same probe at a
+load of 6 to 10.
+
+**The tools measure a cold cache now.** The perf tool used to sign in on a tab of the measured context, and Clerk sends
+the reader to `/cases/eagle-s-2024` after signing in, so the measured load found the case page's scripts and the Baltic
+seabed files already cached. The tool signs in once per browser now (`signInOnce`, `scripts/lookdev/tier-launch.ts`)
+and starts each measured context from that session, with an empty cache. That also made it sign in once per run
+instead of once per page or click (15 sign-ins for a 5-run case-click profile), and the sign-in helper's 30 s timeout
+had stopped about one run in three under load.
+
+3G phone, same builds alternating, 3 runs each, cold cache, median (min-max):
+
+| Measure | Main, load 1.9 | Main, load 3.2 | Branch, load 1.9 | Branch, load 3.2 |
+| --- | --- | --- | --- | --- |
+| Console shell drawn | 3,647 (3,601-3,727) | 4,143 (3,660-4,856) | 3,745 (3,643-3,775) | 3,645 (3,619-3,679) |
+| Console first 3D frame | 12,860 (12,854-13,321) | 14,927 (13,971-16,757) | **10,428** (10,414-10,507) | **10,368** (10,323-10,583) |
+| KB before the first 3D frame | 1,593.1 | 1,593.1 | 1,610.1 | 1,610.2 |
+
+With a cold cache both builds miss the shell (3,000 ms), first 3D frame (6,000 ms) and 1 MB budgets; the branch is
+2.4 to 4.6 s faster to the first 3D frame and loads 17 KB more before it (the worker bundle, 12.9 KB raw). With the old
+warm sign-in tab the branch measured 1,188 ms to the shell and 6,819 ms to the first 3D frame at load 8.
+
 ## Not measured
 
 - Mobile devices and GPUs other than one: the 3D figures above are SwiftShader, the lookdev's hardware tier ran on
@@ -365,7 +434,9 @@ it costs the visitor nothing at request time.
 
 **Signing in.** The perf tool, the console checks (`scripts/checks/console-page.ts`) and the lookdev harness sign in
 as `cabletrace-tools+clerk_test@example.com` before opening a page behind the gate (`scripts/auth/sign-in-test-user.ts`,
-about 5 s once per browser context, unthrottled and outside the measured load). Clerk test addresses work on the
-development instance only; a production instance needs another route in for these tools, for example a session
-created through Clerk's Backend API.
+about 5 s). The perf tool and the lookdev harness sign in once per browser, unthrottled and outside the measured
+load, and start each measured context from that session with an empty cache (section "Case page load"). The lookdev harness's WebGPU tier drives Windows Chrome, which
+cannot fill the form: its proxy sends a session token made through Clerk's Backend API instead
+(`scripts/lookdev/session-token.ts`). Clerk test addresses and Backend API sessions are for the development instance;
+a production instance needs another route in for these tools.
 

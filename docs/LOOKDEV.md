@@ -31,6 +31,14 @@ regression, a colour or token miss, a tone never judged, or a missing baseline; 
 
 Unit tests for the PNG codec, the image checks and the WebGPU tier's log reading: `bun test scripts/lookdev`.
 
+**Signing in.** Every case page sits behind sign-in (`src/proxy.ts`). Each Playwright tier signs the tools' test reader
+in once per browser (`signInOnce` in `scripts/lookdev/tier-launch.ts`, through `scripts/auth/sign-in-test-user.ts`,
+about 5 s) and opens every shot in a fresh context that starts from that session; `cut-sequence.ts` and
+`line-continuity.ts` do the same. Windows Chrome, which the WebGPU tier drives from the command line, cannot fill the
+form, so its proxy sends a Clerk session token as `Authorization: Bearer` with every request it forwards
+(`scripts/lookdev/session-token.ts`: a session for the same reader opened through Clerk's Backend API with
+`CLERK_SECRET_KEY` from `.env.local`, which Bun loads; development instance only). The key is never printed.
+
 ## What it renders
 
 `scripts/lookdev/shots.ts` lists the shots. Each opens `/cases/<slug>?t=<minute>&view=<view>` (the console's URL state)
@@ -46,7 +54,8 @@ makes every frame a pure function of the build, the moment and the camera.
 | `ships-turntable` | no case: all nine ship kinds the hull generator builds (`src/lib/ships/`), at typical lengths, in a 3 x 3 grid under the replay's sun; on the GPU tiers each carries its Kelvin wake at 12 knots |
 
 The harness waits for the canvas test hooks the viewer writes (`src/lib/seabed/scene/viewer.ts`): `data-pending-assets`
-must be 0 (the sand-ripple texture has loaded), `data-drawn-view` and `data-drawn-at-ms` must match the shot, then
+must be 0 (the sand-ripple texture and the sky have loaded, and the refinement drawn after the first frame, the
+vessel, its wakes, the anchor rig, the water and the signal, is compiled and shown), `data-drawn-view` and `data-drawn-at-ms` must match the shot, then
 `data-frame-count` must hold still for 0.8 s. The turntable is a page bundled with `Bun.build` and opened from a file
 URL (`scripts/lookdev/turntable.ts`); it sets `data-state` on its body when drawn. The cells are shared by the WebGL page
 and the WebGPU page (`turntable-scene.ts`); the WebGPU page draws each cell with the tier's own renderer.
@@ -101,8 +110,18 @@ checks the canvas's `data-renderer` after loading and refuses a frame drawn on t
    the camera) and the token the vertex holds. On the views that look down (overview and top) at least 90% of those
    probes must show their token within 4 per channel (the sky's Fresnel reflection off the surface adds under one
    level at the overview's angle). The vessel view looks along the water, where the surface reflects much of the sky
-   (about 35% at 80 degrees from vertical) and the hull covers the seabed, so it is not judged.
-4. **Scrub to frame.** On overview shots the harness steps the timeline six minutes with the keyboard and reports the
+   (about 35% at 80 degrees from vertical) and the hull covers the seabed, so it is not judged. With natural look C the
+   token is the area's palette value at that depth (`scene-look.ts`), and three filters keep the check on seabed the
+   viewer sees as seabed: probes lie within the haze's near distance from the camera (past it the approved haze mixes
+   in by design), at least 4 grid cells inside the block's edge (where the water's white rim and the cut face are
+   drawn), and the harness drops a probe with a casing or data colour within 6 px (the line is drawn there, not the
+   ground). Each frame's seabed probes are drawn over it in `<shot>.seabed.png`.
+4. **Casings stand out from the ground.** Every map tube, the track and the furrow sit on an opaque light casing
+   (`overview.ts`, `WEBGL_COLORS.casing`, `#FFFFFF`). On the overview and top views, for each tone with cased probes,
+   the harness takes the median ground colour in a ring 6 to 12 px around those probes (leaving out pixels within 40 per
+   channel of the casing or a data colour) and requires a WCAG contrast of at least 3:1 between the casing and that
+   ground.
+5. **Scrub to frame.** On overview shots the harness steps the timeline six minutes with the keyboard and reports the
    median time from the input event to the next drawn frame: the replay's frame time as a user feels it.
 
 ### Why no image library
@@ -113,9 +132,18 @@ five filters) and computes the YIQ difference in `compare.ts`. Both are short, t
 ## Baselines
 
 Baselines are stored at a third of the frame so the repository stays small. They are written with `--update`. Andy
-approved the look on 18 Oct 2026: the 72 baselines of the three tiers in this folder are the approved frames. A change
-that moves them needs his approval again before `--update` (plan: ambition pass, 4.4). The harness never grades its
-own renders.
+approved the look on 18 Oct 2026 (72 baselines), then chose its successor from the exploration boards: natural look C,
+water B, every data line on a light casing, darker olive land contours, a cut marker of fixed screen size. The
+baselines were rewritten for that choice on 20 Oct 2026, 27 per tier, 81 in all:
+
+| Frames | Why they changed |
+| --- | --- |
+| All 24 frames of each tier that existed before | Look C's sampled palette (each area the nearest sampled region's values), water B (`#3F7E86` body, `#D8E3E5` sky), the white casings under every tube, the track and the furrow, the olive land contours (`#60634A`), the 24 px cut ring and its 60 px beam, and what the merged ship branch brought: the detailed hulls with their real paint, the anchor rig and the sea |
+| `eagle-s-2024-overview-1026`, `eagle-s-2024-vessel-1040`, `eagle-s-2024-vessel-1150` | New shots from the ship branch (the approach, the drag, the ship leaving), first baselines |
+| WebGPU: nine overviews and `eagle-s-2024-after-drag`, rewritten again the same day | They had been taken before the refinement appeared. The refinement counted as a pending asset only once its compile started, two frames after the first, so a capture could settle on the first frame and miss the vessel, the wakes and the water. It now counts from the first frame. Against the hardware frames of the same run the new WebGPU frames differ by 0.21 to 1.87% of pixels, the old ones by 2.0 to 14.3% (Hong Tai 58 the most: the old frame had no ship) |
+
+A change that moves them needs his approval again before `--update` (plan: ambition pass, 4.4). The harness never
+grades its own renders.
 
 ## Assets
 
@@ -174,8 +202,13 @@ from WSL, so Playwright cannot drive it. `scripts/lookdev/webgpu-capture.ts` dri
   its `--screenshot` at the load event, which waits for that script, so the screenshot comes after the settled frame,
   in real time. (`--virtual-time-budget` ran ahead of the GPU's work and shot an empty stage.)
 - Headless Chrome on Windows lays the page out at 1,422 x 748 and resizes it to the 1,440 x 900 window right after the
-  load event. The agent releases the load, waits for that resize and the viewer's next frame, and only then reports, so
-  the probes and boxes it reports are the screenshot's; the harness refuses a report made at any other size.
+  load event. The agent releases the load, waits (up to 20 s) for that resize and the viewer's next frame, and only
+  then reports, so the probes and boxes it reports are the screenshot's; the harness refuses a report made at any
+  other size. 5 s was too short on two runs in three once the case page drew on WebGPU from its first frame.
+- The case page asks for the WebGPU adapter before it opens a WebGL context, not alongside it
+  (`src/components/replay/SeabedView.tsx`). Asked together, Windows Chrome answered the adapter request in 3.3 and
+  3.5 s, past the 3 s timeout, on two loads in three (2.1 s on the third), and the page drew on WebGL; asked first, every
+  run drew on WebGPU. A browser with a WebGPU device no longer opens a WebGL context it would close unused.
 - Each shot is two Chrome runs, the look with its labels and the bare canvas with its probes; overview shots get a
   third that times the scrub (one-minute steps on the scrubber, input event to the next drawn frame, real time).
 - Chrome always runs with `--headless=new` and a profile in `.scratch/lookdev-webgpu-profile`; a run that hangs is
@@ -241,6 +274,22 @@ signal halo read the same on both tiers.
 
 The seabed check found level ground 4 levels lighter than its token: three.js r186 lights Lambert materials with the
 scene's environment map, which the relief shade's level reference had left out (`terrain-material.ts`).
+
+**Scene v2 (20 Oct 2026, 81 frames, local production build, load average 1 to 3).** Software and hardware exit 0
+against the new baselines, 27 of 27 frames each. WebGPU: 26 of 27; `hong-tai-58-2025-overview` fails the casing check
+at 2.92:1 (the cable's casing on shallow water `#7D9CA9`; the hardware tier draws the same frame at 3.02:1), on two
+runs.
+
+| Check | Software (27 frames) | Hardware (27 frames) | WebGPU (27 frames) |
+| --- | --- | --- | --- |
+| `cable` exact | 40 of 40 | 79 of 79 | 79 of 79 |
+| `pipeline` exact | 48 of 48 | 119 of 121 | 119 of 121 |
+| `alarm` exact | 261 of 261 | 257 of 259 | 256 of 259 |
+| `suspect` exact | 66 of 67 | 66 of 67 | 66 of 67 |
+| Seabed within 4 of its token | 1,772 of 1,781, worst frame 94.4% | 7,190 of 7,196, worst frame 98.6% | 7,115 of 7,132, worst frame 97.9% |
+| Casing against the ground, lowest frame | 3.44:1 | 3.02:1 | 2.92:1 |
+| Scrub to frame, median | 15 ms | 12.5 ms | 16.5 ms |
+| Page load to settled frame, median (the refinement included) | 5,285 ms | 4,612 ms | 7,272 ms |
 
 **Against `main` (dfb8b44), SwiftShader, three alternating rounds each** (`/cases/eagle-s-2024`, all JavaScript the page
 loads, compressed; a one-minute scrub to the next drawn frame, median of 12): JavaScript 408.4 KB against 398.6 KB;
