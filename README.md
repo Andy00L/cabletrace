@@ -234,7 +234,7 @@ bun test src
 bun run build
 ```
 
-Success: each exits 0; `bun test src` runs 338 tests.
+Success: each exits 0; `bun test src` runs 359 tests.
 
 Check a case file (it touches nothing). Download it from a case's Case file row while signed in, then:
 
