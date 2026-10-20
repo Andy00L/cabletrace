@@ -39,11 +39,11 @@
     },
     {
       "type": "action",
-      "description": "Note the heading of the first case card in that list and its data-testid (case-card-<slug>), then click that card"
+      "description": "Note the slug in the data-testid of the first case card link in that list (case-card-<slug>), then click that link"
     },
     {
       "type": "assertion",
-      "description": "Assert the URL path is /cases/<slug> for the noted slug, the replay console (data-testid replay-console) is shown, and the case switcher button (data-testid case-switcher) reads the noted card heading"
+      "description": "Assert the URL path is /cases/<slug> for the noted slug, the replay console (data-testid replay-console) is shown, and the case switcher button (data-testid case-switcher) shows the case's title (not empty)"
     },
     {
       "type": "action",

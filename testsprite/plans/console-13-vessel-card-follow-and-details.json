@@ -47,7 +47,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the vessel card closes, \"Ship\" is pressed in the mode switch (data-testid mode-switch), and the ship card (data-testid ship-card) lists IMO 9329760, MMSI 518998865 and flag Cook Islands"
+      "description": "Assert the vessel card closes, \"Ship\" is pressed in the mode switch (data-testid mode-switch), and the ship card (data-testid ship-card) shows \"Cook Islands\", \"IMO 9329760\" and \"MMSI 518998865\""
     }
   ]
 }

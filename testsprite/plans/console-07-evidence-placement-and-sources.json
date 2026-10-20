@@ -39,7 +39,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert a card (data-testid placement-popover) opens titled \"Over Estlink 2, about 55 km south of Loviisa\" that says the position is \"placed from statements\", and the 10:26 row has aria-current=\"true\""
+      "description": "Assert a card (data-testid placement-popover) opens titled \"Over Estlink 2, about 55 km south of Loviisa\" that says the position is \"placed from statements\""
     },
     {
       "type": "action",

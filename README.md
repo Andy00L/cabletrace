@@ -293,7 +293,7 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
 ## 🏆 TestSprite
 
 The TestSprite GitHub App tests every pull request: when Vercel reports the pull request's preview ready, TestSprite
-runs every portal test against that preview, reports the "TestSprite V3" check and comments its report. The 17
+runs every portal test against that preview, reports the "TestSprite V3" check and comments its report. The 20
 browser tests in `testsprite/plans` are the suite. Each plan asserts what a reader sees, through `data-testid`,
 `data-state`, `aria-pressed` and `aria-current` hooks and the console's own wording, never pixel positions.
 
@@ -314,13 +314,16 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 | `console-14` | Keyboard shortcuts | Event jumps, view keys, Space to play and pause, the shortcuts dialog |
 | `live-01` | Live globe, the Eagle S incident, Fly to the seabed | The recorded day loading, and the dive landing on the cut's minute and card |
 | `live-02` | Feed check on `/live` | The verdict text matching its state, with the 90% and 95% targets |
+| `ship-01` | Vessel inspector on Yi Peng 3 at the C-Lion1 cut, then stowed | The side profile, chain out and layback, the derived figures and their basis |
+| `ship-02` | Yi Peng 3's AIS signal strip and the timeline panel | 114 reports, the 15, 15 and 50 minute silences, the reconstructed stretch |
+| `ship-03` | A ship with no AIS, and the vessel card's profile | The no-AIS state for Eagle S and the anchor chain in the vessel card |
 | `diagnostics-01` | WebGL check from the header, Measure again | The map and 3D probes rendering, the renderer and frame timings |
-| `routes-01` | `/api/health`, refused query strings, an unknown case | The health contract and 404s instead of a broken console |
+| `routes-01` | `/api/health` signed out, then an unknown case signed in | The health contract and a 404 instead of a broken console |
 
-Every plan but `routes-01` starts by signing in with a Clerk test address (its code is always 424242 and no email
-is sent), then opens its own URL; no plan depends on another, and each runs the same before and after the app goes
-behind sign-in. Before upload, each plan's steps and assertions were run with Playwright against
-cabletrace.vercel.app, at 1280 x 720 and 1440 x 900. `testsprite/backend` holds four API tests in TestSprite's Python
+Every plan signs in with a Clerk test address (its code is always 424242 and no email is sent) before it opens an
+app page; `routes-01` reads `/api/health` signed out first. No plan depends on another, and each runs the same
+before and after the app goes behind sign-in. Each plan's steps and assertions were run with Playwright against
+cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both. `testsprite/backend` holds four API tests in TestSprite's Python
 format (health, the case file hash recomputed from its canonical form, the ship-frames route, the watchlist's
 refusals); they pass with `python3 testsprite/backend/<file>.py` against the live app and wait for a TestSprite backend
 project, since this one is a frontend project. A manual run against any URL is `.github/workflows/testsprite.yml`,
