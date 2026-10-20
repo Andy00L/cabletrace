@@ -789,7 +789,6 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
    * The sky's prefiltering, which three.js does inside the first compile that meets it, gets a compile of its own.
    */
   async function completeScene() {
-    changePendingAssets(1);
     await overview.prepareRefinement(isGpuTier ? null : ensureEnvironment());
     if (skyMap) {
       await skyLoaded;
@@ -825,7 +824,9 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   }
 
   // The first frame is drawn as soon as the overview is built (three.js compiles what it shows, nothing more); the rest
-  // follows one frame later, once that frame has reached the screen.
+  // follows one frame later, once that frame has reached the screen. It counts as a pending asset from now, so a reader
+  // of data-pending-assets (the lookdev harness) never takes the frames before the refinement for the finished scene.
+  changePendingAssets(1);
   frameHandle = requestAnimationFrame(renderFrame);
   let completionHandle = requestAnimationFrame(() => {
     completionHandle = requestAnimationFrame(() => {
