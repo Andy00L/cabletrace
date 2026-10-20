@@ -13,7 +13,7 @@ import type { Result } from "../../src/lib/result";
 import type { DataTone } from "../../src/lib/seabed/scene/overview";
 import type { SeabedViewName } from "../../src/lib/seabed/scene/viewer";
 import { resolveChromiumPath } from "../perf/chromium-path";
-import { compareImages, downscaleImage, formatHexColor, matchColorNear, parseHexColor, type RgbColor } from "./compare";
+import { collectRingPixels, compareImages, downscaleImage, findMedianColor, formatHexColor, hasColorNear, matchColorNear, measureContrastRatio, parseHexColor, type RgbColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
 import { listLookdevShots, type LookdevShot } from "./shots";
 import { TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
@@ -47,9 +47,20 @@ const MIN_PROBES_PER_RUN = 20;
 // median deviation of 0 or 1 and at least 94.9% within 4; a regraded seabed or a lit material shifts every probe.
 const SEABED_TOLERANCE = 4;
 const MIN_SEABED_CLOSE_SHARE = 0.9;
+// A seabed probe under a drawn line (a data line, its casing) shows the line, not the seabed: probes with such a pixel
+// this close are left out.
+const SEABED_LINE_CLEARANCE_PX = 6;
+const LINE_PIXEL_TOLERANCE = 24;
 // The views that look down at the water. The vessel view looks along it, where the surface reflects much of the sky
 // (Fresnel: about 35% at 80 degrees from vertical) and the hull and wakes cover the seabed, so the tokens do not apply.
 const SEABED_JUDGED_VIEWS: readonly SeabedViewName[] = ["overview", "top"];
+// Every data line sits on a light casing (overview.ts) that must stand out from the ground at 3:1 or more (WCAG
+// contrast, the bar docs/UI_DESIGN_SYSTEM.md sets for a line against its casing), judged on the same views. The ground
+// is the median of a ring 6 to 12 px around each cased probe, leaving out pixels within 40 per channel of the casing
+// (its antialiased edge) or of a data colour.
+const MIN_CASING_CONTRAST = 3;
+const CASING_RING = { innerPx: 6, outerPx: 12 };
+const CASING_EXCLUSION_TOLERANCE = 40;
 // The picture counts as settled when no frame was drawn for this long (a calm scene draws only on change).
 const SETTLE_MS = 800;
 const FRAME_TIMEOUT_MS = 120_000;
@@ -74,8 +85,12 @@ type ShotOutcome = {
   tones: ToneVerdict[];
   /** Level open seabed against its depth token, or null on a frame without seabed probes. */
   seabed: SeabedVerdict | null;
+  /** Each cased tone's casing against the ground around it (overview and top views). */
+  casings: CasingVerdict[];
   isPass: boolean;
 };
+
+type CasingVerdict = { tone: DataTone; probeCount: number; groundHex: string | null; contrast: number | null; isPass: boolean };
 
 type SeabedVerdict = { probeCount: number; closeCount: number; medianDeviation: number; isPass: boolean };
 
@@ -212,7 +227,7 @@ async function measureScrubFrameMs(page: Page): Promise<number | null> {
 const LOOK_ONLY_CSS = `body * { visibility: hidden !important; } [data-testid="seabed-view"], [data-testid="seabed-view"] * { visibility: visible !important; }`;
 const CANVAS_ONLY_CSS = `[data-testid="seabed-view"] canvas ~ div, [data-testid="seabed-view"] canvas ~ div * { visibility: hidden !important; }`;
 
-type ProbePoint = { tone: DataTone; x: number; y: number };
+type ProbePoint = { tone: DataTone; x: number; y: number; isCased?: boolean };
 
 function isProbePoint(value: unknown): value is ProbePoint {
   if (typeof value !== "object" || value === null) return false;
@@ -220,16 +235,19 @@ function isProbePoint(value: unknown): value is ProbePoint {
   return (tone === "cable" || tone === "pipeline" || tone === "suspect" || tone === "alarm") && typeof Reflect.get(value, "x") === "number" && typeof Reflect.get(value, "y") === "number";
 }
 
+/** A point a check looked at, the colour it expected there and how far off it may be. */
+type OverlayMark = { x: number; y: number; expected: RgbColor; tolerance: number };
+
 /**
- * The canvas frame with each probe marked: a green square where the exact colour was found within the search
- * radius, a red one where it was not. For a person to see which lines hold their colour and which do not.
+ * The canvas frame with each probe marked: a green square where the expected colour was found within the search
+ * radius, a red one where it was not. For a person to see which lines (or which seabed points) hold their colour.
  */
-function drawProbeOverlay(image: RgbaImage, probes: readonly ProbePoint[]): RgbaImage {
+function drawProbeOverlay(image: RgbaImage, marks: readonly OverlayMark[]): RgbaImage {
   const data = Uint8Array.from(image.data);
   const markSize = PROBE_RADIUS_PX + 2;
-  for (const probe of probes) {
-    const match = matchColorNear(image, probe.x, probe.y, parseHexColor(TONE_HEX[probe.tone]), PROBE_RADIUS_PX);
-    const markColor = match !== null && match.deviation <= COLOR_TOLERANCE ? [46, 158, 91] : [217, 58, 38];
+  for (const probe of marks) {
+    const match = matchColorNear(image, probe.x, probe.y, probe.expected, PROBE_RADIUS_PX);
+    const markColor = match !== null && match.deviation <= probe.tolerance ? [46, 158, 91] : [217, 58, 38];
     for (let offset = -markSize; offset <= markSize; offset += 1) {
       for (const [column, row] of [
         [Math.round(probe.x) + offset, Math.round(probe.y) - markSize],
@@ -272,6 +290,20 @@ function judgeTones(image: RgbaImage, probes: readonly ProbePoint[], requiredTon
       isPass,
       reason,
     };
+  });
+}
+
+/** Per cased tone: the casing colour against the median ground in the rings around its probes. */
+function judgeCasings(image: RgbaImage, probes: readonly ProbePoint[]): CasingVerdict[] {
+  const casing = parseHexColor(WEBGL_COLORS.casing);
+  const excluded = [casing, ...DATA_TONES.map((tone) => parseHexColor(TONE_HEX[tone]))];
+  const casedTones = [...new Set(probes.filter((probe) => probe.isCased === true).map((probe) => probe.tone))];
+  return casedTones.map((tone) => {
+    const casedProbes = probes.filter((probe) => probe.tone === tone && probe.isCased === true);
+    const ground = findMedianColor(casedProbes.flatMap((probe) => collectRingPixels(image, probe.x, probe.y, CASING_RING, excluded, CASING_EXCLUSION_TOLERANCE)));
+    const contrast = ground ? measureContrastRatio(casing, ground) : null;
+    const isJudged = casedProbes.length >= MIN_PROBES_PER_TONE && contrast !== null;
+    return { tone, probeCount: casedProbes.length, groundHex: ground ? formatHexColor(ground) : null, contrast, isPass: !isJudged || (contrast ?? 0) >= MIN_CASING_CONTRAST };
   });
 }
 
@@ -322,7 +354,7 @@ async function captureTurntable(browser: Browser, tier: PlaywrightTierName, page
     const judged = judgeAgainstBaseline({ tier, name: TURNTABLE_SHOT_NAME, framePng, frame: frame.value, options });
     if (!judged.ok) return judged;
     const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
-    return { ok: true, value: { shot: TURNTABLE_SHOT_NAME, tier, rendererName: rendererKind, renderMs, scrubFrameMs: null, differingShare, meanDelta, baselineNote, tones: [], seabed: null, isPass: isBaselinePass } };
+    return { ok: true, value: { shot: TURNTABLE_SHOT_NAME, tier, rendererName: rendererKind, renderMs, scrubFrameMs: null, differingShare, meanDelta, baselineNote, tones: [], seabed: null, casings: [], isPass: isBaselinePass } };
   } catch (error) {
     return { ok: false, reason: describeError(error) };
   } finally {
@@ -349,19 +381,43 @@ function judgeCapturedFrames(frames: CapturedFrames, options: CliOptions): Resul
   const { tier, shot, rendererName, renderMs, scrubFrameMs, lookPng, look, canvasImage, rawProbes, rawSeabedProbes } = frames;
   const probes = Array.isArray(rawProbes) ? rawProbes.filter(isProbePoint) : [];
   const tones = shot.view === "closeup" ? [] : judgeTones(canvasImage, probes, shot.requiredTones);
-  const seabedProbes = Array.isArray(rawSeabedProbes) ? rawSeabedProbes.filter(isSeabedProbe) : [];
+  const lineColors = [WEBGL_COLORS.casing, ...DATA_TONES.map((tone) => TONE_HEX[tone])].map(parseHexColor);
+  const seabedProbes = (Array.isArray(rawSeabedProbes) ? rawSeabedProbes.filter(isSeabedProbe) : []).filter(
+    (probe) => !hasColorNear(canvasImage, probe.x, probe.y, SEABED_LINE_CLEARANCE_PX, lineColors, LINE_PIXEL_TOLERANCE),
+  );
   const seabed = SEABED_JUDGED_VIEWS.includes(shot.view) ? judgeSeabed(canvasImage, seabedProbes) : null;
+  const casings = SEABED_JUDGED_VIEWS.includes(shot.view) ? judgeCasings(canvasImage, probes) : [];
   if (probes.length > 0) {
     const overlayDirectory = path.join(options.outDirectory, tier);
     mkdirSync(overlayDirectory, { recursive: true });
-    writeFileSync(path.join(overlayDirectory, `${shot.name}.probes.png`), encodePng(drawProbeOverlay(canvasImage, probes)));
+    const toneMarks = probes.map((probe) => ({ x: probe.x, y: probe.y, expected: parseHexColor(TONE_HEX[probe.tone]), tolerance: COLOR_TOLERANCE }));
+    writeFileSync(path.join(overlayDirectory, `${shot.name}.probes.png`), encodePng(drawProbeOverlay(canvasImage, toneMarks)));
+  }
+  if (seabed) {
+    const overlayDirectory = path.join(options.outDirectory, tier);
+    mkdirSync(overlayDirectory, { recursive: true });
+    const seabedMarks = seabedProbes.map((probe) => ({ x: probe.x, y: probe.y, expected: parseHexColor(probe.hex), tolerance: SEABED_TOLERANCE }));
+    writeFileSync(path.join(overlayDirectory, `${shot.name}.seabed.png`), encodePng(drawProbeOverlay(canvasImage, seabedMarks)));
   }
   const judged = judgeAgainstBaseline({ tier, name: shot.name, framePng: lookPng, frame: look, options });
   if (!judged.ok) return judged;
   const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
   return {
     ok: true,
-    value: { shot: shot.name, tier, rendererName, renderMs, scrubFrameMs, differingShare, meanDelta, baselineNote, tones, seabed, isPass: isBaselinePass && tones.every((tone) => tone.isPass) && (seabed?.isPass ?? true) },
+    value: {
+      shot: shot.name,
+      tier,
+      rendererName,
+      renderMs,
+      scrubFrameMs,
+      differingShare,
+      meanDelta,
+      baselineNote,
+      tones,
+      seabed,
+      casings,
+      isPass: isBaselinePass && tones.every((tone) => tone.isPass) && (seabed?.isPass ?? true) && casings.every((casing) => casing.isPass),
+    },
   };
 }
 
@@ -507,6 +563,10 @@ function printOutcome(outcome: ShotOutcome) {
     const { closeCount, probeCount, medianDeviation, isPass } = outcome.seabed;
     console.log(`[runLookdev]          seabed    tokens   ${closeCount}/${probeCount} within ${SEABED_TOLERANCE}, median deviation ${medianDeviation}: ${isPass ? "ok" : "off its depth tokens"}`);
   }
+  for (const casing of outcome.casings) {
+    const contrast = casing.contrast === null ? "n/a" : `${casing.contrast.toFixed(2)}:1`;
+    console.log(`[runLookdev]          casing    ${casing.tone.padEnd(9)} on ${casing.groundHex ?? "nothing"} ${contrast} over ${casing.probeCount} probes: ${casing.isPass ? "ok" : `under ${MIN_CASING_CONTRAST}:1`}`);
+  }
 }
 
 /**
@@ -576,7 +636,7 @@ async function captureWebGpuTurntable(session: WebGpuSession, options: CliOption
   const judged = judgeAgainstBaseline({ tier: "webgpu", name: TURNTABLE_SHOT_NAME, framePng: encodePng(frame), frame, options });
   if (!judged.ok) return judged;
   const { differingShare, meanDelta, baselineNote, isBaselinePass } = judged.value;
-  return { ok: true, value: { shot: TURNTABLE_SHOT_NAME, tier: "webgpu", rendererName: report.adapterName, renderMs: report.readyMs, scrubFrameMs: null, differingShare, meanDelta, baselineNote, tones: [], seabed: null, isPass: isBaselinePass } };
+  return { ok: true, value: { shot: TURNTABLE_SHOT_NAME, tier: "webgpu", rendererName: report.adapterName, renderMs: report.readyMs, scrubFrameMs: null, differingShare, meanDelta, baselineNote, tones: [], seabed: null, casings: [], isPass: isBaselinePass } };
 }
 
 async function main(): Promise<number> {

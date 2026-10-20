@@ -27,6 +27,11 @@ type SeabedViewProps = {
   still: ReactNode;
 };
 
+/** Resolves after the browser has painted the current DOM: the next animation frame, then a task after it. */
+function waitForPaint(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
 /** The 3D seabed: the replay's main view. Time comes from the shared replay clock, read once per frame. */
 export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, onViewerChange, onTargetPick, still }: SeabedViewProps) {
   // The seabed area starts loading (in the terrain worker) while the console renders, before the effect below asks for
@@ -57,6 +62,12 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
       // tiers draw on, which also tells a CPU renderer from a GPU (the page's first context takes up to a second on
       // some machines: better spent now, webgl-canvas.ts).
       const webGpuDevice = requestWebGpuDevice();
+      // Opening the context blocks the page for as long as it takes: let the console paint first.
+      await waitForPaint();
+      if (isCancelled) {
+        void webGpuDevice.then((device) => device.ok && device.value.device.destroy());
+        return;
+      }
       const openedWebGl = openWebGl();
       const step = openedWebGl.kind === "software" ? TERRAIN_STEPS.software : TERRAIN_STEPS.gpu;
       const [loaded, viewerModule] = await Promise.all([loadSeabedScene(input.seabedArea, step), viewerCode]);

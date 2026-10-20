@@ -156,9 +156,10 @@ export type DataTone = "cable" | "pipeline" | "suspect" | "alarm";
 
 /**
  * A point in the scene where a data line of one tone is drawn on the current frame (scripts/lookdev samples it), and
- * the line's drawn width there in km, or null for a line drawn a fixed number of pixels wide.
+ * the line's drawn width there in km, or null for a line drawn a fixed number of pixels wide, and whether the line
+ * sits on a casing (the map tubes, the track; not the close views' tracers or the cut ring).
  */
-export type ColorProbe = { tone: DataTone; position: THREE.Vector3; widthKm: number | null };
+export type ColorProbe = { tone: DataTone; position: THREE.Vector3; widthKm: number | null; isCased: boolean };
 
 /**
  * A cable or pipeline: its map tube, its physical twin for the close views (built in the refinement step, null before),
@@ -216,7 +217,7 @@ export type OverviewScene = {
   update: (atMs: number, deltaSeconds: number, nowSeconds: number) => void;
   /** Points on the data lines drawn at the last updated moment, seen from `cameraPosition`, for the lookdev colour check. */
   readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
-  /** Points of level open seabed in sight of `cameraPosition` and their depth tokens, for the lookdev seabed check. */
+  /** Points of level open seabed in sight of `cameraPosition`, nearer than the haze starts, and their palette colours, for the lookdev seabed check. */
   readSeabedProbes: (cameraPosition: THREE.Vector3) => SeabedProbe[];
   /** Builds the refinement's deferred parts; they stay hidden until revealRefinement (see buildOverview). */
   prepareRefinement: (environment: THREE.Texture | null) => Promise<void>;
@@ -308,8 +309,10 @@ function buildTerrainMesh(terrainGrid: TerrainGrid, projection: Projection, look
 const SEABED_PROBE_LATTICE = 23;
 const SEABED_PROBE_MIN_NORMAL_Y = 0.999;
 const SEABED_PROBE_MIN_OPENNESS = 0.98;
+// Probes keep this many grid cells from the block's edge, where the water's white rim and the cut face are drawn.
+const SEABED_PROBE_EDGE_CELLS = 4;
 
-function pickSeabedProbes(terrain: THREE.Mesh): SeabedProbe[] {
+function pickSeabedProbes(terrain: THREE.Mesh, grid: { width: number; height: number }): SeabedProbe[] {
   const positions = terrain.geometry.getAttribute("position");
   const normals = terrain.geometry.getAttribute("normal");
   const colors = terrain.geometry.getAttribute("color");
@@ -318,7 +321,10 @@ function pickSeabedProbes(terrain: THREE.Mesh): SeabedProbe[] {
   const probeColor = new THREE.Color();
   const probes: SeabedProbe[] = [];
   for (let index = 0; index < positions.count; index += SEABED_PROBE_LATTICE) {
-    if (elevations.getX(index) > -1 || normals.getY(index) < SEABED_PROBE_MIN_NORMAL_Y || openness.getX(index) < SEABED_PROBE_MIN_OPENNESS) continue;
+    const column = index % grid.width;
+    const row = Math.floor(index / grid.width);
+    const isNearEdge = Math.min(column, row, grid.width - 1 - column, grid.height - 1 - row) < SEABED_PROBE_EDGE_CELLS;
+    if (isNearEdge || elevations.getX(index) > -1 || normals.getY(index) < SEABED_PROBE_MIN_NORMAL_Y || openness.getX(index) < SEABED_PROBE_MIN_OPENNESS) continue;
     probeColor.fromBufferAttribute(colors, index);
     probes.push({ position: new THREE.Vector3(positions.getX(index), positions.getY(index), positions.getZ(index)), expectedHex: `#${probeColor.getHexString().toUpperCase()}` });
   }
@@ -401,7 +407,9 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
   // Where the line rests on the seabed (for its physical twin, seabed-lines.ts).
   const restingPoints = vectors.map((vector) => new THREE.Vector3(vector.x, vector.y - radius - 0.04, vector.z));
   const curve = new THREE.CatmullRomCurve3(vectors, false, "centripetal");
-  const tubularSegments = Math.max(12, vectors.length * 2);
+  // One ring per resampled point (every 300 m): the map draws these tubes a few pixels wide, so finer rings add build
+  // time on the way to the first frame and nothing on screen.
+  const tubularSegments = Math.max(12, vectors.length);
   // Data tubes are drawn unlit and after the water (src/lib/render/data-colors.ts), so they show their exact colour.
   const mesh = drawAfterWater(new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSegments, radius, 8, false), materials.line));
   mesh.castShadow = true;
@@ -564,7 +572,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     rippleNormalMap: options.rippleNormalMap,
     kit,
   });
-  const seabedProbeCandidates = pickSeabedProbes(terrain);
+  const seabedProbeCandidates = pickSeabedProbes(terrain, terrainGrid.grid);
   const water = buildWaterBody({
     projection,
     deepestY,
@@ -1171,7 +1179,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (!isShown) continue;
       if (isClose && physical) {
         // The tracer is a fixed number of pixels wide: its centreline is the probe.
-        COLOR_PROBE_SHARES.forEach((share) => probes.push({ tone, position: physical.tracerCurve.getPointAt(share), widthKm: null }));
+        COLOR_PROBE_SHARES.forEach((share) => probes.push({ tone, position: physical.tracerCurve.getPointAt(share), widthKm: null, isCased: false }));
         continue;
       }
       for (const share of COLOR_PROBE_SHARES) {
@@ -1179,7 +1187,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
         const middleOffsetKm = readThinnedTubeMiddle(radius, centre.distanceTo(cameraPosition), fullWidthDistanceKm);
         centre.y += middleOffsetKm;
         // The thinned tube is 2 r s wide, and its middle sits r (s - 1) above the centreline.
-        probes.push({ tone, position: centre, widthKm: 2 * (radius + middleOffsetKm) });
+        probes.push({ tone, position: centre, widthKm: 2 * (radius + middleOffsetKm), isCased: true });
       }
     }
     // The track up to the vessel, leaving out the stretch under the hull and the wake (the last minutes sailed).
@@ -1190,7 +1198,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       const toned = drawnTrack.filter((point) => point.tone === tone);
       const step = Math.max(1, Math.floor(toned.length / TRACK_PROBES_PER_TONE));
       toned.forEach((point, index) => {
-        if (index % step === 0) probes.push({ tone, position: point.position, widthKm: null });
+        if (index % step === 0) probes.push({ tone, position: point.position, widthKm: null, isCased: true });
       });
     }
     // A line or the track seen through the hull or a cut marker shows that object, not its own colour.
@@ -1200,7 +1208,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       for (const angle of CUT_RING_PROBE_ANGLES) {
         const ringRadiusKm = CUT_RING_RADIUS_PX * cutMarker.kmPerPx;
         const position = new THREE.Vector3(Math.cos(angle) * ringRadiusKm, 0, Math.sin(angle) * ringRadiusKm).add(cutMarker.marker.position);
-        uncoveredProbes.push({ tone: "alarm", position, widthKm: 2 * CUT_RING_TUBE_RADIUS_PX * cutMarker.kmPerPx });
+        uncoveredProbes.push({ tone: "alarm", position, widthKm: 2 * CUT_RING_TUBE_RADIUS_PX * cutMarker.kmPerPx, isCased: false });
       }
     }
     return uncoveredProbes.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
@@ -1285,7 +1293,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   }
 
   function readSeabedProbes(cameraPosition: THREE.Vector3): SeabedProbe[] {
-    return seabedProbeCandidates.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
+    // Only seabed in clear air: past the haze's near distance the approved haze mixes in by design (followCamera).
+    return seabedProbeCandidates.filter((probe) => probe.position.distanceTo(cameraPosition) <= haze.near && !isBehindRelief(probe.position, cameraPosition));
   }
 
   // The hull's box in its own metres (waterline amidships at the origin), wide enough for the bridge wings: a sight
