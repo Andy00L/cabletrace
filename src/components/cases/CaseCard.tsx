@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { WarmCaseLink } from "@/components/cases/WarmCaseLink";
 import type { CableCase } from "@/lib/cases/case-file";
 import { SKETCH_HEIGHT, SKETCH_WIDTH, type CaseSketch } from "@/lib/cases/case-sketch";
 import { describeTrackEvidenceBriefly } from "@/lib/cases/case-view";
@@ -48,17 +48,18 @@ export function CaseSketchMap({ sketch, vesselName }: { sketch: CaseSketch; vess
 /**
  * One case as a row on the case list (grouped by region), whose whole surface opens its replay: a small sketch beside
  * the place, date, title and one line of facts, so a dozen cases fit one screen. On hover the shadow deepens and
- * nothing moves.
+ * nothing moves, and the case's seabed starts loading (WarmCaseLink).
  */
 export function CaseCard({ cableCase, sketch }: { cableCase: CableCase; sketch: CaseSketch | null }) {
   const cutsLabel = cableCase.cuts.map((cut) => cut.label).join(", ");
   const trackLabel = describeTrackEvidenceBriefly(cableCase);
   const map = <div className="size-full overflow-hidden rounded-inner bg-depth-40">{sketch && <CaseSketchMap sketch={sketch} vesselName={cableCase.vessel.name} />}</div>;
   return (
-    <Link
+    <WarmCaseLink
       href={`/cases/${cableCase.slug}`}
+      area={cableCase.seabedArea}
       className="grid grid-cols-[112px_minmax(0,1fr)] items-center gap-3.5 rounded-row bg-card p-2 shadow-card transition-shadow duration-140 ease-standard hover:shadow-raised"
-      data-testid={`case-card-${cableCase.slug}`}
+      testId={`case-card-${cableCase.slug}`}
     >
       <div className="aspect-video">{map}</div>
       <div className="flex min-w-0 flex-col gap-0.5 pr-2">
@@ -68,6 +69,6 @@ export function CaseCard({ cableCase, sketch }: { cableCase: CableCase; sketch: 
           {cutsLabel}. {trackLabel}. <span className="tabular-nums">{cableCase.sources.length}</span> sources
         </span>
       </div>
-    </Link>
+    </WarmCaseLink>
   );
 }
