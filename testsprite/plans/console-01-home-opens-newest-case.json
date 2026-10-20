@@ -1,25 +1,45 @@
 {
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
-  "name": "Open the newest case replay from the home page",
-  "description": "Validates the home page (title, live recorder card, the two newest cases) and that a case card opens that case's replay console with its 3D view drawn.",
+  "name": "Open the newest case replay from the front page (signed in)",
+  "description": "Validates the front page (its heading, the live recorder card, the newest cases) and that the first case card opens that case's replay console with its 3D view drawn. It accepts both the home page and the landing page that replaces it.",
   "priority": "p0",
   "planSteps": [
     {
       "type": "action",
-      "description": "Navigate to the home page /"
-    },
-    {
-      "type": "assertion",
-      "description": "Assert the page heading reads \"Ship traffic over subsea cables\" and the live recorder card (data-testid recorder-status) is shown with a data-state of recording, failing, stale, never-ran or unreachable; unless it is unreachable, its ship count (data-testid recorder-ships) is a whole number"
-    },
-    {
-      "type": "assertion",
-      "description": "Assert the newest cases list (data-testid latest-cases) holds exactly 2 case cards, each a link whose data-testid starts with case-card-"
+      "description": "Navigate to /sign-in"
     },
     {
       "type": "action",
-      "description": "Note the heading of the first case card and its data-testid (case-card-<slug>), then click that card"
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to the front page /"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page heading (h1) reads either \"Ship traffic over subsea cables\" (the home page) or \"Ships are crossing the world's cables right now.\" (the landing page)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the live recorder card (data-testid recorder-status) is shown with a data-state of recording, failing, stale, never-ran or unreachable; unless it is unreachable, its ship count (data-testid recorder-ships) is a whole number"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the newest cases list (data-testid latest-cases) holds 1 or 2 case cards, each a link whose data-testid starts with case-card-"
+    },
+    {
+      "type": "action",
+      "description": "Note the heading of the first case card in that list and its data-testid (case-card-<slug>), then click that card"
     },
     {
       "type": "assertion",

@@ -1,10 +1,26 @@
 {
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
-  "name": "Eagle S replay opens on the ship's first position (console)",
+  "name": "Eagle S replay opens on the ship's first position (console) (signed in)",
   "description": "Validates that a replay link without a time opens on the ship's first known position (10:26 UTC for Eagle S, not the window start at 10:00), with the default view and mode and an anchor status that matches that minute.",
   "priority": "p0",
   "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
     {
       "type": "action",
       "description": "Navigate to /cases/eagle-s-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""

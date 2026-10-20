@@ -1,10 +1,26 @@
 {
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
-  "name": "Case file row links the download and shows the start of its SHA-256",
+  "name": "Case file row links the download and shows the start of its SHA-256 (signed in)",
   "description": "Validates the case file row in Evidence mode: it links /cases/eagle-s-2024/case-file as a download named cabletrace-eagle-s-2024.json, and the 12 characters it shows are the start of the full SHA-256 in its tooltip. The downloaded file itself is checked by testsprite/backend/case_file_checksum.py, which recomputes the hash.",
   "priority": "p1",
   "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
     {
       "type": "action",
       "description": "Navigate to /cases/eagle-s-2024?mode=evidence and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
@@ -15,7 +31,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the row shows a 12 character lowercase hexadecimal hash, and that element's title attribute reads \"SHA-256 \" followed by 64 lowercase hexadecimal characters that start with the 12 shown"
+      "description": "Assert the row shows a 12 character lowercase hexadecimal hash in a small span element inside the link; the title attribute sits on that span (not on the link) and reads \"SHA-256 \" followed by 64 lowercase hexadecimal characters that start with the 12 shown"
     },
     {
       "type": "assertion",

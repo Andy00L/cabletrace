@@ -1,10 +1,26 @@
 {
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
-  "name": "Yi Peng 3 replay separates placed positions from recorded AIS",
+  "name": "Yi Peng 3 replay separates placed positions from recorded AIS (signed in)",
   "description": "Validates the two-day Yi Peng 3 case, whose track is placed from statements until 06:01 UTC on 18 November and recorded AIS after: the list carries a date on the first row of each day, Ship mode says which basis the numbers rest on, and Evidence mode lists the recorded stretch and its archive.",
   "priority": "p1",
   "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
     {
       "type": "action",
       "description": "Navigate to /cases/yi-peng-3-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
