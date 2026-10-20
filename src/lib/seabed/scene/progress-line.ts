@@ -56,10 +56,13 @@ export function createProgressLine(options: ProgressLineOptions): ProgressLine {
     line.add(casing);
   }
   geometry.instanceCount = 0;
+  line.visible = false;
   return {
     line,
     setFraction(fraction) {
       geometry.instanceCount = Math.round(Math.min(1, Math.max(0, fraction)) * segmentCount);
+      // Nothing to draw yet: hidden, so its shaders wait for the scene's second step instead of the first frame.
+      line.visible = geometry.instanceCount > 0;
     },
     readRevealedPointCount: () => geometry.instanceCount + 1,
   };

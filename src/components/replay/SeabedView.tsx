@@ -5,7 +5,10 @@ import type { ReplayClock } from "@/lib/replay/replay-clock";
 import { progressToTimeMs, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewer, SeabedViewName } from "@/lib/seabed/scene/viewer";
-import { loadSeabedData } from "@/lib/seabed/seabed-data";
+import { requestWebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
+import { closeWebGl, openWebGl } from "@/lib/render/webgl-canvas";
+import { TERRAIN_STEPS } from "@/lib/seabed/scene/seabed-scene";
+import { loadSeabedScene } from "@/lib/seabed/scene/seabed-scene-load";
 
 type ViewerState = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; reason: string };
 
@@ -26,6 +29,9 @@ type SeabedViewProps = {
 
 /** The 3D seabed: the replay's main view. Time comes from the shared replay clock, read once per frame. */
 export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, onViewerChange, onTargetPick, still }: SeabedViewProps) {
+  // The seabed area starts loading (in the terrain worker) while the console renders, before the effect below asks for
+  // it: loadSeabedScene keeps one promise per area, so calling it while rendering only warms what the effect awaits.
+  void loadSeabedScene(input.seabedArea, TERRAIN_STEPS.gpu);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SeabedViewer | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading" });
@@ -46,9 +52,21 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
     let viewer: SeabedViewer | null = null;
 
     async function startViewer(host: HTMLDivElement) {
-      const [loaded, viewerModule] = await Promise.all([loadSeabedData(input.seabedArea), import("@/lib/seabed/scene/viewer")]);
+      const viewerCode = import("@/lib/seabed/scene/viewer");
+      // While the seabed area and the viewer's code download: the WebGPU adapter check, and the WebGL context the GPU
+      // tiers draw on, which also tells a CPU renderer from a GPU (the page's first context takes up to a second on
+      // some machines: better spent now, webgl-canvas.ts).
+      const webGpuDevice = requestWebGpuDevice();
+      const openedWebGl = openWebGl();
+      const step = openedWebGl.kind === "software" ? TERRAIN_STEPS.software : TERRAIN_STEPS.gpu;
+      const [loaded, viewerModule] = await Promise.all([loadSeabedScene(input.seabedArea, step), viewerCode]);
       // Load steps on the page's timeline (scripts/perf/measure-pages.ts --profile case-click reads every seabed:* mark).
       performance.mark("seabed:data-and-code");
+      if (isCancelled || !loaded.ok) {
+        // Nobody will draw with the device or the context: free them now.
+        void webGpuDevice.then((device) => device.ok && device.value.device.destroy());
+        closeWebGl(openedWebGl);
+      }
       if (isCancelled) return;
       if (!loaded.ok) {
         console.error(`[SeabedView] ${loaded.reason}`);
@@ -57,11 +75,13 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
       }
       const created = await viewerModule.createSeabedViewer({
         container: host,
-        data: loaded.value,
+        scene: loaded.value,
         input,
         readTimeMs: () => progressToTimeMs(input, clock.getSnapshot().progress),
         prefersReducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
         onTargetPick: (target) => onTargetPickRef.current(target),
+        webGpuDevice,
+        openedWebGl,
       });
       // The viewer picks its renderer tier asynchronously; an unmount meanwhile frees what it built.
       if (isCancelled) {

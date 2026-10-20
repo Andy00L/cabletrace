@@ -178,8 +178,9 @@ export async function createWebGpuSceneRenderer(options: { device: GPUDevice; bu
         scenePipeline.pipeline.render();
         scene.background = background;
       },
-      compile: async (scene, camera) => {
-        await renderer.compileAsync(scene, camera);
+      compile: async (objects, camera, scene) => {
+        // WebGPU builds its pipelines asynchronously; compileAsync walks the objects at once (the renderer is ready).
+        await renderer.compileAsync(objects, camera, scene);
       },
       dispose() {
         pipelines.forEach((scenePipeline) => scenePipeline.dispose());

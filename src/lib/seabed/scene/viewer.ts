@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { detectRendererKind } from "@/lib/diagnostics/webgl-renderer";
-import { requestWebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
+import type { RendererKind } from "@/lib/diagnostics/webgl-renderer";
+import { closeWebGl, openWebGl, type OpenedWebGl } from "@/lib/render/webgl-canvas";
+import { requestWebGpuDevice, type WebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
 import type { RenderTierName, SceneRenderer } from "@/lib/render/scene-renderer";
 import { createWebGlSceneRenderer, type DrawingBudget } from "@/lib/render/webgl-scene-renderer";
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
@@ -13,8 +14,8 @@ import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneS
 import { chooseScenePalette } from "@/lib/seabed/scene/scene-look";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
 import { SKY_HDRI_URL } from "@/lib/seabed/scene/water-surface";
-import type { SeabedData } from "@/lib/seabed/seabed-data";
-import { chooseSmoothingPasses, createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
+import type { SeabedScene } from "@/lib/seabed/scene/seabed-scene";
+import { createElevationSampler, createProjection } from "@/lib/seabed/terrain";
 
 // Camera moves inside the overview, and the crossfade between overview and close-up (docs/UI_DESIGN_SYSTEM.md, Motion).
 const INTRO_MOVE_MS = 1800;
@@ -115,10 +116,10 @@ function applyCameraOverride(override: CameraOverride, camera: THREE.Perspective
  * (docs/PERFORMANCE.md, "For the lead: 3D replay"). The WebGPU tier draws as the GPU tier and adds its own
  * post-processing (src/lib/render/webgpu/webgpu-scene-renderer.ts).
  */
-const RENDER_TIERS: Record<RenderTierName, DrawingBudget & { terrainStep: number }> = {
-  webgpu: { antialias: true, shadows: true, maxPixelRatio: 2, terrainStep: 1 },
-  hardware: { antialias: true, shadows: true, maxPixelRatio: 2, terrainStep: 1 },
-  software: { antialias: false, shadows: false, maxPixelRatio: 0.75, terrainStep: 2 },
+const RENDER_TIERS: Record<RenderTierName, DrawingBudget> = {
+  webgpu: { antialias: true, shadows: true, maxPixelRatio: 2 },
+  hardware: { antialias: true, shadows: true, maxPixelRatio: 2 },
+  software: { antialias: false, shadows: false, maxPixelRatio: 0.75 },
 };
 
 export type SeabedViewName = OverviewViewName | "vessel" | "closeup";
@@ -150,13 +151,24 @@ export type SeabedViewer = {
 
 type ViewerOptions = {
   container: HTMLElement;
-  data: SeabedData;
+  /**
+   * The area to draw, its terrain built at the grid step of the renderer `openedWebGl` names (seabed-scene.ts,
+   * TERRAIN_STEPS: half the grid on a CPU renderer, which is how its frame stays near 0.12 s).
+   */
+  scene: SeabedScene;
   input: ReplaySceneInput;
   /** Read once per frame: the replay moment to draw. */
   readTimeMs: () => number;
   prefersReducedMotion: boolean;
   /** Called when a click or tap lands on the vessel or a cut marker (or on its label) in the overview. */
   onTargetPick: (target: SceneTarget) => void;
+  /**
+   * The WebGPU adapter check, started by the caller as early as it can (it takes hundreds of ms in a browser that
+   * offers WebGPU), so it runs while the seabed files download. The viewer starts it when not given.
+   */
+  webGpuDevice?: Promise<Result<WebGpuDevice>>;
+  /** The WebGL context the caller opened early (webgl-canvas.ts, openWebGl); opened here otherwise. */
+  openedWebGl?: OpenedWebGl;
 };
 
 type CameraMove = {
@@ -185,21 +197,23 @@ function disposeObjectTree(root: THREE.Object3D) {
  * then), else WebGL on the GPU or on the CPU, as before. A WebGPU tier that fails to start falls back to WebGL, so the
  * canvas never reports `webgpu` for anything but a WebGPU backend.
  */
-async function createSceneRenderer(): Promise<Result<SceneRenderer>> {
-  const webGpuDevice = await requestWebGpuDevice();
+async function createSceneRenderer(webGpuDeviceRequest: Promise<Result<WebGpuDevice>>, kind: RendererKind, openedWebGl: OpenedWebGl): Promise<Result<SceneRenderer>> {
+  const webGpuDevice = await webGpuDeviceRequest;
   if (webGpuDevice.ok) {
     try {
       const webGpuModule = await import("@/lib/render/webgpu/webgpu-scene-renderer");
       const created = await webGpuModule.createWebGpuSceneRenderer({ device: webGpuDevice.value.device, budget: RENDER_TIERS.webgpu });
-      if (created.ok) return created;
+      if (created.ok) {
+        closeWebGl(openedWebGl);
+        return created;
+      }
       console.warn(`[createSceneRenderer] the WebGPU tier did not start on ${webGpuDevice.value.adapterName}, drawing with WebGL: ${created.reason}`);
     } catch (error) {
       console.warn(`[createSceneRenderer] the WebGPU tier did not load, drawing with WebGL: ${error instanceof Error ? error.message : String(error)}`);
     }
     webGpuDevice.value.device.destroy();
   }
-  const kind = detectRendererKind();
-  return createWebGlSceneRenderer(kind, RENDER_TIERS[kind]);
+  return createWebGlSceneRenderer(kind, RENDER_TIERS[kind], openedWebGl.kind === "hardware" ? openedWebGl : null);
 }
 
 function createLabelLayer(container: HTMLElement): CSS2DRenderer {
@@ -218,22 +232,84 @@ function fitOverviewFov(aspect: number): number {
   return clampValue(fittedFov, OVERVIEW_FOV_DEGREES, MAX_OVERVIEW_FOV_DEGREES);
 }
 
+/** Starts loading a texture now (it needs no renderer); `onSettled` runs once it has loaded or failed. */
+function startTextureLoad(url: string, onSettled: () => void): THREE.Texture {
+  return new THREE.TextureLoader().load(url, onSettled, undefined, () => {
+    console.error(`[startTextureLoad] ${url} did not load`);
+    onSettled();
+  });
+}
+
 /**
  * Builds the overview inside `container` (the close-up on first use) and draws. Ambient motion (the running
  * signal, caustics, drifting silt) is off for reduced motion and on CPU renderers; the scene is then "calm" and
- * a frame is drawn only when the replay moment, the camera, the view or the size changes. The renderer tier is chosen
- * first (createSceneRenderer), which is why this waits. Never throws.
+ * a frame is drawn only when the replay moment, the camera, the view or the size changes.
+ *
+ * The load is ordered for a fast first frame (docs/PERFORMANCE.md, Case load): the textures start downloading, the
+ * terrain's arrays are built in a worker and the renderer tier is chosen, all at once; the first frame draws the block,
+ * its data lines and the labels; then the vessel, its wakes, the anchor rig and the water compile in the background
+ * and appear (completeScene). Never throws.
  */
 export async function createSeabedViewer(options: ViewerOptions): Promise<Result<SeabedViewer>> {
-  const { container, data, input, readTimeMs, prefersReducedMotion, onTargetPick } = options;
-  const createdRenderer = await createSceneRenderer();
+  const { container, scene: seabedScene, input, readTimeMs, prefersReducedMotion, onTargetPick } = options;
+  // Software or GPU is known from a throwaway WebGL context at once; WebGPU (a GPU tier too) after its adapter check.
+  const openedWebGl = options.openedWebGl ?? openWebGl();
+  const rendererKind: RendererKind = openedWebGl.kind === "software" ? "software" : "hardware";
+  const isGpuTier = rendererKind !== "software";
+  const isCalm = prefersReducedMotion || !isGpuTier;
+  // Set whenever the picture must be redrawn even though the replay moment did not change. Declared first: a texture
+  // can finish loading while the renderer is still being chosen.
+  let isDirty = true;
+  function markDirty() {
+    isDirty = true;
+  }
+  // The canvas says how many assets are still on their way (textures, the refinement), so a screenshot tool can wait.
+  let pendingAssetCount = 0;
+  let assetCanvas: HTMLCanvasElement | null = null;
+  function changePendingAssets(delta: number) {
+    pendingAssetCount += delta;
+    if (assetCanvas) assetCanvas.dataset.pendingAssets = String(pendingAssetCount);
+  }
+  function settleAsset() {
+    changePendingAssets(-1);
+    markDirty();
+  }
+  // The sand-ripple detail (Poly Haven, CC0, docs/LOOKDEV.md) and the sky HDRI (CC0, public/textures/CREDITS.md) for
+  // the water's reflection and the ships' light: GPU tiers only, requested before anything else is built.
+  const rippleNormalMap = isGpuTier ? startTextureLoad(RIPPLE_NORMAL_MAP_URL, settleAsset) : null;
+  let markSkyLoaded = () => {};
+  const skyLoaded = new Promise<void>((resolve) => {
+    markSkyLoaded = resolve;
+  });
+  const skyMap = isGpuTier
+    ? startTextureLoad(SKY_HDRI_URL, () => {
+        settleAsset();
+        markSkyLoaded();
+      })
+    : null;
+  if (rippleNormalMap) {
+    changePendingAssets(1);
+    rippleNormalMap.wrapS = THREE.RepeatWrapping;
+    rippleNormalMap.wrapT = THREE.RepeatWrapping;
+  }
+  if (skyMap) {
+    changePendingAssets(1);
+    skyMap.mapping = THREE.EquirectangularReflectionMapping;
+    // Stored with linear values (it is light, not a picture).
+    skyMap.colorSpace = THREE.LinearSRGBColorSpace;
+  }
+  // Natural look C with the nearest sampled region's values (scene-look.ts); the terrain was built in it already.
+  const { features, terrain: terrainGrid } = seabedScene;
+  const palette = chooseScenePalette(features.region);
+  const projection = createProjection(features.region);
+  const createdRenderer = await createSceneRenderer(options.webGpuDevice ?? requestWebGpuDevice(), rendererKind, openedWebGl);
+  performance.mark("seabed:renderer");
   if (!createdRenderer.ok) return createdRenderer;
   const renderer = createdRenderer.value;
-  performance.mark("seabed:renderer");
-  const tier = RENDER_TIERS[renderer.tier];
-  const isGpuTier = renderer.tier !== "software";
-  const isCalm = prefersReducedMotion || !isGpuTier;
   const canvas = renderer.canvas;
+  assetCanvas = canvas;
+  canvas.dataset.pendingAssets = String(pendingAssetCount);
+  if (rippleNormalMap) rippleNormalMap.anisotropy = renderer.maxAnisotropy;
   canvas.style.display = "block";
   canvas.style.outline = "none";
   canvas.dataset.renderer = renderer.tier;
@@ -242,55 +318,14 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   const closeUpLabels = createLabelLayer(container);
   closeUpLabels.domElement.hidden = true;
 
-  const grid = downsampleElevations(data.elevations, data.features.grid, tier.terrainStep);
-  const features = { ...data.features, grid: grid.grid };
-  const elevations = smoothElevations(grid.elevations, grid.grid, chooseSmoothingPasses(data.features.sources.depth));
-  const projection = createProjection(features.region);
-  const sampleElevationMetres = createElevationSampler(elevations, grid.grid, projection);
-  performance.mark("seabed:grid");
+  const sampleElevationMetres = createElevationSampler(terrainGrid.elevations, terrainGrid.grid, projection);
   const softDot = createSoftDotTexture();
-  // The sand-ripple detail (GPU tiers only): a CC0 normal map from Poly Haven (docs/LOOKDEV.md, Credits) that arrives
-  // after the first frame. The canvas says how many such assets are still loading, so a screenshot tool can wait.
-  let pendingAssetCount = 0;
-  canvas.dataset.pendingAssets = "0";
-  function settleAsset() {
-    pendingAssetCount -= 1;
-    canvas.dataset.pendingAssets = String(pendingAssetCount);
-    markDirty();
-  }
-  let rippleNormalMap: THREE.Texture | null = null;
-  if (isGpuTier) {
-    pendingAssetCount += 1;
-    canvas.dataset.pendingAssets = String(pendingAssetCount);
-    rippleNormalMap = new THREE.TextureLoader().load(RIPPLE_NORMAL_MAP_URL, settleAsset, undefined, () => {
-      console.error(`[createSeabedViewer] the sand-ripple map ${RIPPLE_NORMAL_MAP_URL} did not load`);
-      settleAsset();
-    });
-    rippleNormalMap.wrapS = THREE.RepeatWrapping;
-    rippleNormalMap.wrapT = THREE.RepeatWrapping;
-    rippleNormalMap.anisotropy = renderer.maxAnisotropy;
-  }
-  // Natural look C with the nearest sampled region's values (scene-look.ts).
-  const palette = chooseScenePalette(features.region);
-  // The sky HDRI (GPU tiers only, CC0, public/textures/CREDITS.md): the water's reflection and the ships' light.
-  let skyMap: THREE.Texture | null = null;
-  if (isGpuTier) {
-    pendingAssetCount += 1;
-    canvas.dataset.pendingAssets = String(pendingAssetCount);
-    skyMap = new THREE.TextureLoader().load(SKY_HDRI_URL, settleAsset, undefined, () => {
-      console.error(`[createSeabedViewer] the sky ${SKY_HDRI_URL} did not load`);
-      settleAsset();
-    });
-    skyMap.mapping = THREE.EquirectangularReflectionMapping;
-    // Stored with linear values (it is light, not a picture).
-    skyMap.colorSpace = THREE.LinearSRGBColorSpace;
-  }
   const overview = buildOverview({
     palette,
     kit: renderer.kit,
     domElement: canvas,
     features,
-    elevations,
+    terrainGrid,
     projection,
     sampleElevationMetres,
     input,
@@ -299,19 +334,9 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     isHighDetail: isGpuTier,
     rippleNormalMap,
     skyMap,
-    trackPendingAsset(pending) {
-      pendingAssetCount += 1;
-      canvas.dataset.pendingAssets = String(pendingAssetCount);
-      void pending.finally(settleAsset);
-    },
   });
 
   performance.mark("seabed:overview");
-  // Set whenever the picture must be redrawn even though the replay moment did not change.
-  let isDirty = true;
-  function markDirty() {
-    isDirty = true;
-  }
   // Lookdev hooks on the canvas: the camera and time overrides, and the anchor hidden for the contrast check.
   let cameraOverride: CameraOverride | null = null;
   let timeOverrideMs: number | null = null;
@@ -339,7 +364,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       trackDirection: overview.trackDirection,
       cableDirection: overview.cableDirection,
       cableLabel: input.cuts[0].label,
-      environment: overview.scene.environment,
+      environment: ensureEnvironment(),
       softDot,
       kit: renderer.kit,
       prefersReducedMotion: isCalm,
@@ -746,25 +771,64 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     else renderOverview(now, elapsedSeconds, deltaSeconds);
   }
 
-  // Compiles every shader before the first frame, hidden objects included: three.js compiles only what is visible,
-  // and the cut pieces, markers and anchor first appear at the moment the replay is about. Where the browser has
-  // KHR_parallel_shader_compile the compile also leaves the main thread free.
-  const hiddenObjects: THREE.Object3D[] = [];
-  overview.scene.traverse((object) => {
-    if (object.visible) return;
-    hiddenObjects.push(object);
-    object.visible = true;
-  });
-  renderer
-    .compile(overview.scene, overview.camera)
-    .catch((error: unknown) => console.error(`[createSeabedViewer] shader compile failed: ${error instanceof Error ? error.message : String(error)}`))
-    .finally(() => {
-      performance.mark("seabed:compiled");
-      hiddenObjects.forEach((object) => {
-        object.visible = false;
-      });
-      if (!isDisposed) frameHandle = requestAnimationFrame(renderFrame);
+  // The room's prefiltered reflections, made the first time something needs them (the close-up's metal, the refinement
+  // on the software tier, which has no sky HDRI): never on the way to the first frame.
+  let environment: THREE.Texture | null = null;
+  function ensureEnvironment(): THREE.Texture {
+    environment ??= renderer.kit.createEnvironment();
+    return environment;
+  }
+
+  /**
+   * The second step of the load, after the first frame is on screen: builds the refinement's deferred parts, then
+   * compiles every shader the replay will need (the refinement and every hidden object, such as the cut pieces and markers that
+   * first appear at the moment the replay is about) one program per task (SceneRenderer.compile), then shows the refinement.
+   * The sky's prefiltering, which three.js does inside the first compile that meets it, gets a compile of its own.
+   */
+  async function completeScene() {
+    changePendingAssets(1);
+    await overview.prepareRefinement(isGpuTier ? null : ensureEnvironment());
+    if (skyMap) {
+      await skyLoaded;
+      const skyProbe = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial({ envMap: skyMap }));
+      await compileWithoutStalling(skyProbe);
+      skyProbe.geometry.dispose();
+      skyProbe.material.dispose();
+    }
+    if (isDisposed) return;
+    // Hidden objects are shown only while the compile walks the scene: it reads visibility at once, then waits.
+    const hiddenObjects: THREE.Object3D[] = [];
+    overview.scene.traverse((object) => {
+      if (object.visible) return;
+      hiddenObjects.push(object);
+      object.visible = true;
     });
+    const compiled = compileWithoutStalling(overview.scene);
+    hiddenObjects.forEach((object) => {
+      object.visible = false;
+    });
+    await compiled;
+    if (isDisposed) return;
+    performance.mark("seabed:complete");
+    overview.revealRefinement();
+    settleAsset();
+  }
+
+  /** Compiles `objects` under the overview's lights and settings; a failure is logged, never thrown. */
+  function compileWithoutStalling(objects: THREE.Object3D): Promise<void> {
+    return renderer.compile(objects, overview.camera, overview.scene).catch((error: unknown) => {
+      console.error(`[compileWithoutStalling] shader compile failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  // The first frame is drawn as soon as the overview is built (three.js compiles what it shows, nothing more); the rest
+  // follows one frame later, once that frame has reached the screen.
+  frameHandle = requestAnimationFrame(renderFrame);
+  let completionHandle = requestAnimationFrame(() => {
+    completionHandle = requestAnimationFrame(() => {
+      if (!isDisposed) void completeScene();
+    });
+  });
 
   return {
     ok: true,
@@ -789,6 +853,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       dispose() {
         isDisposed = true;
         cancelAnimationFrame(frameHandle);
+        cancelAnimationFrame(completionHandle);
         if (switchTimer !== null) clearTimeout(switchTimer);
         resizeObserver.disconnect();
         overrideObserver.disconnect();
@@ -806,7 +871,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
           closeUp.controls.dispose();
           disposeObjectTree(closeUp.scene);
         }
-        overview.scene.environment?.dispose();
+        environment?.dispose();
         softDot.dispose();
         rippleNormalMap?.dispose();
         skyMap?.dispose();

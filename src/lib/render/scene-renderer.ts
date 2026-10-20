@@ -82,8 +82,12 @@ export type SceneRenderer = {
   /** Sizes the canvas in CSS px. */
   setSize: (widthPx: number, heightPx: number) => void;
   draw: (scene: THREE.Scene, camera: THREE.PerspectiveCamera) => void;
-  /** Compiles the scene's materials before its first frame, hidden objects included when the caller shows them. */
-  compile: (scene: THREE.Scene, camera: THREE.PerspectiveCamera) => Promise<void>;
+  /**
+   * Compiles the materials under `objects` with `scene`'s lights and settings (hidden objects included when the caller
+   * shows them while it is called: the walk happens at once). Resolves when every program can draw, the page free
+   * between programs.
+   */
+  compile: (objects: THREE.Object3D, camera: THREE.PerspectiveCamera, scene: THREE.Scene) => Promise<void>;
   /** Frees the GPU resources and the context now, not at garbage collection. */
   dispose: () => void;
 };

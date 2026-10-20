@@ -35,6 +35,26 @@ function createSoftPointCloud(count: number, { map, color, size, opacity }: Soft
   };
 }
 
+/** Lets the page run (input, a frame) before the next piece of work. */
+function yieldToPage(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Compiles every material under `objects` with `scene`'s lights, then gives each program its first use in a task of
+ * its own. Without KHR_parallel_shader_compile (Mesa's d3d12 driver here, every headless test browser) a program's
+ * first use waits for the GPU process to link it, 50 to 300 ms each on this machine; done in one go, the first draw of
+ * a full scene stalled the page for 4 to 5 s. Done one per task, the page answers input between them. A program
+ * already used costs nothing here.
+ */
+async function compileProgramByProgram(renderer: THREE.WebGLRenderer, objects: THREE.Object3D, camera: THREE.PerspectiveCamera, scene: THREE.Scene): Promise<void> {
+  renderer.compile(objects, camera, scene);
+  for (const program of renderer.info.programs ?? []) {
+    await yieldToPage();
+    program.getUniforms();
+  }
+}
+
 /** The scene's custom materials as GLSL patches on three.js's built-in materials. */
 export function createWebGlKit(renderer: THREE.WebGLRenderer): SceneMaterialKit {
   return {
@@ -57,13 +77,14 @@ export function createWebGlKit(renderer: THREE.WebGLRenderer): SceneMaterialKit 
 }
 
 /**
- * The WebGL renderer for a tier: antialiasing, shadows and pixel ratio from its budget, Neutral tone mapping. Fails
- * as a value when the browser refuses a WebGL 2 context.
+ * The WebGL renderer for a tier: antialiasing, shadows and pixel ratio from its budget, Neutral tone mapping. It draws
+ * on `opened` when given (a context opened with GPU_CONTEXT_ATTRIBUTES, webgl-canvas.ts), else opens its own. Fails as
+ * a value when the browser refuses a WebGL 2 context.
  */
-export function createWebGlSceneRenderer(kind: RendererKind, budget: DrawingBudget): Result<SceneRenderer> {
+export function createWebGlSceneRenderer(kind: RendererKind, budget: DrawingBudget, opened: { canvas: HTMLCanvasElement; context: WebGL2RenderingContext } | null): Result<SceneRenderer> {
   let renderer: THREE.WebGLRenderer;
   try {
-    renderer = new THREE.WebGLRenderer({ antialias: budget.antialias, alpha: true, powerPreference: "high-performance" });
+    renderer = new THREE.WebGLRenderer({ antialias: budget.antialias, alpha: true, powerPreference: "high-performance", canvas: opened?.canvas, context: opened?.context });
   } catch (error) {
     return { ok: false, reason: `WebGL 2 is not available: ${error instanceof Error ? error.message : String(error)}` };
   }
@@ -87,9 +108,7 @@ export function createWebGlSceneRenderer(kind: RendererKind, budget: DrawingBudg
       readPixelRatio: () => renderer.getPixelRatio(),
       setSize: (widthPx, heightPx) => renderer.setSize(widthPx, heightPx),
       draw: (scene, camera) => renderer.render(scene, camera),
-      compile: async (scene, camera) => {
-        await renderer.compileAsync(scene, camera);
-      },
+      compile: (objects, camera, scene) => compileProgramByProgram(renderer, objects, camera, scene),
       dispose() {
         renderer.dispose();
         // Frees the GPU context now instead of at garbage collection.
