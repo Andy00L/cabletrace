@@ -43,7 +43,7 @@
     },
     {
       "type": "action",
-      "description": "Click \"Fly to the seabed\" (data-testid live-incident-dive) and wait up to 60 seconds for the page to change"
+      "description": "Click \"Fly to the seabed\" (data-testid live-incident-dive) once, then wait without clicking anything else: the button reads \"Flying to the seabed\" while the camera flies down, and the case opens about 2 seconds later (allow up to 60 seconds on a slow browser)"
     },
     {
       "type": "assertion",

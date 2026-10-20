@@ -23,7 +23,11 @@
     },
     {
       "type": "action",
-      "description": "Navigate to /cases/eagle-s-2024?t=2024-12-25T12:00Z and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+      "description": "Navigate to /cases/eagle-s-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the replay clock (data-testid replay-clock) reads \"10:26 UTC\""
     },
     {
       "type": "action",
@@ -35,7 +39,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the replay clock (data-testid replay-clock) jumps to the next event, \"12:20 UTC\" (\"Back on its westbound route\")"
+      "description": "Assert the replay clock jumps to the next event in the list, \"10:59 UTC\" (\"The voyage data recorder starts recording again\")"
     },
     {
       "type": "action",
