@@ -323,10 +323,10 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 Every plan signs in with a Clerk test address (its code is always 424242 and no email is sent) before it opens an
 app page; `routes-01` reads `/api/health` signed out first. No plan depends on another, and each runs the same
 before and after the app goes behind sign-in. Each plan's steps and assertions were run with Playwright against
-cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both. `testsprite/backend` holds four API tests in TestSprite's Python
-format (health, the case file hash recomputed from its canonical form, the ship-frames route, the watchlist's
-refusals); they pass with `python3 testsprite/backend/<file>.py` against the live app and wait for a TestSprite backend
-project, since this one is a frontend project. A manual run against any URL is `.github/workflows/testsprite.yml`,
+cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both. `testsprite/backend` holds two API tests in TestSprite's Python
+format: the health contract, and the sign-in gate (only the front page and `/api/health` answer a signed-out caller,
+the APIs refuse it with 401, the pages redirect toward sign-in). Both pass with `python3 testsprite/backend/<file>.py`
+against the live app and wait for a TestSprite backend project, since this one is a frontend project. A manual run against any URL is `.github/workflows/testsprite.yml`,
 started from the Actions tab.
 
 ## 📚 Data sources and licences
