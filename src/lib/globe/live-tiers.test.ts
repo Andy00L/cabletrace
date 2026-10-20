@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { COORDINATE_UNITS_PER_DEGREE } from "@/lib/live/snapshot-codec";
+import { findFaultRipples } from "./fault-ripples";
 import { readDistanceTier, readPlanetShare, TIER_CAMERA_DISTANCE } from "./globe-tier";
 import { countShipsBySea, countShipsInBoxes, findSeaIndex, measureSeaShare, parseSeaAreas, rankSeasByShips } from "./sea-areas";
 import { binShipDensity, findDensityCell } from "./ship-density";
@@ -117,5 +118,27 @@ describe("ship density", () => {
 
   test("an empty frame draws no dots", () => {
     expect(binShipDensity(frameAt([])).cellCount).toBe(0);
+  });
+});
+
+describe("fault ripples", () => {
+  const estlink = { name: "Estlink 2", kind: "power" as const, points: [24, 59.5, 25, 59.6, 26, 59.7] };
+  const dayStartMs = Date.UTC(2026, 9, 20);
+  const dayEndMs = dayStartMs + 24 * 3_600_000;
+
+  test("ripples a cable whose fault window overlaps the day, at its middle point, once", () => {
+    const drafts = [
+      { cableName: "Estlink 2", faultNotBeforeMs: dayStartMs - 3_600_000, faultNotAfterMs: dayStartMs + 3_600_000 },
+      { cableName: "Estlink 2", faultNotBeforeMs: dayStartMs + 7_200_000, faultNotAfterMs: dayStartMs + 9_000_000 },
+    ];
+    expect(findFaultRipples({ drafts, watchedLines: [estlink], dayStartMs, dayEndMs })).toEqual([{ cableName: "Estlink 2", longitude: 25, latitude: 59.6 }]);
+  });
+
+  test("leaves out a fault outside the day and a cable the globe does not draw", () => {
+    const drafts = [
+      { cableName: "Estlink 2", faultNotBeforeMs: dayEndMs + 1, faultNotAfterMs: dayEndMs + 3_600_000 },
+      { cableName: "Unknown cable", faultNotBeforeMs: dayStartMs, faultNotAfterMs: dayEndMs },
+    ];
+    expect(findFaultRipples({ drafts, watchedLines: [estlink], dayStartMs, dayEndMs })).toEqual([]);
   });
 });

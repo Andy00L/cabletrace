@@ -12,6 +12,7 @@ import { LiveLineCard, type LineScanState } from "@/components/live/LiveLineCard
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
 import { BusiestSeasCard, SeaCard, TierBreadcrumb, TierLadder, type Crumb } from "@/components/live/LiveTiers";
 import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/globe/coverage";
+import { findFaultRipples, type FaultRipple } from "@/lib/globe/fault-ripples";
 import { pairShipFrames } from "@/lib/globe/frame-pairing";
 import type { FrameSource } from "@/lib/globe/frame-source";
 import { isGlobeTier, TIER_CAMERA_DISTANCE, type DistanceTier, type GlobeTier, type WatchedRegionOutline } from "@/lib/globe/globe-tier";
@@ -269,6 +270,7 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
   // What the globe last got, handed again to a rebuilt viewer.
   const densityRef = useRef<ShipDensity | null>(null);
   const seaLabelsRef = useRef<readonly GlobeSeaLabel[]>([]);
+  const ripplesRef = useRef<readonly FaultRipple[]>([]);
 
   // Line ids are positions in the list, so a new list (the world's lines arriving) closes any open line card.
   const handleLinesChange = useCallback((lines: GlobeLine[], worldState: WorldLinesState) => {
@@ -469,6 +471,7 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
       viewer.setDensity(densityRef.current);
       viewer.setSeaLabels(seaLabelsRef.current);
       viewer.setRegionOutlines(watchedRegions.map((region) => region.box));
+      viewer.setRipples(ripplesRef.current);
       // A link with a tier reopens that view without a flight.
       const params = new URLSearchParams(window.location.search);
       const tierParam = params.get(TIER_PARAM);
@@ -670,7 +673,17 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
   );
   const regionCounts = useMemo(() => (moment ? countShipsInBoxes(moment.frame, watchedRegions) : null), [moment, watchedRegions]);
 
-  // Hands the moment's density and sea names to the globe, a three.js scene React does not own.
+  // A ripple on each watched cable a fault signal of this day names (src/lib/globe/fault-ripples.ts).
+  const ripples = useMemo(
+    () => (draftCasesState.kind === "loaded" ? findFaultRipples({ drafts: draftCasesState.drafts, watchedLines, dayStartMs: startMs, dayEndMs: endMs }) : []),
+    [draftCasesState, watchedLines, startMs, endMs],
+  );
+
+  // Hands the moment's density, the sea names and the ripples to the globe, a three.js scene React does not own.
+  useEffect(() => {
+    ripplesRef.current = ripples;
+    viewerRef.current?.setRipples(ripples);
+  }, [ripples]);
   useEffect(() => {
     densityRef.current = density;
     viewerRef.current?.setDensity(density);
@@ -821,10 +834,20 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
         </div>
         <div className="absolute bottom-4 left-4 z-(--layer-stage-controls) flex items-center gap-2">
           <div className="hidden items-center gap-x-4 rounded-field bg-card px-3.5 py-2.5 text-micro shadow-row md:flex">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-ship" aria-hidden="true" />
-              Ship
-            </span>
+            {tier === "planet" ? (
+              <span className="inline-flex items-center gap-1.5" data-testid="live-density-legend">
+                <span className="flex items-center gap-0.5" aria-hidden="true">
+                  <span className="size-1.5 rounded-full bg-density/80" />
+                  <span className="size-2.5 rounded-full bg-density/80" />
+                </span>
+                Ships per 220 km
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-ship" aria-hidden="true" />
+                Ship
+              </span>
+            )}
             <span className="inline-flex items-center gap-1.5">
               <svg width="22" height="8" viewBox="0 0 22 8" aria-hidden="true">
                 <path d="M1 4 H21" stroke="var(--color-cable)" strokeWidth="2.5" strokeLinecap="round" />
@@ -837,6 +860,12 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
               </svg>
               Pipeline
             </span>
+            {ripples.length > 0 && (
+              <span className="inline-flex items-center gap-1.5" data-testid="live-ripple-legend">
+                <span className="size-3 rounded-full border-[1.5px] border-alarm" aria-hidden="true" />
+                Fault signal today
+              </span>
+            )}
             <span className="inline-flex items-center gap-1.5" data-testid="live-coverage-legend">
               <svg width="18" height="12" viewBox="0 0 18 12" aria-hidden="true" className="rounded-[3px]">
                 <rect width="18" height="12" fill={WEBGL_COLORS.depth40} />

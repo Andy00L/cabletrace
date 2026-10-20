@@ -79,7 +79,8 @@ const DENSITY_REFERENCE_COUNT = 150;
 const DENSITY_DOT_MIN_PX = 2.6;
 const DENSITY_DOT_MAX_PX = 14;
 const DENSITY_LIFT = 1.001;
-const DENSITY_TONE = WEBGL_COLORS.ink;
+// Andy's pick on board 25 (20 Oct 2026): the approved water teal, so the field reads as ships at sea, not as data ink.
+const DENSITY_TONE = WEBGL_COLORS.density;
 const DENSITY_ALPHA = 0.78;
 // The watched regions' outlines, just above the cables, from the Sea tier down: ink at a low opacity, so a box reads as
 // "recorded here" without competing with the data lines.
@@ -90,6 +91,12 @@ const REGION_OUTLINE_LIFT = 1.0008;
 const OUTLINE_POINTS_PER_DEGREE = 2;
 // Sea names show while the density field does, and only on the side facing the camera.
 const SEA_LABEL_MIN_SHARE = 0.5;
+// The fault ripple (src/lib/globe/fault-ripples.ts, approved by Andy on 20 Oct 2026): two alarm rings growing out of a
+// cable over 3.2 s, half a period apart, on a sprite this wide (CSS px). It is the globe's third ambient loop, after the
+// live ping and the cable signal; a calm globe (reduced motion, or a CPU renderer) draws one still ring instead.
+const RIPPLE_PX = 64;
+const RIPPLE_PERIOD_MS = 3200;
+const RIPPLE_LIFT = 1.0017;
 
 /** What a click on the globe landed on. */
 export type GlobePick = { kind: "ship"; mmsi: number } | { kind: "line"; lineId: number } | { kind: "incident"; slug: string } | { kind: "none" };
@@ -134,6 +141,8 @@ export type GlobeViewer = {
   setSeaLabels: (labels: readonly GlobeSeaLabel[]) => void;
   /** The watched regions' boxes, outlined from the Sea tier down. */
   setRegionOutlines: (boxes: readonly BoundingBox[]) => void;
+  /** Where a fault signal of the recorded day names a cable: a ripple on each, or none. */
+  setRipples: (points: readonly { longitude: number; latitude: number }[]) => void;
   /** The point under the stage's centre. */
   readCentre: () => { longitude: number; latitude: number };
   resetView: () => void;
@@ -271,6 +280,32 @@ const OUTLINE_FRAGMENT_SHADER = /* glsl */ `
   uniform float uOpacity;
   void main() {
     gl_FragColor = vec4(uColor, uOpacity);
+  }
+`;
+
+const RIPPLE_VERTEX_SHADER = /* glsl */ `
+  uniform float uPointSize;
+  void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = uPointSize;
+  }
+`;
+
+// Each ring grows from the cable to the sprite's edge and fades as it goes; uIsStill holds one ring at mid size.
+const RIPPLE_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uPhase;
+  uniform float uIsStill;
+  float ring(float radius, float phase) {
+    float ringRadius = mix(0.06, 0.48, phase);
+    float band = 1.0 - smoothstep(0.012, 0.03, abs(radius - ringRadius));
+    return band * (1.0 - phase);
+  }
+  void main() {
+    float radius = length(gl_PointCoord - 0.5);
+    float alpha = uIsStill > 0.5 ? ring(radius, 0.45) * 1.6 : max(ring(radius, uPhase), ring(radius, fract(uPhase + 0.5)));
+    if (alpha < 0.02) discard;
+    gl_FragColor = vec4(uColor, min(alpha, 0.9));
   }
 `;
 
@@ -538,6 +573,21 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   outlines.renderOrder = 3;
   scene.add(outlines);
 
+  const rippleGeometry = new THREE.BufferGeometry();
+  const rippleMaterial = new THREE.ShaderMaterial({
+    uniforms: { uPointSize: { value: RIPPLE_PX }, uColor: { value: toRawColor(WEBGL_COLORS.alarm) }, uPhase: { value: 0 }, uIsStill: { value: isCalm ? 1 : 0 } },
+    vertexShader: RIPPLE_VERTEX_SHADER,
+    fragmentShader: RIPPLE_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: false,
+  });
+  const ripplePoints = new THREE.Points(rippleGeometry, rippleMaterial);
+  ripplePoints.frustumCulled = false;
+  // Under the cut markers, above the ships.
+  ripplePoints.renderOrder = 6;
+  scene.add(ripplePoints);
+  let rippleDirections: THREE.Vector3[] = [];
+
   // Sea names are HTML labels in their own scene, so the label renderer walks only them.
   const labelScene = new THREE.Scene();
   const labelRenderer = new CSS2DRenderer();
@@ -768,11 +818,13 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   let isSignalRunning = false;
   // The first drawn frame reports the view even though the camera has not moved yet.
   let isFirstFrame = true;
+  // True while a ripple faces the camera on a globe that moves: the globe then draws every frame, as for the signal.
+  let isRippleRunning = false;
   function renderFrame(now: number) {
     frameHandle = requestAnimationFrame(renderFrame);
     const isFlying = stepCameraMove(now);
     const hasCameraMoved = controls.update() || isFlying;
-    if (!isDirty && !hasCameraMoved && !isSignalRunning) return;
+    if (!isDirty && !hasCameraMoved && !isSignalRunning && !isRippleRunning) return;
     // A frame drawn only for a cable's running light leaves the labels where they are.
     const shouldPlaceLabels = isDirty || hasCameraMoved;
     isDirty = false;
@@ -796,6 +848,9 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     outlineMaterial.uniforms.uOpacity.value = (1 - planetShare) * REGION_OUTLINE_ALPHA;
     outlines.visible = planetShare < 1;
     isSignalRunning = lineLayer?.update({ nowMs: now, cameraPosition: camera.position, homeDistance: HOME_DISTANCE, isCalm, pixelRatio }) ?? false;
+    rippleMaterial.uniforms.uPointSize.value = RIPPLE_PX * pixelRatio;
+    rippleMaterial.uniforms.uPhase.value = (now % RIPPLE_PERIOD_MS) / RIPPLE_PERIOD_MS;
+    isRippleRunning = !isCalm && rippleDirections.some((direction) => direction.dot(camera.position) > RIPPLE_LIFT);
     renderer.render(scene, camera);
     if (shouldPlaceLabels) {
       const showsSeaLabels = planetShare >= SEA_LABEL_MIN_SHARE;
@@ -949,6 +1004,15 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
           offset += segment.length;
         }
         outlineGeometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
+        markDirty();
+      },
+      setRipples(points) {
+        rippleGeometry.dispose();
+        const positions = new Float32Array(points.length * 3);
+        points.forEach((point, index) => writeUnitVector(point.longitude, point.latitude, positions, index * 3));
+        rippleDirections = points.map((_point, index) => new THREE.Vector3(positions[index * 3], positions[index * 3 + 1], positions[index * 3 + 2]));
+        rippleGeometry.setAttribute("position", new THREE.BufferAttribute(positions.map((coordinate) => coordinate * RIPPLE_LIFT), 3));
+        rippleGeometry.setDrawRange(0, points.length);
         markDirty();
       },
       readCentre() {

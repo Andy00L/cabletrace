@@ -33,6 +33,7 @@ There is no brand accent. The interactive color is `ink`: one ink pill per view.
 | `alarm` | `#D93A26` | Anchor drag segment (3.5px), cable breaks, alerts, errors and destructive actions. White on it is 4.6:1. |
 | `ship` | `#A8A8A2` | Other ships, 3.5px dots, context only |
 | `live` | `#2E9E5B` | Live dots and the live line. Never text (3.4:1). |
+| `density` | `#3F7E86` | The live globe's ship density at the Planet tier, graduated dots at 78%. The approved water teal (water B), picked by Andy on board 25, 20 Oct 2026. |
 
 Every data line on the map sits on a white casing (`#FFFFFF` at 90%, 2 to 3px wider than the line), so each line keeps at least 3:1 against its casing over any depth band. Map labels use a 3.5px white halo (`paint-order: stroke`).
 
@@ -111,7 +112,7 @@ One light from above. No borders on cards: surfaces separate by tone and shadow.
 | `press-scale` | 0.97 |
 | `overshoot` | none |
 
-Transform and opacity only. Every fade carries a 8 to 12px rise. `prefers-reduced-motion` collapses everything to opacity with the same end layout. The live dot's ping and the cable signal are the only ambient loops.
+Transform and opacity only. Every fade carries a 8 to 12px rise. `prefers-reduced-motion` collapses everything to opacity with the same end layout. The live dot's ping, the cable signal and the live globe's fault ripple (approved by Andy, 20 Oct 2026) are the only ambient loops.
 
 One move runs longer than `duration-hero`: the live globe's dive to a cut (1,600 ms on `ease-standard`, see Live globe), the globe's one hero move, built under exception 6 for review on the live result.
 
@@ -265,8 +266,9 @@ The art is cropped inside its printed plate mark, its paper moved onto `paper`, 
 
 - **Globe** (`src/lib/globe/globe-viewer.ts`). Natural Earth land in `land` on `depth-40` water, a 1 px coast in the seabed contour tone, the limb darkened a little so the sphere reads round, and a faint `depth-40` rim against the page. Northern Europe (12 W to 45 E, 48 to 72 N), where the replays and the recorder are, sits on a sharper patch so coasts stay crisp when the camera flies down to a ship.
 - **Tiers** (`src/lib/globe/globe-tier.ts`, chosen by Andy on 20 Oct 2026, board 25). Zoom by sea, not by land. Planet from 2 Earth radii out (the opening view, 3.6), Sea from 1.18 (the ladder flies to 1.45), Strait closer (1.1), and Ship: the picked ship at 1.04, held while the camera stays close. A zoom ladder (the segmented control, Ship disabled until a ship is picked) and a breadcrumb ("World > Baltic Sea > Gulf of Finland > ship", hidden at Planet) sit under the recorded-day label; each step flies there in 900 ms. The address keeps `tier` and `at` (longitude, latitude) and reopens the view without a flight.
-- **Density** (Planet, `src/lib/globe/ship-density.ts`). The moment's ships counted in cells of about 220 by 220 km (2 degree bands, fewer cells toward the poles), one dot per occupied cell whose area grows with its count up to 150 ships, 2.6 to 14 px. Between 1.8 and 2.3 Earth radii the dots cross over with the ship dots on a smoothstep. Tone: `ink` at 78% until Andy picks on board 25 (B, teal `#3F7E86`, recommended).
+- **Density** (Planet, `src/lib/globe/ship-density.ts`). The moment's ships counted in cells of about 220 by 220 km (2 degree bands, fewer cells toward the poles), one dot per occupied cell whose area grows with its count up to 150 ships, 2.6 to 14 px. Between 1.8 and 2.3 Earth radii the dots cross over with the ship dots on a smoothstep. Tone: `density` at 78% (Andy's pick on board 25).
 - **Seas** (`src/lib/globe/sea-areas.ts`, `public/globe/seas.json`, built by `scripts/globe/build-seas.ts`). Natural Earth's 1:50m marine areas drawn into quarter-degree cells, arms counted for their sea (the Gulf of Finland for the Baltic), each sea grown 2 degrees into the coastal gaps so a ship in port counts. At Planet the 30 busiest seas get a stacked label (name, ship count) on their most open-water cell, busiest first where two collide (the seabed's label placer).
+- **Fault ripple** (`src/lib/globe/fault-ripples.ts`). When a draft case's fault window overlaps the recorded day, its watched cable carries two `alarm` rings growing from its middle point to 64 px over 3.2 s, half a period apart, fading as they grow; the legend adds "Fault signal today". A draft names the cable, not the spot, so the ring marks the cable only. Reduced motion and a CPU renderer draw one still ring.
 - **Watched regions.** Their boxes are outlined in `ink` at 32% from the Sea tier down. A region is listed under every sea holding at least a fifth of its box.
 - **Tier rails.** Planet: "Busiest seas in this frame", eight rows with a count bar (`ink` at 70% on `soft`), each flying to its sea. Sea: the sea's ships in a `display` figure, the watched regions in it with their ships (each flying to the Strait tier), and its cuts on file. Strait and Ship keep the rail as it was.
 - **Ships.** One `ship` dot each, blended on the GPU between the two frames around the moment. A ship missing from one frame fades in or out; a move faster than 50 knots jumps instead of streaking. The selected ship carries an `ink` ring. Ship type reads in the card, never as a color.
@@ -288,6 +290,6 @@ The art is cropped inside its printed plate mark, its paper moved onto `paper`, 
   - `live-globe-view` carries `data-state` loading, ready or failed.
   - Others: `live-ship-count`, `live-ship-card` (with `data-mmsi`), `live-detections`, `live-detection-<id>`, `live-play`, `live-scrubber`, `live-clock`, `live-credits`.
   - Lines and incidents: `live-coverage-legend`, `live-line-card` (`data-line-id`, `data-passage-count`), `live-line-check-day`, `live-line-passage-<mmsi>`, `live-incidents`, `live-incident-<slug>`, `live-incident-card` (`data-slug`), `live-incident-dive` (`data-state`), `live-incident-link`.
-  - Tiers: `live-tier` (`data-tier` planet, sea, strait or ship), `live-tier-ladder` (buttons carry `data-value` and `aria-pressed`), `live-breadcrumb`, `live-busiest-seas`, `live-busiest-sea`, `live-sea-card`, `live-sea-ship-count`, `live-sea-region-<id>`, `live-sea-label`.
+  - Tiers: `live-tier` (`data-tier` planet, sea, strait or ship), `live-tier-ladder` (buttons carry `data-value` and `aria-pressed`), `live-breadcrumb`, `live-busiest-seas`, `live-busiest-sea`, `live-sea-card`, `live-sea-ship-count`, `live-sea-region-<id>`, `live-sea-label`, `live-density-legend` (Planet only), `live-ripple-legend` (when a ripple shows).
   - Ship and drafts: `live-ship-type`, `live-ship-details`, `live-draft-cases` (`data-state`), `live-draft-case-<id>`, `live-draft-ship-<id>-<mmsi>`, `live-draft-cases-empty`.
 
