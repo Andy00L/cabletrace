@@ -1,0 +1,29 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "A ship with no AIS says so, and the vessel card draws the anchor chain",
+  "description": "Validates the edge where no AIS report survives (Eagle S: every position placed from statements) and the side profile in the vessel card opened on the ship.",
+  "priority": "p2",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024?t=2024-12-25T10:30Z&mode=ship and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the card \"AIS signal\" (data-testid ais-signal) has data-state \"no-ais\" and data-report-count \"0\", says \"No AIS report survives for this ship in this case.\", and shows a dashed stretch (data-testid ais-reconstructed) with data-state \"reconstructed\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the ship card (data-testid ship-card) lists \"Cook Islands\", \"IMO 9329760\" and \"MMSI 518998865\", and the side profile (data-testid vessel-profile) has data-state \"dragging\" and data-chain-out-metres \"330\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Replay\" in the mode switch (data-testid mode-switch), then click the ship's name \"Eagle S\" (data-testid open-vessel-card) in the panel on the right of the 3D view (click \"Show panel\" first if it is folded)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the vessel card (data-testid vessel-card) opens with \"Oil tanker, 228.6 m, Cook Islands flag\", contains a side profile (data-testid vessel-profile) whose text includes \"chain out 330 m\", and still says \"Between two placed positions\""
+    }
+  ]
+}
