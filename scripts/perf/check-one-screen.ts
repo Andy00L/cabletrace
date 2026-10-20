@@ -6,16 +6,18 @@
 import { chromium, type Browser } from "playwright";
 import { CABLE_CASES } from "../../src/data/cases";
 import type { Result } from "../../src/lib/result";
+import { signInTestUser } from "../auth/sign-in-test-user";
 import { resolveChromiumPath } from "./chromium-path";
 
 // Targets (plan/prompts/ui-console.md, section 6): no page scroll at these sizes, and the 3D view covers at least
-// 65% of a 1440 x 900 viewport.
+// 65% of a 1440 x 900 viewport. The front page is left out: since the landing (PR 51) it is a scrolling page of
+// engravings by design. Every other page sits behind sign-in, so each viewport's context signs in first.
 const VIEWPORTS = [
   { width: 1440, height: 900 },
   { width: 1280, height: 720 },
   { width: 1024, height: 768 },
 ] as const;
-const ROUTES = ["/", "/cases", "/live", ...CABLE_CASES.map((cableCase) => `/cases/${cableCase.slug}`)];
+const ROUTES = ["/cases", "/live", ...CABLE_CASES.map((cableCase) => `/cases/${cableCase.slug}`)];
 const STAGE_SHARE_TARGET = 0.65;
 const STAGE_TARGET_VIEWPORT = { width: 1440, height: 900 };
 // One pixel of rounding is not a scrollbar.
@@ -88,6 +90,11 @@ async function measure(browser: Browser, baseUrl: string): Promise<Result<Measur
   for (const viewport of VIEWPORTS) {
     const context = await browser.newContext({ viewport });
     const page = await context.newPage();
+    const signedIn = await signInTestUser(page, baseUrl);
+    if (!signedIn.ok) {
+      await context.close();
+      return signedIn;
+    }
     for (const route of ROUTES) {
       try {
         await page.goto(`${baseUrl}${route}`, { waitUntil: "networkidle", timeout: NAVIGATION_TIMEOUT_MS });

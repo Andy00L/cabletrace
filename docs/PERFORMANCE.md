@@ -257,7 +257,7 @@ loads, compressed (gzip from `next start`), headers excluded.
 
 ## One screen
 
-`bun scripts/perf/check-one-screen.ts <baseUrl>` loads `/`, `/cases`, `/live` and every published case page at 1440 x 900, 1280 x 720 and 1024 x 768 in headless Chromium and checks that the document does not scroll or overflow sideways, and that on a case page the 3D view covers at least 65% of a 1440 x 900 viewport (plan/prompts/ui-console.md, section 6). It also prints the share no panel floats over. Exit codes: 0 every target met, 1 a target missed, 2 the pages could not be measured.
+`bun scripts/perf/check-one-screen.ts <baseUrl>` signs in as the tools' test reader, then loads `/cases`, `/live` and every published case page (the front page scrolls by design since PR 51) at 1440 x 900, 1280 x 720 and 1024 x 768 in headless Chromium and checks that the document does not scroll or overflow sideways, and that on a case page the 3D view covers at least 65% of a 1440 x 900 viewport (plan/prompts/ui-console.md, section 6). It also prints the share no panel floats over. Exit codes: 0 every target met, 1 a target missed, 2 the pages could not be measured.
 
 Measured on a local production build (`bun run start`), 2026-10-17:
 
@@ -305,6 +305,18 @@ load of 14 to 17, alternating main and the branch six runs a side:
 | Ships that crossed a clicked line | 41 frames checked in 5.1 s; 14 s on a later run with more frames under load 14 |
 | Dive into a case | the view transition started 3.1 s after the click and the case console was in place 1.25 s later |
 | JS on `/live` | 391.8 KB, up 20.5 KB for three.js line addons and the new cards |
+
+The tiers (Planet, Sea, Strait, Ship), measured 20 Oct 2026 on two local production builds side by side, origin/main
+and the tiers branch, signed in, SwiftShader at 1440 x 900, three runs alternating, load average 5:
+
+| What | main | tiers |
+| --- | --- | --- |
+| JS on `/live`, compressed, after the sign-in page | 265.2 KB | 269.7 KB (+4.5 KB: the tier modules, CSS2DRenderer, the cards) |
+| Static globe files on the wire | 209.8 KB | 227.3 KB (+17.5 KB: `seas.json`, 56 KB raw) |
+| Globe ready, from navigation (median, min-max) | 1,796 ms (1,413-3,353) | 1,885 ms (1,596-4,443) |
+
+Binning a frame into density cells and counting it by sea runs once per frame pair, not per drawn frame. The globe
+still draws nothing while idle: the labels are placed only on frames the camera or the data changed.
 
 Home's JS crossed its budget with PR 19 and PR 20 (200.2 KB, then 202.7 KB, measured on each production deployment):
 home prefetches the case console's chunks for its case links, and the section bar prefetched the WebGL check's probes.

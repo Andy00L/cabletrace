@@ -1,6 +1,7 @@
 "use client";
 
-export type SegmentOption<TValue extends string> = { value: TValue; label: string };
+/** `isDisabled` greys a segment that does not apply yet (the globe's Ship tier before a ship is picked). */
+export type SegmentOption<TValue extends string> = { value: TValue; label: string; isDisabled?: boolean };
 
 type SegmentedControlProps<TValue extends string> = {
   /** Read by screen readers as the group's name. */
@@ -25,10 +26,12 @@ export function SegmentedControl<TValue extends string>({ label, options, value,
             key={option.value}
             type="button"
             aria-pressed={isSelected}
+            disabled={option.isDisabled}
             onClick={() => onChange(option.value)}
-            className={`h-9 rounded-full px-4 text-small transition-[background-color,color,box-shadow] duration-140 ease-standard active:scale-[0.97] ${
-              isSelected ? "bg-card font-semibold text-ink shadow-selected" : "font-medium text-muted hover:text-ink"
+            className={`h-9 rounded-full px-4 text-small transition-[background-color,color,box-shadow] duration-140 ease-standard active:scale-[0.97] disabled:text-faint disabled:active:scale-100 ${
+              isSelected ? "bg-card font-semibold text-ink shadow-selected" : "font-medium text-muted enabled:hover:text-ink"
             }`}
+            data-value={option.value}
           >
             {option.label}
           </button>

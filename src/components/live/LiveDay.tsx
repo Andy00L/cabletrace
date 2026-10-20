@@ -2,7 +2,7 @@
 
 import * as Popover from "@radix-ui/react-popover";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Icon } from "@/components/icons/Icon";
 import { LiveDock } from "@/components/live/LiveDock";
 import { LiveGlobeStage, type WorldLinesState } from "@/components/live/LiveGlobeStage";
@@ -10,14 +10,20 @@ import { DraftCasesCard, type DraftCasesState } from "@/components/live/LiveDraf
 import { IncidentCard, IncidentsCard } from "@/components/live/LiveIncidents";
 import { LiveLineCard, type LineScanState } from "@/components/live/LiveLineCard";
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
+import { BusiestSeasCard, SeaCard, TierBreadcrumb, TierLadder, type Crumb } from "@/components/live/LiveTiers";
 import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/globe/coverage";
+import { findFaultRipples, type FaultRipple } from "@/lib/globe/fault-ripples";
 import { pairShipFrames } from "@/lib/globe/frame-pairing";
 import type { FrameSource } from "@/lib/globe/frame-source";
-import type { GlobePick, GlobeViewer } from "@/lib/globe/globe-viewer";
+import { isGlobeTier, TIER_CAMERA_DISTANCE, type DistanceTier, type GlobeTier, type WatchedRegionOutline } from "@/lib/globe/globe-tier";
+import type { GlobePick, GlobeSeaLabel, GlobeView, GlobeViewer } from "@/lib/globe/globe-viewer";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { addFrameToPassageScan, createPassageScan, summarizePassages, type LinePassage, type PassageScan } from "@/lib/globe/line-passages";
 import { fetchShipDetails, fetchShipDetailsBatch, type DetectionSummary } from "@/lib/globe/live-api";
 import { daySpan, locateMoment } from "@/lib/globe/live-day";
+import { countShipsBySea, countShipsInBoxes, findSeaIndex, measureSeaShare, parseSeaAreas, rankSeasByShips, type SeaArea, type SeaAreas, type SeaCount } from "@/lib/globe/sea-areas";
+import { binShipDensity, type ShipDensity } from "@/lib/globe/ship-density";
+import { fetchStaticJson } from "@/lib/globe/static-file";
 import type { WatchedLine } from "@/lib/globe/watched-line";
 import type { GlobeLine } from "@/lib/globe/world-lines";
 import type { FrameIndexEntry } from "@/lib/live/frame-layout";
@@ -25,6 +31,7 @@ import { readShipRecord, type ShipFrameColumns } from "@/lib/live/snapshot-codec
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { formatUtcClock } from "@/lib/replay/format-utc";
 import { createReplayClock } from "@/lib/replay/replay-clock";
+import { isInsideBox } from "@/lib/regions/region";
 
 // A day plays in 72 seconds: an hour every 3 seconds, slow enough to follow a ship across a sea.
 const DAY_PLAYBACK_SECONDS = 72;
@@ -112,9 +119,59 @@ function crossfadeIntoCase(navigate: () => void, path: string, globeElement: HTM
 
 // A row of the incident list flies the camera this far from the centre: about 1,900 km up, the sea around the cut in view.
 const INCIDENT_FOCUS_DISTANCE = 1.3;
+// The named seas of the Planet and Sea tiers, built by scripts/globe/build-seas.ts.
+const SEAS_URL = "/globe/seas.json";
+// The globe names at most this many seas at the Planet tier, busiest first; the label placer drops the ones that collide.
+const SEA_LABEL_COUNT = 30;
+// The Ship tier flies this close to the picked ship, about 250 km up.
+const SHIP_TIER_DISTANCE = 1.04;
+// A hop between tiers takes as long as a flight to a ship (FOCUS_MOVE_MS, src/lib/globe/globe-viewer.ts).
+const TIER_MOVE_MS = 900;
+// A watched region is listed under every sea holding at least a fifth of its box (the Danish straits under the Baltic
+// and the North Sea alike).
+const REGION_SEA_SHARE = 0.2;
+// The address keeps the tier and the centre, so a shared link reopens the same view ("?tier=sea&at=20.63,59.63").
+const TIER_PARAM = "tier";
+const AT_PARAM = "at";
+
+/** Where the camera is: its tier, the named sea under the stage's centre (-1 inland) and the watched region there. */
+type GlobePlace = { tier: DistanceTier; seaIndex: number; regionId: string | null };
+
+function readPlace(view: GlobeView, areas: SeaAreas | null, regions: readonly WatchedRegionOutline[]): GlobePlace {
+  return {
+    tier: view.tier,
+    seaIndex: areas ? findSeaIndex(areas, view.longitude, view.latitude) : -1,
+    regionId: regions.find((region) => isInsideBox(region.box, view.longitude, view.latitude))?.id ?? null,
+  };
+}
+
+/** "20.63,59.63" from the address, or null when absent or malformed. */
+function parseCentreParam(value: string | null): { longitude: number; latitude: number } | null {
+  const [longitude, latitude] = (value ?? "").split(",").map(Number);
+  if (longitude === undefined || latitude === undefined || !Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
+  if (Math.abs(longitude) > 180 || Math.abs(latitude) > 90) return null;
+  return { longitude, latitude };
+}
+
+/** The sea whose label point lies nearest a point (great-circle), for a Sea hop from over land. */
+function findNearestSea(areas: SeaAreas, point: { longitude: number; latitude: number }): SeaArea | undefined {
+  const radiansPerDegree = Math.PI / 180;
+  const pointLatitude = point.latitude * radiansPerDegree;
+  let nearest: { sea: SeaArea; cosine: number } | undefined;
+  for (const sea of areas.seas) {
+    const seaLatitude = sea.latitude * radiansPerDegree;
+    const cosine = Math.sin(pointLatitude) * Math.sin(seaLatitude) + Math.cos(pointLatitude) * Math.cos(seaLatitude) * Math.cos((sea.longitude - point.longitude) * radiansPerDegree);
+    if (!nearest || cosine > nearest.cosine) nearest = { sea, cosine };
+  }
+  return nearest?.sea;
+}
+
+function boxCentre(region: WatchedRegionOutline): { longitude: number; latitude: number } {
+  return { longitude: (region.box.west + region.box.east) / 2, latitude: (region.box.south + region.box.north) / 2 };
+}
 const CREDITS = [
   "Ships: aisstream.io (terrestrial AIS, kept two days) and Fintraffic / digitraffic.fi (CC BY 4.0).",
-  "Land: Natural Earth 1:50m, public domain.",
+  "Land and the named seas: Natural Earth 1:50m land and marine areas, public domain.",
   "Cables and pipelines of the world: OpenStreetMap contributors, Open Database License (ODbL). OpenStreetMap maps only part of the routes on the sea floor.",
   "The lines the replays watch: OpenStreetMap contributors (ODbL), pipelines from EMODnet Human Activities, one cable traced off a published map.",
 ] as const;
@@ -149,6 +206,8 @@ type LiveDayProps = {
   entries: FrameIndexEntry[];
   frameSource: FrameSource;
   watchedLines: readonly WatchedLine[];
+  /** Outlined from the Sea tier down; the Strait tier is named after the one under the camera. */
+  watchedRegions: readonly WatchedRegionOutline[];
   incidents: readonly GlobeIncident[];
   detectionsState: DetectionsState;
   draftCasesState: DraftCasesState;
@@ -160,7 +219,7 @@ type LiveDayProps = {
  * One recorded day on the globe (the console shell of the replay: stage, floating rail, dock). Owns the day's clock;
  * as it moves, the frames on either side of the moment are loaded, paired ship by ship and blended on the GPU.
  */
-export function LiveDay({ entries, frameSource, watchedLines, incidents, detectionsState, draftCasesState, feedCheck }: LiveDayProps) {
+export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, incidents, detectionsState, draftCasesState, feedCheck }: LiveDayProps) {
   const router = useRouter();
   const [divingSlug, setDivingSlug] = useState<string | null>(null);
   // The globe's box, which takes a view-transition name for the dive's crossfade.
@@ -202,6 +261,16 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
   // A ship to fly to once the frames of the moment it was picked at are on the globe.
   const pendingFocusRef = useRef<number | null>(null);
   const pairKeysRef = useRef<{ applied: string | null; requested: string | null }>({ applied: null, requested: null });
+  // The tiers: the named seas once their file lands, where the camera is, and whether the Ship tier was asked for.
+  const [seaAreas, setSeaAreas] = useState<SeaAreas | null>(null);
+  const seaAreasRef = useRef<SeaAreas | null>(null);
+  const [place, setPlace] = useState<GlobePlace>({ tier: "planet", seaIndex: -1, regionId: null });
+  const lastViewRef = useRef<GlobeView | null>(null);
+  const [isOnShip, setIsOnShip] = useState(false);
+  // What the globe last got, handed again to a rebuilt viewer.
+  const densityRef = useRef<ShipDensity | null>(null);
+  const seaLabelsRef = useRef<readonly GlobeSeaLabel[]>([]);
+  const ripplesRef = useRef<readonly FaultRipple[]>([]);
 
   // Line ids are positions in the list, so a new list (the world's lines arriving) closes any open line card.
   const handleLinesChange = useCallback((lines: GlobeLine[], worldState: WorldLinesState) => {
@@ -287,6 +356,26 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
 
   // Stops the clock's frame loop when the page goes.
   useEffect(() => () => clock.dispose(), [clock]);
+
+  // Downloads the named seas, a static file; without it the tiers still work, the seas just go unnamed and uncounted.
+  useEffect(() => {
+    let isCurrent = true;
+    void fetchStaticJson(SEAS_URL).then((downloaded) => {
+      const parsed = downloaded.ok ? parseSeaAreas(downloaded.value) : downloaded;
+      if (!isCurrent) return;
+      if (!parsed.ok) {
+        console.error(`[LiveDay] ${parsed.reason}`);
+        return;
+      }
+      seaAreasRef.current = parsed.value;
+      setSeaAreas(parsed.value);
+      const lastView = lastViewRef.current;
+      if (lastView) setPlace(readPlace(lastView, parsed.value, watchedRegions));
+    });
+    return () => {
+      isCurrent = false;
+    };
+  }, [watchedRegions]);
 
   // Syncs the globe with the clock, an external store: on every tick the blend moves; when the moment crosses into
   // another pair of frames, those are loaded (from the cache when possible), paired and handed to the viewer.
@@ -379,9 +468,44 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
       viewer.setSelectedLine(lineScanRef.current?.lineId ?? null);
       viewer.setIncidents(incidents);
       viewer.setSelectedIncident(selectedIncidentRef.current);
+      viewer.setDensity(densityRef.current);
+      viewer.setSeaLabels(seaLabelsRef.current);
+      viewer.setRegionOutlines(watchedRegions.map((region) => region.box));
+      viewer.setRipples(ripplesRef.current);
+      // A link with a tier reopens that view without a flight.
+      const params = new URLSearchParams(window.location.search);
+      const tierParam = params.get(TIER_PARAM);
+      const centre = parseCentreParam(params.get(AT_PARAM));
+      if (centre && isGlobeTier(tierParam) && tierParam !== "ship") void viewer.flyTo({ ...centre, distance: TIER_CAMERA_DISTANCE[tierParam], isJump: true });
     },
-    [clock, entries, incidents, startMs, spanMs],
+    [clock, entries, incidents, startMs, spanMs, watchedRegions],
   );
+
+  /** Called after every frame the camera moved in: sets state only when the tier, the sea or the region changes. */
+  const handleViewChange = useCallback(
+    (view: GlobeView) => {
+      lastViewRef.current = view;
+      const nextPlace = readPlace(view, seaAreasRef.current, watchedRegions);
+      setPlace((previous) => (previous.tier === nextPlace.tier && previous.seaIndex === nextPlace.seaIndex && previous.regionId === nextPlace.regionId ? previous : nextPlace));
+    },
+    [watchedRegions],
+  );
+
+  // Keeps the tier and the centre in the address, the browser history React does not own, so a link reopens the view.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const url = new URL(window.location.href);
+    if (place.tier === "planet") {
+      url.searchParams.delete(TIER_PARAM);
+      url.searchParams.delete(AT_PARAM);
+    } else {
+      const centre = viewer.readCentre();
+      url.searchParams.set(TIER_PARAM, place.tier);
+      url.searchParams.set(AT_PARAM, `${centre.longitude.toFixed(2)},${centre.latitude.toFixed(2)}`);
+    }
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url);
+  }, [place]);
 
   /** Opens a line's card and checks every frame already decoded for ships that crossed or neared it. */
   const selectLine = useCallback(
@@ -533,15 +657,114 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
     [clock, endMs, focusPendingShip, selectShip, spanMs, startMs],
   );
 
+  // The Planet tier's density and the seas' counts, for the moment on screen.
+  const density = useMemo(() => (moment ? binShipDensity(moment.frame) : null), [moment]);
+  const seaCounts = useMemo(() => (seaAreas && moment ? countShipsBySea(seaAreas, moment.frame) : null), [seaAreas, moment]);
+  const seaRanking = useMemo(() => (seaAreas && seaCounts ? rankSeasByShips(seaAreas, seaCounts) : []), [seaAreas, seaCounts]);
+  const seaLabels = useMemo<GlobeSeaLabel[]>(
+    () =>
+      seaRanking.slice(0, SEA_LABEL_COUNT).map((entry) => ({
+        name: entry.sea.name,
+        note: `${entry.shipCount.toLocaleString("en-US")} ${entry.shipCount === 1 ? "ship" : "ships"}`,
+        longitude: entry.sea.longitude,
+        latitude: entry.sea.latitude,
+      })),
+    [seaRanking],
+  );
+  const regionCounts = useMemo(() => (moment ? countShipsInBoxes(moment.frame, watchedRegions) : null), [moment, watchedRegions]);
+
+  // A ripple on each watched cable a fault signal of this day names (src/lib/globe/fault-ripples.ts).
+  const ripples = useMemo(
+    () => (draftCasesState.kind === "loaded" ? findFaultRipples({ drafts: draftCasesState.drafts, watchedLines, dayStartMs: startMs, dayEndMs: endMs }) : []),
+    [draftCasesState, watchedLines, startMs, endMs],
+  );
+
+  // Hands the moment's density, the sea names and the ripples to the globe, a three.js scene React does not own.
+  useEffect(() => {
+    ripplesRef.current = ripples;
+    viewerRef.current?.setRipples(ripples);
+  }, [ripples]);
+  useEffect(() => {
+    densityRef.current = density;
+    viewerRef.current?.setDensity(density);
+  }, [density]);
+  useEffect(() => {
+    seaLabelsRef.current = seaLabels;
+    viewerRef.current?.setSeaLabels(seaLabels);
+  }, [seaLabels]);
+
+  /** The ladder and the breadcrumb: flies to a tier over what the stage centres on. */
+  const flyToTier = useCallback(
+    (tier: GlobeTier) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      if (tier === "ship") {
+        if (selectedRef.current !== null && viewer.focusShip(selectedRef.current, SHIP_TIER_DISTANCE)) setIsOnShip(true);
+        return;
+      }
+      setIsOnShip(false);
+      const centre = viewer.readCentre();
+      const areas = seaAreasRef.current;
+      const sea = tier === "sea" && areas ? (areas.seas[findSeaIndex(areas, centre.longitude, centre.latitude)] ?? findNearestSea(areas, centre)) : undefined;
+      const region = tier === "strait" ? watchedRegions.find((candidate) => isInsideBox(candidate.box, centre.longitude, centre.latitude)) : undefined;
+      const target = sea ? { longitude: sea.longitude, latitude: sea.latitude } : region ? boxCentre(region) : centre;
+      void viewer.flyTo({ ...target, distance: TIER_CAMERA_DISTANCE[tier], durationMs: TIER_MOVE_MS });
+    },
+    [watchedRegions],
+  );
+
+  const flyToSea = useCallback((entry: SeaCount) => {
+    setIsOnShip(false);
+    void viewerRef.current?.flyTo({ longitude: entry.sea.longitude, latitude: entry.sea.latitude, distance: TIER_CAMERA_DISTANCE.sea, durationMs: TIER_MOVE_MS });
+  }, []);
+
+  const flyToRegion = useCallback(
+    (regionId: string) => {
+      const region = watchedRegions.find((candidate) => candidate.id === regionId);
+      if (!region) return;
+      setIsOnShip(false);
+      void viewerRef.current?.flyTo({ ...boxCentre(region), distance: TIER_CAMERA_DISTANCE.strait, durationMs: TIER_MOVE_MS });
+    },
+    [watchedRegions],
+  );
+
   const shipIndex = moment && selectedMmsi !== null ? findInFrame(moment.frame, selectedMmsi) : -1;
   const selectedRecord = moment && shipIndex !== -1 ? readShipRecord(moment.frame, shipIndex) : null;
   const rightInsetPx = isWide ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
   const selectedIncident = incidents.find((incident) => incident.slug === selectedIncidentSlug);
   const selectedLine = selectedLineId === null ? undefined : globeLines.lines.find((line) => line.id === selectedLineId);
 
+  // The Ship tier holds while the camera stays close on the picked ship; zooming out hands back to the distance tiers.
+  const tier: GlobeTier = isOnShip && selectedMmsi !== null && place.tier === "strait" ? "ship" : place.tier;
+  const currentSea = seaAreas && place.seaIndex >= 0 ? seaAreas.seas[place.seaIndex] : undefined;
+  const currentRegion = watchedRegions.find((region) => region.id === place.regionId);
+  const shipName = detailsState.kind === "loaded" && detailsState.details?.name ? detailsState.details.name : selectedMmsi === null ? "" : `MMSI ${selectedMmsi}`;
+  const crumbs: Crumb[] = [{ tier: "planet", label: "World" }];
+  if (tier !== "planet") crumbs.push({ tier: "sea", label: currentSea?.name ?? "Inland" });
+  if (tier === "strait" || tier === "ship") crumbs.push({ tier: "strait", label: currentRegion?.name ?? "Close up" });
+  if (tier === "ship") crumbs.push({ tier: "ship", label: shipName });
+  const seaRegions =
+    seaAreas && currentSea
+      ? watchedRegions
+          .filter((region) => measureSeaShare(seaAreas, region.box, place.seaIndex) >= REGION_SEA_SHARE)
+          .map((region) => ({ id: region.id, name: region.name, shipCount: regionCounts?.get(region.id) ?? 0 }))
+      : [];
+  const seaIncidents = seaAreas && currentSea ? incidents.filter((incident) => findSeaIndex(seaAreas, incident.longitude, incident.latitude) === place.seaIndex) : [];
+
   const railCards = (
     <>
       <MomentCard minuteLabel={minuteLabel} shipCount={moment?.frame.shipCount ?? null} digitrafficCount={moment?.digitrafficCount ?? 0} feedCheck={feedCheck} />
+      {tier === "planet" && <BusiestSeasCard ranking={seaRanking} onSelect={flyToSea} />}
+      {tier === "sea" && currentSea && (
+        <SeaCard
+          seaName={currentSea.name}
+          shipCount={seaCounts?.[place.seaIndex] ?? 0}
+          regions={seaRegions}
+          incidents={seaIncidents}
+          onSelectRegion={flyToRegion}
+          onSelectIncident={focusIncident}
+        />
+      )}
       {selectedIncident && (
         <IncidentCard
           incident={selectedIncident}
@@ -587,10 +810,22 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
         data-ship-count={moment?.frame.shipCount ?? 0}
       >
         <div ref={globeHostRef} className="absolute inset-0">
-          <LiveGlobeStage watchedLines={watchedLines} rightInsetPx={rightInsetPx} onViewerChange={handleViewerChange} onPick={handlePick} onLinesChange={handleLinesChange} />
+          <LiveGlobeStage
+            watchedLines={watchedLines}
+            rightInsetPx={rightInsetPx}
+            onViewerChange={handleViewerChange}
+            onPick={handlePick}
+            onViewChange={handleViewChange}
+            onLinesChange={handleLinesChange}
+          />
         </div>
         <div className="pointer-events-none absolute top-4 left-4 z-(--layer-stage-controls) flex max-w-[calc(100%-32px)] flex-col items-start gap-2">
           <p className="rounded-full bg-card px-4 py-2 text-label shadow-row">A recorded day of ships, not real time</p>
+          {/* From orbit the breadcrumb would only say "World", which the ladder already does. */}
+          {tier !== "planet" && <TierBreadcrumb crumbs={crumbs} onSelect={flyToTier} />}
+          <div className="pointer-events-auto rounded-full bg-card p-1 shadow-row" data-testid="live-tier" data-tier={tier}>
+            <TierLadder tier={tier} hasShip={selectedMmsi !== null} onSelect={flyToTier} />
+          </div>
           {frameProblem && (
             <p className="rounded-row bg-card px-4 py-2 text-small shadow-row" role="status">
               {frameProblem}
@@ -599,10 +834,20 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
         </div>
         <div className="absolute bottom-4 left-4 z-(--layer-stage-controls) flex items-center gap-2">
           <div className="hidden items-center gap-x-4 rounded-field bg-card px-3.5 py-2.5 text-micro shadow-row md:flex">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-ship" aria-hidden="true" />
-              Ship
-            </span>
+            {tier === "planet" ? (
+              <span className="inline-flex items-center gap-1.5" data-testid="live-density-legend">
+                <span className="flex items-center gap-0.5" aria-hidden="true">
+                  <span className="size-1.5 rounded-full bg-density/80" />
+                  <span className="size-2.5 rounded-full bg-density/80" />
+                </span>
+                Ships per 220 km
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-ship" aria-hidden="true" />
+                Ship
+              </span>
+            )}
             <span className="inline-flex items-center gap-1.5">
               <svg width="22" height="8" viewBox="0 0 22 8" aria-hidden="true">
                 <path d="M1 4 H21" stroke="var(--color-cable)" strokeWidth="2.5" strokeLinecap="round" />
@@ -615,6 +860,12 @@ export function LiveDay({ entries, frameSource, watchedLines, incidents, detecti
               </svg>
               Pipeline
             </span>
+            {ripples.length > 0 && (
+              <span className="inline-flex items-center gap-1.5" data-testid="live-ripple-legend">
+                <span className="size-3 rounded-full border-[1.5px] border-alarm" aria-hidden="true" />
+                Fault signal today
+              </span>
+            )}
             <span className="inline-flex items-center gap-1.5" data-testid="live-coverage-legend">
               <svg width="18" height="12" viewBox="0 0 18 12" aria-hidden="true" className="rounded-[3px]">
                 <rect width="18" height="12" fill={WEBGL_COLORS.depth40} />

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { GlobePick, GlobeViewer } from "@/lib/globe/globe-viewer";
+import type { GlobePick, GlobeView, GlobeViewer } from "@/lib/globe/globe-viewer";
 import { parseLandPolygons } from "@/lib/globe/land-polygons";
+import { fetchStaticJson } from "@/lib/globe/static-file";
 import type { Result } from "@/lib/result";
 import type { WatchedLine } from "@/lib/globe/watched-line";
 import { combineGlobeLines, parseWorldLines, type GlobeLine } from "@/lib/globe/world-lines";
@@ -10,17 +11,6 @@ import { combineGlobeLines, parseWorldLines, type GlobeLine } from "@/lib/globe/
 // Built by scripts/globe/build-land.ts and scripts/globe/build-cables.ts.
 const LAND_URL = "/globe/land.json";
 const CABLES_URL = "/globe/cables.json";
-
-/** Downloads and parses one of the globe's static files; never throws. */
-async function fetchJson(url: string): Promise<Result<unknown>> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return { ok: false, reason: `${url} answered ${response.status}` };
-    return { ok: true, value: await response.json() };
-  } catch (error) {
-    return { ok: false, reason: `${url} unreachable: ${error instanceof Error ? error.message : String(error)}` };
-  }
-}
 
 type StageState = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; reason: string };
 
@@ -31,6 +21,8 @@ type LiveGlobeStageProps = {
   /** Receives the viewer once it draws, and null when it goes. */
   onViewerChange: (viewer: GlobeViewer | null) => void;
   onPick: (pick: GlobePick) => void;
+  /** Receives the camera's tier and centre after every frame it moved in. */
+  onViewChange: (view: GlobeView) => void;
   /** Receives the lines the globe draws: the watched ones first, then the world's once their file has loaded. */
   onLinesChange: (lines: GlobeLine[], worldState: WorldLinesState) => void;
 };
@@ -38,7 +30,7 @@ type LiveGlobeStageProps = {
 export type WorldLinesState = "loading" | "loaded" | "failed";
 
 /** The 3D globe. Ships, time and selection are handed to the viewer by the console; this only builds and frees it. */
-export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onPick, onLinesChange }: LiveGlobeStageProps) {
+export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onPick, onViewChange, onLinesChange }: LiveGlobeStageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<GlobeViewer | null>(null);
   const [stageState, setStageState] = useState<StageState>({ kind: "loading" });
@@ -46,10 +38,10 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
   // The world's lines for the current globe: requested once it shows, laid out once (effect below).
   const cablesDownloadRef = useRef<{ viewer: GlobeViewer; download: Promise<Result<unknown>> | null; isApplied: boolean } | null>(null);
   // The latest callbacks, so new functions from the parent do not rebuild the globe.
-  const callbacksRef = useRef({ onViewerChange, onPick, onLinesChange });
+  const callbacksRef = useRef({ onViewerChange, onPick, onViewChange, onLinesChange });
   useEffect(() => {
-    callbacksRef.current = { onViewerChange, onPick, onLinesChange };
-  }, [onViewerChange, onPick, onLinesChange]);
+    callbacksRef.current = { onViewerChange, onPick, onViewChange, onLinesChange };
+  }, [onViewerChange, onPick, onViewChange, onLinesChange]);
 
   // Syncs with three.js, a WebGL scene React does not own: built on mount (and on retry), disposed on unmount.
   useEffect(() => {
@@ -59,7 +51,7 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
     let viewer: GlobeViewer | null = null;
 
     async function startGlobe(host: HTMLDivElement) {
-      const landDownload = await fetchJson(LAND_URL);
+      const landDownload = await fetchStaticJson(LAND_URL);
       if (!landDownload.ok) {
         console.error(`[LiveGlobeStage] ${landDownload.reason}`);
         if (!isCancelled) setStageState({ kind: "failed", reason: "The land outline could not be loaded." });
@@ -77,6 +69,7 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
         container: host,
         land: land.value,
         onPick: (pick) => callbacksRef.current.onPick(pick),
+        onViewChange: (view) => callbacksRef.current.onViewChange(view),
         prefersReducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       });
       if (!created.ok) {
@@ -112,7 +105,7 @@ export function LiveGlobeStage({ watchedLines, rightInsetPx, onViewerChange, onP
       const watchedOnly = combineGlobeLines([], watchedLines);
       pending.viewer.setLines(watchedOnly);
       callbacksRef.current.onLinesChange(watchedOnly, "loading");
-      pending.download = fetchJson(CABLES_URL);
+      pending.download = fetchStaticJson(CABLES_URL);
     }
     void pending.download.then((downloaded) => {
       if (!isCurrent || pending.isApplied || viewerRef.current !== pending.viewer) return;
