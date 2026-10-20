@@ -1,15 +1,20 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { detectRendererKind, type RendererKind } from "@/lib/diagnostics/webgl-renderer";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import type { FramePair } from "@/lib/globe/frame-pairing";
+import { readDistanceTier, readPlanetShare, type DistanceTier } from "@/lib/globe/globe-tier";
 import type { LandPolygons } from "@/lib/globe/land-polygons";
 import { COVERAGE_HEIGHT, COVERAGE_WIDTH } from "@/lib/globe/coverage";
 import { createLandTexture, WORLD_BOX, type LandBox } from "@/lib/globe/land-texture";
-import { writeUnitVector } from "@/lib/globe/sphere";
+import type { ShipDensity } from "@/lib/globe/ship-density";
+import { readLongitudeLatitude, writeUnitVector } from "@/lib/globe/sphere";
 import { createGlobeLineLayer, LINE_LIFT, type GlobeLineLayer } from "@/lib/globe/globe-lines";
 import type { GlobeLine } from "@/lib/globe/world-lines";
+import type { BoundingBox } from "@/lib/regions/region";
 import type { Result } from "@/lib/result";
+import { hideOverlappingLabels, makeStackedLabel, type StackedLabel } from "@/lib/seabed/scene/labels";
 
 // The /live globe: a unit sphere painted with land, every ship in a frame pair as one GPU point that blends between
 // the pair's two positions, and the world's cables and pipelines (src/lib/globe/globe-lines.ts). Nothing is drawn unless the time, the
@@ -67,9 +72,47 @@ const MARKER_PICK_RADIUS_PX = 11;
 // follow the ground turning under the camera, on the standard in-out curve.
 const DIVE_MOVE_MS = 1600;
 const HATCH_LINE_PX = 1.2;
+// The Planet tier's density dots (src/lib/globe/ship-density.ts): a dot's area grows with its ships up to this count,
+// from the smallest dot that still reads at home distance (CSS px) to one about two cells wide, where the busiest
+// coasts merge into one mass. 150 ships in a 2 degree cell (about 220 km) is a busy strait's approaches, such as Dover's.
+const DENSITY_REFERENCE_COUNT = 150;
+const DENSITY_DOT_MIN_PX = 2.6;
+const DENSITY_DOT_MAX_PX = 14;
+const DENSITY_LIFT = 1.001;
+// A dot is a flat sprite; near the limb the sphere's surface under it is closer to the camera on one side and would cut
+// it in half. Moving the dot this far toward the camera along its own sight line (world units, the globe's radius is 1)
+// clears the surface under a 14 px dot at home distance without moving it on screen; dots on the far side stay hidden.
+const DENSITY_DEPTH_BIAS = 0.06;
+// The dot sizes are for a stage about this tall (CSS px); a smaller stage (a phone) draws them smaller, down to this share.
+const DENSITY_REFERENCE_STAGE_PX = 900;
+const DENSITY_MIN_STAGE_SHARE = 0.55;
+// Andy's pick on board 25 (20 Oct 2026): the approved water teal, so the field reads as ships at sea, not as data ink.
+const DENSITY_TONE = WEBGL_COLORS.density;
+const DENSITY_ALPHA = 0.78;
+// The watched regions' outlines, just above the cables, from the Sea tier down: ink at a low opacity, so a box reads as
+// "recorded here" without competing with the data lines.
+const REGION_OUTLINE_TONE = WEBGL_COLORS.ink;
+const REGION_OUTLINE_ALPHA = 0.32;
+const REGION_OUTLINE_LIFT = 1.0008;
+// Points per degree along a box edge, so a long parallel follows the sphere instead of cutting under it.
+const OUTLINE_POINTS_PER_DEGREE = 2;
+// Sea names show while the density field does, and only on the side facing the camera.
+const SEA_LABEL_MIN_SHARE = 0.5;
+// The fault ripple (src/lib/globe/fault-ripples.ts, approved by Andy on 20 Oct 2026): two alarm rings growing out of a
+// cable over 3.2 s, half a period apart, on a sprite this wide (CSS px). It is the globe's third ambient loop, after the
+// live ping and the cable signal; a calm globe (reduced motion, or a CPU renderer) draws one still ring instead.
+const RIPPLE_PX = 64;
+const RIPPLE_PERIOD_MS = 3200;
+const RIPPLE_LIFT = 1.0017;
 
 /** What a click on the globe landed on. */
 export type GlobePick = { kind: "ship"; mmsi: number } | { kind: "line"; lineId: number } | { kind: "incident"; slug: string } | { kind: "none" };
+
+/** Where the camera is: its tier and the point under the stage's centre. */
+export type GlobeView = { tier: DistanceTier; longitude: number; latitude: number };
+
+/** A named sea's label at the Planet tier: its name over a muted note (its ship count). */
+export type GlobeSeaLabel = { name: string; note: string; longitude: number; latitude: number };
 
 /** A cable cut on file, marked on the globe where its case places the primary cut. */
 export type GlobeMarker = { slug: string; longitude: number; latitude: number };
@@ -87,17 +130,28 @@ export type GlobeViewer = {
   setSelectedIncident: (slug: string | null) => void;
   /**
    * Flies the camera down over a place, ending at `distance` from the centre (the closest the globe allows when left
-   * out). Resolves when the camera arrives, or at once when motion is reduced; resolves early if a drag takes over.
+   * out). Resolves when the camera arrives, or at once when motion is reduced or `isJump` asks for no flight (a view
+   * restored from the address); resolves early if a drag takes over.
    */
-  flyTo: (target: { longitude: number; latitude: number; distance?: number; durationMs?: number }) => Promise<void>;
+  flyTo: (target: { longitude: number; latitude: number; distance?: number; durationMs?: number; isJump?: boolean }) => Promise<void>;
   /** Draws one line on a white casing above the rest, or none. */
   setSelectedLine: (lineId: number | null) => void;
   /** Where the feeds heard ships (src/lib/globe/coverage.ts, renderCoverageMask), or null to hatch nothing. */
   setCoverage: (mask: Uint8Array | null) => void;
-  /** Flies the camera over a ship of the current pair; false when the pair does not hold it. */
-  focusShip: (mmsi: number) => boolean;
+  /** Flies the camera over a ship of the current pair, to `distance` from the centre (about 1,900 km up when left out); false when the pair does not hold it. */
+  focusShip: (mmsi: number, distance?: number) => boolean;
   /** Width of a panel floating over the right edge (CSS px); the globe centres on what is left. */
   setRightInset: (insetPx: number) => void;
+  /** The Planet tier's density dots for the moment, or null for none. */
+  setDensity: (density: ShipDensity | null) => void;
+  /** The seas to name at the Planet tier, busiest first: where two overlap on screen, the earlier one shows. */
+  setSeaLabels: (labels: readonly GlobeSeaLabel[]) => void;
+  /** The watched regions' boxes, outlined from the Sea tier down. */
+  setRegionOutlines: (boxes: readonly BoundingBox[]) => void;
+  /** Where a fault signal of the recorded day names a cable: a ripple on each, or none. */
+  setRipples: (points: readonly { longitude: number; latitude: number }[]) => void;
+  /** The point under the stage's centre. */
+  readCentre: () => { longitude: number; latitude: number };
   resetView: () => void;
   dispose: () => void;
 };
@@ -107,6 +161,8 @@ type GlobeViewerOptions = {
   land: LandPolygons;
   /** Called with what a click landed on. */
   onPick: (pick: GlobePick) => void;
+  /** Called after every drawn frame the camera moved in; cheap callers compare before they set state. */
+  onViewChange: (view: GlobeView) => void;
   prefersReducedMotion: boolean;
 };
 
@@ -183,15 +239,87 @@ const SHIP_VERTEX_SHADER = /* glsl */ `
   }
 `;
 
-// Colors are written as given (sRGB hex), so the ship tone matches the token exactly.
+// Colors are written as given (sRGB hex), so the ship tone matches the token exactly. uOpacity fades the dots out as
+// the Planet tier's density field takes over.
 const SHIP_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColor;
+  uniform float uOpacity;
   varying float vPresence;
   void main() {
     float edge = 1.0 - smoothstep(0.36, 0.5, length(gl_PointCoord - 0.5));
-    float alpha = edge * vPresence;
+    float alpha = edge * vPresence * uOpacity;
     if (alpha < 0.02) discard;
     gl_FragColor = vec4(uColor, alpha);
+  }
+`;
+
+// A density dot's area grows with its cell's ships (radius with the square root), so the eye reads area as count. The
+// dot moves toward the camera along its sight line (DENSITY_DEPTH_BIAS) and fades as its cell turns toward the limb.
+const DENSITY_VERTEX_SHADER = /* glsl */ `
+  attribute float aCount;
+  uniform float uMinPx;
+  uniform float uMaxPx;
+  uniform float uReference;
+  uniform float uDepthBias;
+  varying float vFacing;
+  void main() {
+    vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+    viewPosition.xyz += normalize(-viewPosition.xyz) * uDepthBias;
+    vFacing = dot(normalize(position), normalize(cameraPosition - position));
+    gl_Position = projectionMatrix * viewPosition;
+    gl_PointSize = uMinPx + (uMaxPx - uMinPx) * sqrt(min(aCount / uReference, 1.0));
+  }
+`;
+
+const DENSITY_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  varying float vFacing;
+  void main() {
+    float edge = 1.0 - smoothstep(0.38, 0.5, length(gl_PointCoord - 0.5));
+    float alpha = edge * uOpacity * smoothstep(0.02, 0.25, vFacing);
+    if (alpha < 0.02) discard;
+    gl_FragColor = vec4(uColor, alpha);
+  }
+`;
+
+const OUTLINE_VERTEX_SHADER = /* glsl */ `
+  void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const OUTLINE_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  void main() {
+    gl_FragColor = vec4(uColor, uOpacity);
+  }
+`;
+
+const RIPPLE_VERTEX_SHADER = /* glsl */ `
+  uniform float uPointSize;
+  void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = uPointSize;
+  }
+`;
+
+// Each ring grows from the cable to the sprite's edge and fades as it goes; uIsStill holds one ring at mid size.
+const RIPPLE_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uPhase;
+  uniform float uIsStill;
+  float ring(float radius, float phase) {
+    float ringRadius = mix(0.06, 0.48, phase);
+    float band = 1.0 - smoothstep(0.012, 0.03, abs(radius - ringRadius));
+    return band * (1.0 - phase);
+  }
+  void main() {
+    float radius = length(gl_PointCoord - 0.5);
+    float alpha = uIsStill > 0.5 ? ring(radius, 0.45) * 1.6 : max(ring(radius, uPhase), ring(radius, fract(uPhase + 0.5)));
+    if (alpha < 0.02) discard;
+    gl_FragColor = vec4(uColor, min(alpha, 0.9));
   }
 `;
 
@@ -244,6 +372,29 @@ function toRawColor(hex: string): THREE.Vector3 {
   return new THREE.Vector3(((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255);
 }
 
+/** A box's outline on the sphere as line segment pairs, its parallels and meridians cut into short steps. */
+function buildBoxOutline(box: BoundingBox, lift: number): Float32Array {
+  const corners: [number, number][] = [
+    [box.west, box.south],
+    [box.east, box.south],
+    [box.east, box.north],
+    [box.west, box.north],
+  ];
+  const points: number[] = [];
+  const step = new Float32Array(3);
+  corners.forEach(([startLongitude, startLatitude], index) => {
+    const [endLongitude, endLatitude] = corners[(index + 1) % corners.length] ?? corners[0] ?? [0, 0];
+    const stepCount = Math.max(1, Math.ceil(Math.max(Math.abs(endLongitude - startLongitude), Math.abs(endLatitude - startLatitude)) * OUTLINE_POINTS_PER_DEGREE));
+    for (let stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
+      for (const share of [stepIndex / stepCount, (stepIndex + 1) / stepCount]) {
+        writeUnitVector(startLongitude + (endLongitude - startLongitude) * share, startLatitude + (endLatitude - startLatitude) * share, step, 0);
+        points.push((step[0] ?? 0) * lift, (step[1] ?? 0) * lift, (step[2] ?? 0) * lift);
+      }
+    }
+  });
+  return Float32Array.from(points);
+}
+
 function cameraPositionFor(longitude: number, latitude: number, distance: number): THREE.Vector3 {
   const direction = new Float32Array(3);
   writeUnitVector(longitude, latitude, direction, 0);
@@ -252,7 +403,7 @@ function cameraPositionFor(longitude: number, latitude: number, distance: number
 
 /** Builds the globe inside `container` and starts drawing on demand. Never throws. */
 export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeViewer> {
-  const { container, land, onPick, prefersReducedMotion } = options;
+  const { container, land, onPick, onViewChange, prefersReducedMotion } = options;
   const rendererKind = detectRendererKind();
   const tier = RENDER_TIERS[rendererKind];
   const isCalm = prefersReducedMotion || rendererKind === "software";
@@ -339,7 +490,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
 
   const shipGeometry = new THREE.BufferGeometry();
   const shipMaterial = new THREE.ShaderMaterial({
-    uniforms: { uBlend: { value: 0 }, uPointSize: { value: SHIP_POINT_PX }, uLift: { value: SHIP_LIFT }, uColor: { value: toRawColor(WEBGL_COLORS.ship) } },
+    uniforms: { uBlend: { value: 0 }, uPointSize: { value: SHIP_POINT_PX }, uLift: { value: SHIP_LIFT }, uColor: { value: toRawColor(WEBGL_COLORS.ship) }, uOpacity: { value: 1 } },
     vertexShader: SHIP_VERTEX_SHADER,
     fragmentShader: SHIP_FRAGMENT_SHADER,
     transparent: true,
@@ -401,6 +552,66 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     markerGeometry.setDrawRange(0, markers.length);
     markDirty();
   }
+
+  const densityGeometry = new THREE.BufferGeometry();
+  const densityMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      uMinPx: { value: DENSITY_DOT_MIN_PX },
+      uMaxPx: { value: DENSITY_DOT_MAX_PX },
+      uReference: { value: DENSITY_REFERENCE_COUNT },
+      uDepthBias: { value: DENSITY_DEPTH_BIAS },
+      uColor: { value: toRawColor(DENSITY_TONE) },
+      uOpacity: { value: 0 },
+    },
+    vertexShader: DENSITY_VERTEX_SHADER,
+    fragmentShader: DENSITY_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: false,
+  });
+  const densityPoints = new THREE.Points(densityGeometry, densityMaterial);
+  densityPoints.frustumCulled = false;
+  densityPoints.renderOrder = 4;
+  densityPoints.visible = false;
+  scene.add(densityPoints);
+  let hasDensity = false;
+
+  const outlineMaterial = new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: toRawColor(REGION_OUTLINE_TONE) }, uOpacity: { value: 0 } },
+    vertexShader: OUTLINE_VERTEX_SHADER,
+    fragmentShader: OUTLINE_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: false,
+  });
+  const outlineGeometry = new THREE.BufferGeometry();
+  const outlines = new THREE.LineSegments(outlineGeometry, outlineMaterial);
+  outlines.frustumCulled = false;
+  outlines.renderOrder = 3;
+  scene.add(outlines);
+
+  const rippleGeometry = new THREE.BufferGeometry();
+  const rippleMaterial = new THREE.ShaderMaterial({
+    uniforms: { uPointSize: { value: RIPPLE_PX }, uColor: { value: toRawColor(WEBGL_COLORS.alarm) }, uPhase: { value: 0 }, uIsStill: { value: isCalm ? 1 : 0 } },
+    vertexShader: RIPPLE_VERTEX_SHADER,
+    fragmentShader: RIPPLE_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: false,
+  });
+  const ripplePoints = new THREE.Points(rippleGeometry, rippleMaterial);
+  ripplePoints.frustumCulled = false;
+  // Under the cut markers, above the ships.
+  ripplePoints.renderOrder = 6;
+  scene.add(ripplePoints);
+  let rippleDirections: THREE.Vector3[] = [];
+
+  // Sea names are HTML labels in their own scene, so the label renderer walks only them.
+  const labelScene = new THREE.Scene();
+  const labelRenderer = new CSS2DRenderer();
+  labelRenderer.domElement.style.position = "absolute";
+  labelRenderer.domElement.style.inset = "0";
+  labelRenderer.domElement.style.pointerEvents = "none";
+  container.appendChild(labelRenderer.domElement);
+  // Keyed by sea name, so a new count only rewrites the label's note while the day plays.
+  let seaLabels = new Map<string, { label: StackedLabel; direction: THREE.Vector3 }>();
 
   let pair: FramePair | null = null;
   let blend = 0;
@@ -489,15 +700,19 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   }
 
   let rightInsetPx = 0;
+  // Read once per resize, so the frame loop never asks the DOM for a size.
+  let stageHeightPx = 1;
   function resize() {
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
+    stageHeightPx = height;
     camera.aspect = width / height;
     const shiftPx = Math.min(rightInsetPx / 2, width / 4);
     if (shiftPx > 0) camera.setViewOffset(width, height, shiftPx, 0, width, height);
     else camera.clearViewOffset();
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
+    labelRenderer.setSize(width, height);
     lineLayer?.setResolution(width, height);
     markDirty();
   }
@@ -619,11 +834,17 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
 
   // True while a watched cable's light runs on the side facing the camera: the globe then draws every frame.
   let isSignalRunning = false;
+  // The first drawn frame reports the view even though the camera has not moved yet.
+  let isFirstFrame = true;
+  // True while a ripple faces the camera on a globe that moves: the globe then draws every frame, as for the signal.
+  let isRippleRunning = false;
   function renderFrame(now: number) {
     frameHandle = requestAnimationFrame(renderFrame);
     const isFlying = stepCameraMove(now);
     const hasCameraMoved = controls.update() || isFlying;
-    if (!isDirty && !hasCameraMoved && !isSignalRunning) return;
+    if (!isDirty && !hasCameraMoved && !isSignalRunning && !isRippleRunning) return;
+    // A frame drawn only for a cable's running light leaves the labels where they are.
+    const shouldPlaceLabels = isDirty || hasCameraMoved;
     isDirty = false;
     const distance = camera.position.length();
     controls.rotateSpeed = Math.max(0.05, Math.min(1, (distance - 1) * ROTATE_SPEED_PER_UNIT));
@@ -634,8 +855,33 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     ring.material.uniforms.uPointSize.value = SELECTION_RING_PX * pixelRatio;
     coverageUniforms.uHatchSpacing.value = HATCH_SPACING_PX * pixelRatio;
     coverageUniforms.uHatchHalfWidth.value = (HATCH_LINE_PX * pixelRatio) / 2;
+    // The Planet tier: the density field takes over from the ship dots as the camera climbs.
+    const planetShare = readPlanetShare(distance);
+    shipMaterial.uniforms.uOpacity.value = 1 - planetShare;
+    ships.visible = planetShare < 1;
+    densityMaterial.uniforms.uOpacity.value = planetShare * DENSITY_ALPHA;
+    const stageShare = Math.min(1, Math.max(DENSITY_MIN_STAGE_SHARE, stageHeightPx / DENSITY_REFERENCE_STAGE_PX));
+    densityMaterial.uniforms.uMinPx.value = DENSITY_DOT_MIN_PX * pixelRatio * stageShare;
+    densityMaterial.uniforms.uMaxPx.value = DENSITY_DOT_MAX_PX * pixelRatio * stageShare * Math.min(2, (HOME_DISTANCE - 1) / Math.max(0.02, distance - 1));
+    densityPoints.visible = hasDensity && planetShare > 0;
+    outlineMaterial.uniforms.uOpacity.value = (1 - planetShare) * REGION_OUTLINE_ALPHA;
+    outlines.visible = planetShare < 1;
     isSignalRunning = lineLayer?.update({ nowMs: now, cameraPosition: camera.position, homeDistance: HOME_DISTANCE, isCalm, pixelRatio }) ?? false;
+    rippleMaterial.uniforms.uPointSize.value = RIPPLE_PX * pixelRatio;
+    rippleMaterial.uniforms.uPhase.value = (now % RIPPLE_PERIOD_MS) / RIPPLE_PERIOD_MS;
+    isRippleRunning = !isCalm && rippleDirections.some((direction) => direction.dot(camera.position) > RIPPLE_LIFT);
     renderer.render(scene, camera);
+    if (shouldPlaceLabels) {
+      const showsSeaLabels = planetShare >= SEA_LABEL_MIN_SHARE;
+      for (const { label, direction } of seaLabels.values()) label.object.visible = showsSeaLabels && direction.dot(camera.position) > 1;
+      labelRenderer.render(labelScene, camera);
+      if (showsSeaLabels) hideOverlappingLabels(labelRenderer.domElement);
+    }
+    if (hasCameraMoved || isFirstFrame) {
+      isFirstFrame = false;
+      const centre = readLongitudeLatitude(camera.position.x, camera.position.y, camera.position.z);
+      onViewChange({ tier: readDistanceTier(distance), longitude: centre.longitude, latitude: centre.latitude });
+    }
   }
   renderer
     .compileAsync(scene, camera)
@@ -702,12 +948,12 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         }
         markDirty();
       },
-      focusShip(mmsi) {
+      focusShip(mmsi, distance = FOCUS_DISTANCE) {
         const shipIndex = findShipIndex(mmsi);
         if (shipIndex === -1) return false;
         const shipVector = new THREE.Vector3();
         readShip(shipIndex, shipVector);
-        void startCameraMove(shipVector.normalize().multiplyScalar(FOCUS_DISTANCE), FOCUS_MOVE_MS, easeOutCubic, isCalm);
+        void startCameraMove(shipVector.normalize().multiplyScalar(Math.max(MIN_DISTANCE, distance)), FOCUS_MOVE_MS, easeOutCubic, isCalm);
         return true;
       },
       setRightInset(insetPx) {
@@ -724,10 +970,72 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         selectedIncident = slug;
         placeMarkers();
       },
-      flyTo({ longitude, latitude, distance = MIN_DISTANCE, durationMs = DIVE_MOVE_MS }) {
+      flyTo({ longitude, latitude, distance = MIN_DISTANCE, durationMs = DIVE_MOVE_MS, isJump = false }) {
         // The dive flies on a software renderer too (it is one deliberate move, drawn as fast as the renderer can);
         // only reduced motion turns it into a jump.
-        return startCameraMove(cameraPositionFor(longitude, latitude, Math.max(MIN_DISTANCE, distance)), durationMs, easeStandard, prefersReducedMotion);
+        return startCameraMove(cameraPositionFor(longitude, latitude, Math.max(MIN_DISTANCE, distance)), durationMs, easeStandard, prefersReducedMotion || isJump);
+      },
+      setDensity(density) {
+        densityGeometry.dispose();
+        hasDensity = density !== null && density.cellCount > 0;
+        if (density && hasDensity) {
+          const lifted = density.positions.map((coordinate) => coordinate * DENSITY_LIFT);
+          densityGeometry.setAttribute("position", new THREE.BufferAttribute(lifted, 3));
+          densityGeometry.setAttribute("aCount", new THREE.BufferAttribute(density.counts, 1));
+          densityGeometry.setDrawRange(0, density.cellCount);
+        } else {
+          densityGeometry.setDrawRange(0, 0);
+        }
+        markDirty();
+      },
+      setSeaLabels(labels) {
+        const nextLabels = new Map<string, { label: StackedLabel; direction: THREE.Vector3 }>();
+        const unitVector = new Float32Array(3);
+        labels.forEach((seaLabel, index) => {
+          let entry = seaLabels.get(seaLabel.name);
+          if (!entry) {
+            const label = makeStackedLabel(seaLabel.name, seaLabel.note);
+            label.object.element.dataset.testid = "live-sea-label";
+            writeUnitVector(seaLabel.longitude, seaLabel.latitude, unitVector, 0);
+            const direction = new THREE.Vector3(unitVector[0], unitVector[1], unitVector[2]);
+            label.object.position.copy(direction).multiplyScalar(DENSITY_LIFT);
+            labelScene.add(label.object);
+            entry = { label, direction };
+          }
+          entry.label.setNote(seaLabel.note);
+          // Busiest first: hideOverlappingLabels keeps the lower rank where two overlap.
+          entry.label.object.element.dataset.labelRank = String(index);
+          nextLabels.set(seaLabel.name, entry);
+        });
+        seaLabels.forEach((entry, name) => {
+          if (!nextLabels.has(name)) labelScene.remove(entry.label.object);
+        });
+        seaLabels = nextLabels;
+        markDirty();
+      },
+      setRegionOutlines(boxes) {
+        outlineGeometry.dispose();
+        const segments = boxes.map((box) => buildBoxOutline(box, REGION_OUTLINE_LIFT));
+        const merged = new Float32Array(segments.reduce((sum, segment) => sum + segment.length, 0));
+        let offset = 0;
+        for (const segment of segments) {
+          merged.set(segment, offset);
+          offset += segment.length;
+        }
+        outlineGeometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
+        markDirty();
+      },
+      setRipples(points) {
+        rippleGeometry.dispose();
+        const positions = new Float32Array(points.length * 3);
+        points.forEach((point, index) => writeUnitVector(point.longitude, point.latitude, positions, index * 3));
+        rippleDirections = points.map((_point, index) => new THREE.Vector3(positions[index * 3], positions[index * 3 + 1], positions[index * 3 + 2]));
+        rippleGeometry.setAttribute("position", new THREE.BufferAttribute(positions.map((coordinate) => coordinate * RIPPLE_LIFT), 3));
+        rippleGeometry.setDrawRange(0, points.length);
+        markDirty();
+      },
+      readCentre() {
+        return readLongitudeLatitude(camera.position.x, camera.position.y, camera.position.z);
       },
       resetView() {
         stopCameraMove();
@@ -755,6 +1063,8 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         detailTexture.dispose();
         coverageTexture.dispose();
         lineLayer?.dispose();
+        seaLabels.forEach((entry) => labelScene.remove(entry.label.object));
+        labelRenderer.domElement.remove();
         renderer.dispose();
         renderer.forceContextLoss();
         renderer.domElement.remove();

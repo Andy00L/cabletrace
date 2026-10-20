@@ -13,4 +13,5 @@ export const WEBGL_COLORS = {
   land: "#FAFAF8",
   ship: "#A8A8A2",
   live: "#2E9E5B",
+  density: "#3F7E86",
 } as const;

@@ -18,15 +18,15 @@ export const metadata: Metadata = {
 export default async function LivePage() {
   const watchedLines = await loadWatchedLines();
   const incidents = toGlobeIncidents(CABLE_CASES);
-  // Names only, so the registry's boxes and notes stay out of the browser bundle.
-  const regionNames = Object.fromEntries(REGIONS.map((region) => [region.id, region.name]));
+  // Names and boxes only, so the registry's sources and notes stay out of the browser bundle.
+  const watchedRegions = REGIONS.map((region) => ({ id: region.id, name: region.name, box: region.box }));
   return (
     <div className="flex h-dvh flex-col">
       <h1 className="sr-only">A recorded day of ships</h1>
       <div className="w-full px-4 sm:px-6">
         <SiteHeader current="live" />
       </div>
-      <LiveConsole watchedLines={watchedLines} incidents={incidents} regionNames={regionNames} />
+      <LiveConsole watchedLines={watchedLines} incidents={incidents} watchedRegions={watchedRegions} />
     </div>
   );
 }
