@@ -8,8 +8,7 @@
 // Headless Chromium draws WebGL with SwiftShader (on the CPU), so the 3D numbers are a slow-machine bound, not a GPU result.
 import { chromium, type Browser, type Page, type Request } from "playwright";
 import type { Result } from "../../src/lib/result";
-import { signInTestUser } from "../auth/sign-in-test-user";
-import { TIER_LAUNCH } from "../lookdev/tier-launch";
+import { signInOnce, TIER_LAUNCH, type SignedInState } from "../lookdev/tier-launch";
 import { resolveChromiumPath } from "./chromium-path";
 
 // Budgets (desktop, broadband). Sources: docs/PERFORMANCE.md, Budgets.
@@ -314,19 +313,11 @@ async function waitForPageDone(page: Page, kind: PageKind, timeoutFactor: number
   await page.waitForTimeout(SETTLE_MS);
 }
 
-async function measurePage(browser: Browser, url: string, kind: PageKind, profile: MeasureProfile): Promise<Result<PageSample>> {
-  const context = await browser.newContext({ viewport: profile.viewport, deviceScaleFactor: profile.deviceScaleFactor, isMobile: profile.isMobile, hasTouch: profile.isMobile });
-  // Every page but the landing sits behind sign-in (src/proxy.ts). The context signs in first, unthrottled and on its
-  // own tab, so the measured load is a signed-in reader's.
-  if (kind !== "home") {
-    const signInPage = await context.newPage();
-    const signedIn = await signInTestUser(signInPage, new URL(url).origin);
-    await signInPage.close();
-    if (!signedIn.ok) {
-      await context.close();
-      return signedIn;
-    }
-  }
+async function measurePage(browser: Browser, url: string, kind: PageKind, profile: MeasureProfile, signedInState: SignedInState): Promise<Result<PageSample>> {
+  // Every page but the landing sits behind sign-in (src/proxy.ts). Those contexts start from the browser's one
+  // sign-in (signInOnce, made unthrottled before the runs), so the measured load is a signed-in reader's; the landing
+  // is measured signed out.
+  const context = await browser.newContext({ viewport: profile.viewport, deviceScaleFactor: profile.deviceScaleFactor, isMobile: profile.isMobile, hasTouch: profile.isMobile, storageState: kind === "home" ? undefined : signedInState });
   const page = await context.newPage();
   // Throttling goes through the DevTools protocol, before the first request, so the whole load runs on the slow link.
   if (profile.network !== null || profile.cpuSlowdown > 1) {
@@ -537,17 +528,10 @@ function recordCaseClick() {
   new MutationObserver(markProgress).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-frame-count", "data-testid"] });
 }
 
-async function measureCaseClick(browser: Browser, baseUrl: string, slug: string, profile: MeasureProfile): Promise<Result<CaseClickSample>> {
-  const context = await browser.newContext({ viewport: profile.viewport, deviceScaleFactor: profile.deviceScaleFactor });
-  // /cases and the case pages sit behind sign-in (src/proxy.ts): the context signs in first, on its own tab, outside
-  // the timing, which starts at the click.
-  const signInPage = await context.newPage();
-  const signedIn = await signInTestUser(signInPage, baseUrl);
-  await signInPage.close();
-  if (!signedIn.ok) {
-    await context.close();
-    return signedIn;
-  }
+async function measureCaseClick(browser: Browser, baseUrl: string, slug: string, profile: MeasureProfile, signedInState: SignedInState): Promise<Result<CaseClickSample>> {
+  // /cases and the case pages sit behind sign-in (src/proxy.ts): each context starts from the browser's one sign-in,
+  // made before the runs and outside the timing, which starts at the click.
+  const context = await browser.newContext({ viewport: profile.viewport, deviceScaleFactor: profile.deviceScaleFactor, storageState: signedInState });
   const page = await context.newPage();
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -597,9 +581,14 @@ async function measureCaseClicks(options: CliOptions, chromiumPath: string): Pro
   const browser = await chromium.launch({ executablePath: chromiumPath, args: launch.args, env: { ...process.env, ...launch.env } });
   const samplesBySlug = new Map<string, CaseClickSample[]>(CASE_CLICK_SLUGS.map((slug) => [slug, []]));
   try {
+    const signedIn = await signInOnce(browser, options.baseUrl);
+    if (!signedIn.ok) {
+      console.error(`[measureCaseClicks] could not sign in: ${signedIn.reason}`);
+      return 2;
+    }
     for (let runIndex = 0; runIndex < options.runCount; runIndex += 1) {
       for (const slug of CASE_CLICK_SLUGS) {
-        const sample = await measureCaseClick(browser, options.baseUrl, slug, options.profile);
+        const sample = await measureCaseClick(browser, options.baseUrl, slug, options.profile, signedIn.value);
         if (!sample.ok) {
           console.error(`[measureCaseClicks] could not measure: ${sample.reason}`);
           return 2;
@@ -646,10 +635,12 @@ async function runMeasurements(options: CliOptions, chromiumPath: string): Promi
   const pages: PageReport[] = options.profile.targets.map((target) => ({ target, samples: [] }));
   const health: HealthSample[] = [];
   try {
+    const signedIn = await signInOnce(browser, options.baseUrl);
+    if (!signedIn.ok) return signedIn;
     // Pages alternate inside each run, so warm-up and drift do not favor one page.
     for (let runIndex = 0; runIndex < options.runCount; runIndex += 1) {
       for (const report of pages) {
-        const sample = await measurePage(browser, `${options.baseUrl}${report.target.route}`, report.target.kind, options.profile);
+        const sample = await measurePage(browser, `${options.baseUrl}${report.target.route}`, report.target.kind, options.profile, signedIn.value);
         if (!sample.ok) return sample;
         report.samples.push(sample.value);
       }
