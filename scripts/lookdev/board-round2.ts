@@ -24,15 +24,14 @@ import {
   judgeTones,
   LOOK_ONLY_CSS,
   markLookdevCanvas,
-  TIER_LAUNCH,
   TONE_HEX,
   VIEWPORT,
   waitForSettledFrame,
-  type PlaywrightTierName,
   type SeabedVerdict,
   type ToneVerdict,
 } from "./run-lookdev";
 import { listLookdevShots } from "./shots";
+import { TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
 
 const FRAME_TIMEOUT_MS = 120_000;
 const SETTLE_MS = 800;

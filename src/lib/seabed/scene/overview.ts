@@ -4,7 +4,9 @@ import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene/labels";
-import { buildAnchorModel } from "@/lib/seabed/scene/models";
+import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { createChainLinks, createFurrowTrench, createUnderwaterLook, makeIllustratedChip, type FurrowTrench } from "@/lib/seabed/scene/anchor-rig";
+import { buildAnchorModel, createAnchorSteelMaterial } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
 import { createDataColorMaterial, drawAfterWater } from "@/lib/render/data-colors";
 import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
@@ -12,8 +14,9 @@ import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import type { ScenePalette, SceneSky } from "@/lib/seabed/scene/scene-look";
 import { bakeReliefOcclusion } from "@/lib/seabed/scene/relief-occlusion";
 import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
-import { buildWaterBody } from "@/lib/seabed/scene/water-surface";
-import { FULL_WIDTH_DISTANCE_KM, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
+import { createPhysicalLine, createSeabedLineMaterials, type PhysicalLine } from "@/lib/seabed/scene/seabed-lines";
+import { buildWaterBody, createWaterDepthMap, WATER_ABSORPTION, type WaterLook } from "@/lib/seabed/scene/water-surface";
+import { FULL_WIDTH_DISTANCE_KM, MIN_WIDTH_SHARE, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
 import { buildShip } from "@/lib/ships/build-ship";
@@ -48,8 +51,22 @@ const FURROW_WIDTH_PX = 3;
 const FURROW_SEABED_LIFT = 0.09;
 // The anchor chain: points along its drawn catenary, its on-screen width, and the points of the close-up's chain.
 const CHAIN_POINT_COUNT = 48;
-const CHAIN_WIDTH_PX = 1.5;
+const CHAIN_WIDTH_PX = 2.5;
 const CLOSE_UP_CHAIN_POINT_COUNT = 240;
+// The chain as stud links: 0.5 m links (models.ts), at most this many, drawn when the camera is within this many km.
+const CHAIN_LINK_PITCH_METRES = 0.5;
+const CHAIN_LINK_COUNT = 260;
+const CHAIN_LINK_VIEW_KM = 8;
+// The furrow's trench: half as wide as the anchor's 2.5 m across the flukes on each side, drawn 12 m deep (about 0.6 m
+// of sediment at the water's 20 times).
+const FURROW_TRENCH_HALF_WIDTH_METRES = 1.4;
+const FURROW_TRENCH_DEPTH_KM = 0.012;
+// Layers: map labels on one (hidden under the water), the anchor's own label on another (shown only there).
+const LABEL_LAYER = 1;
+const ANCHOR_ROLL_RADIANS = 0.8;
+// The anchor steel is lifted this share toward galvanised grey (models.ts): it stays dark to stand out under 75 m of water.
+const ANCHOR_GALVANISED_SHARE = 0;
+const UNDERWATER_LABEL_LAYER = 2;
 const PLUME_PARTICLE_COUNT = 140;
 // Heading is read over this span around the current moment, so a reconstructed corner does not snap the hull.
 const HEADING_SPAN_MS = 2 * 60 * 1000;
@@ -63,12 +80,17 @@ const SIGNAL_CORE_SCREEN_SCALE = 0.008;
 // around each cut marker's ring (radius in km, the ring's own).
 const COLOR_PROBE_SHARES = [0.1, 0.3, 0.5, 0.7, 0.9];
 const TRACK_PROBES_PER_TONE = 16;
+// The lookdev continuity check follows the far tubes every this many km.
+const TRACE_STEP_KM = 0.05;
 // Probes hidden behind relief are dropped: the sight line to the camera is checked at this many points, starting
 // this far (km) from the probe.
 const OCCLUSION_STEPS = 64;
 const OCCLUSION_START_KM = 0.15;
 const CUT_RING_RADIUS_KM = 0.75;
 const CUT_RING_TUBE_RADIUS_KM = 0.07;
+// The cut marker's beam: its radius and the height its top stands at (km, over the surface).
+const CUT_BEAM_RADIUS_KM = 0.035;
+const CUT_BEAM_TOP_KM = 1.2;
 const CUT_RING_PROBE_ANGLES = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
 // Model metres to scene kilometres. The vessel is drawn 6 times its real size and the anchor 30 times, so
 // both read across a block 145 to 300 km wide; the disclosure under the view says so.
@@ -128,6 +150,15 @@ export type DataTone = "cable" | "pipeline" | "suspect" | "alarm";
  */
 export type ColorProbe = { tone: DataTone; position: THREE.Vector3; widthKm: number | null };
 
+/** A cable or pipeline: its map tube, its physical twin, and whether the replay shows it at the drawn moment. */
+type DataLine = { tone: DataTone; radius: number; tube: { mesh: THREE.Mesh; curve: THREE.CatmullRomCurve3; restingPoints: THREE.Vector3[] }; physical: PhysicalLine; isShown: boolean };
+
+/**
+ * One data line's drawn path for the lookdev continuity check: its points in order, each with whether it is in sight
+ * of the camera (not behind relief, the hull or a cut marker), so a gap there is the line's fault.
+ */
+export type LineTrace = { tone: DataTone; points: { position: THREE.Vector3; isInSight: boolean }[] };
+
 /** A point of level, open seabed and the depth token it must show there (sRGB hex), for the lookdev seabed check. */
 export type SeabedProbe = { position: THREE.Vector3; expectedHex: string };
 
@@ -182,6 +213,12 @@ export type OverviewScene = {
   isBehindRelief: (point: THREE.Vector3, cameraPosition: THREE.Vector3) => boolean;
   /** The anchor cam's numbers at a moment, or null while the anchor is not down. */
   readAnchorFacts: (atMs: number) => AnchorFacts | null;
+  /** Every shown data line's drawn path seen from `cameraPosition`, for the lookdev continuity check. */
+  readLineTraces: (cameraPosition: THREE.Vector3) => LineTrace[];
+  /** Where the anchor lies on the last drawn frame, or null while it is not drawn (lookdev contrast check). */
+  readAnchorPosition: () => THREE.Vector3 | null;
+  /** Hides the anchor (lookdev only: the contrast check draws the frame without it to find its pixels). */
+  setAnchorHidden: (isHidden: boolean) => void;
 };
 
 type OverviewOptions = {
@@ -201,6 +238,12 @@ type OverviewOptions = {
   rippleNormalMap: THREE.Texture | null;
   /** Environment colours of the look drawn (scene-look.ts). */
   palette: ScenePalette;
+  /** The water's colours (water-surface.ts, WATER_LOOKS). */
+  waterLook: WaterLook;
+  /** The CC0 sky HDRI (linear equirectangular) for the water's reflection and the ships' light (GPU tiers), or null. */
+  skyMap: THREE.Texture | null;
+  /** Called with work that finishes after the first frame (the ship's detail level), so the canvas can say it is pending. */
+  trackPendingAsset: (pending: Promise<unknown>) => void;
 };
 
 function buildRamp(stops: readonly [number, string][]) {
@@ -330,11 +373,13 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
     const restingHeight = Math.max(sum / count, (rawHeights[index] ?? 0) - 0.04);
     return new THREE.Vector3(point.x, restingHeight + radius + 0.04, point.z);
   });
+  // Where the line rests on the seabed (for its physical twin, seabed-lines.ts).
+  const restingPoints = vectors.map((vector) => new THREE.Vector3(vector.x, vector.y - radius - 0.04, vector.z));
   const curve = new THREE.CatmullRomCurve3(vectors, false, "centripetal");
   // Data tubes are drawn unlit and after the water (src/lib/render/data-colors.ts), so they show their exact colour.
   const mesh = drawAfterWater(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(12, vectors.length * 2), radius, 8, false), material));
   mesh.castShadow = true;
-  return { mesh, curve };
+  return { mesh, curve, restingPoints };
 }
 
 function nearestIndex(points: readonly ScenePoint[], target: ScenePoint): { index: number; distanceKm: number } {
@@ -456,7 +501,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     palette,
   });
   const seabedProbeCandidates = pickSeabedProbes(terrain);
-  const water = buildWaterBody({ projection, deepestY, hasWaves: options.isHighDetail, sun: sunLight, kit });
+  const water = buildWaterBody({
+    projection,
+    deepestY,
+    kit,
+    surface: { hasWaves: options.isHighDetail, sun: sunLight, look: options.waterLook, sky: options.skyMap, depthMap: createWaterDepthMap(elevations, features.grid, projection) },
+  });
   scene.add(terrain, buildBlockSides(terrain, features, baseY, palette), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
   ground.rotation.x = -Math.PI / 2;
@@ -482,27 +532,34 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   let cableDirection: ScenePoint = { x: 1, z: 0 };
   let signalCurve: THREE.CatmullRomCurve3 | null = null;
   let signalStopCurve: THREE.CatmullRomCurve3 | null = null;
-  // Each cut cable swaps its intact tube for two pieces once its cut time has passed.
-  const cutSwitches: { cut: ReplayCut; intact: THREE.Object3D[]; pieces: THREE.Object3D[] }[] = [];
   const pipelineCurves = new Map<string, THREE.CatmullRomCurve3[]>();
-  // Every data tube, for the lookdev colour probes.
-  const dataTubes: { tone: DataTone; radius: number; tube: ReturnType<typeof createSeabedTube> }[] = [];
+  // Every data line: its map tube, its physical twin for the close views, and whether the replay shows it now (a cut
+  // cable's pieces only once it is cut). Read by the colour probes too.
+  const lineMaterials = createSeabedLineMaterials();
+  const dataTubes: DataLine[] = [];
+  function addDataLine(tone: DataTone, radius: number, tube: ReturnType<typeof createSeabedTube>, isShown: boolean): DataLine {
+    const physical = createPhysicalLine({ restingPoints: tube.restingPoints, radiusKm: radius * MIN_WIDTH_SHARE, kind: tone === "pipeline" ? "pipeline" : "cable", hex: tone === "pipeline" ? WEBGL_COLORS.pipeline : WEBGL_COLORS.cable, materials: lineMaterials, kit, sampleSeabedHeight });
+    scene.add(tube.mesh, physical.group);
+    const dataLine: DataLine = { tone, radius, tube, physical, isShown };
+    dataTubes.push(dataLine);
+    return dataLine;
+  }
+  // Each cut cable swaps its intact line for two pieces once its cut time has passed.
+  const cutSwitches: { cut: ReplayCut; intact: DataLine; halo: THREE.Object3D | null; pieces: DataLine[] }[] = [];
 
   for (const line of features.lines) {
     const scenePoints = densifyScenePoints(line.points.map(([longitude, latitude]) => toScene(longitude, latitude)), LINE_STEP_KM);
     for (const run of clipToBlock(scenePoints, projection)) {
       if (line.kind === "pipeline") {
         const pipeline = createSeabedTube(run, tubeRadii.pipeline, pipelineMaterial, sampleSeabedHeight);
-        scene.add(pipeline.mesh);
-        dataTubes.push({ tone: "pipeline", radius: tubeRadii.pipeline, tube: pipeline });
+        addDataLine("pipeline", tubeRadii.pipeline, pipeline, true);
         pipelineCurves.set(line.name, [...(pipelineCurves.get(line.name) ?? []), pipeline.curve]);
         continue;
       }
       const radius = tubeRadii[line.kind];
       const cableMaterial = cableMaterials[line.kind];
       const intact = createSeabedTube(run, radius, cableMaterial, sampleSeabedHeight);
-      scene.add(intact.mesh);
-      dataTubes.push({ tone: "cable", radius, tube: intact });
+      const intactLine = addDataLine("cable", radius, intact, true);
       const matchingCut = input.cuts
         .filter((cut) => cut.cableName === line.name)
         .map((cut) => ({ cut, nearest: nearestIndex(run, toScene(cut.longitude, cut.latitude)) }))
@@ -514,27 +571,23 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (!canSplit) continue;
       const before = createSeabedTube(run.slice(0, nearest.index - 1), radius, cableMaterial, sampleSeabedHeight);
       const after = createSeabedTube(run.slice(nearest.index + 2), radius, cableMaterial, sampleSeabedHeight);
-      before.mesh.visible = false;
-      after.mesh.visible = false;
-      scene.add(before.mesh, after.mesh);
-      dataTubes.push({ tone: "cable", radius, tube: before }, { tone: "cable", radius, tube: after });
-      const intactObjects: THREE.Object3D[] = [intact.mesh];
+      const pieces = [addDataLine("cable", radius, before, false), addDataLine("cable", radius, after, false)];
+      let halo: THREE.Object3D | null = null;
       if (cut === primaryCut) {
         // The signature "signal": a faint halo and a light that runs along the cable under watch.
-        const halo = new THREE.Mesh(
+        halo = new THREE.Mesh(
           new THREE.TubeGeometry(intact.curve, Math.max(12, run.length * 2), tubeRadii.signalHalo, 8, false),
           kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.cable, radiusKm: tubeRadii.signalHalo, fullWidthDistanceKm, opacity: 0.12, depthWrite: false }),
         );
         drawAfterWater(halo);
         scene.add(halo);
-        intactObjects.push(halo);
         signalCurve = intact.curve;
         signalStopCurve = before.curve;
         const previous = run[Math.max(0, nearest.index - 2)];
         const next = run[Math.min(run.length - 1, nearest.index + 2)];
         if (previous && next) cableDirection = unitDirection(previous, next, cableDirection);
       }
-      cutSwitches.push({ cut, intact: intactObjects, pieces: [before.mesh, after.mesh] });
+      cutSwitches.push({ cut, intact: intactLine, halo, pieces });
     }
   }
 
@@ -648,7 +701,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const dragWindow = input.dragWindow;
 
   // Built at the case ship's real length, then drawn at the scale the disclosure under the view states.
-  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail });
+  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail, sky: options.skyMap });
   const ship = shipModel.group;
   ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
   const shipDrawnLengthKm = input.vessel.lengthMetres * SHIP_DRAWN_SCALE * METRES_TO_KM;
@@ -659,6 +712,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   ship.add(shipLabel.object);
   ship.visible = false;
   scene.add(ship);
+  // The detail level streams in after the first frame: its code loads with a dynamic import (ship-detail.ts).
+  options.trackPendingAsset(
+    import("@/lib/ships/ship-detail")
+      .then(({ addShipDetail }) => addShipDetail(shipModel, input.vessel.name))
+      .catch((error: unknown) => console.error(`[buildOverview] the ship's detail level did not load: ${error instanceof Error ? error.message : String(error)}`)),
+  );
   // A soft contact shadow on the water around the hull (ambient occlusion where hull meets sea), so the ship sits in
   // the water instead of hovering over a sea that is mostly transparent from above.
   const contactShadow = new THREE.Mesh(
@@ -670,20 +729,36 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   contactShadow.renderOrder = 2.6;
   ship.add(contactShadow);
   // The GPU tier draws the bow wave and the Kelvin wake on a patch that sails with the hull.
-  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form, kit) : null;
+  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form, kit, options.waterLook.column) : null;
   if (kelvinWake) ship.add(kelvinWake.mesh);
   const wake = createWake();
   scene.add(wake.mesh);
-  const anchorModel = buildAnchorModel(new THREE.MeshStandardMaterial({ color: SCENE_COLORS.anchor, roughness: 0.48, metalness: 0.6 }));
+  const anchorMaterial = createAnchorSteelMaterial(SCENE_COLORS.anchor, options.skyMap, ANCHOR_GALVANISED_SHARE);
+  const anchorModel = buildAnchorModel(anchorMaterial);
   const anchor = anchorModel.group;
   anchor.scale.setScalar(ANCHOR_DRAWN_SCALE * METRES_TO_KM);
   anchor.visible = false;
   scene.add(anchor);
+  // Under the water (the anchor cam) the anchor carries one small chip saying it is illustrated: its shape is the
+  // type's and its size 30 times life, which the disclosure under the view states.
+  const anchorChip = makeIllustratedChip();
+  anchorChip.position.set(0, 1.6, 2);
+  anchorChip.layers.set(UNDERWATER_LABEL_LAYER);
+  anchor.add(anchorChip);
+  // Close up, the chain is real stud links at the anchor's drawn scale; from afar, the hairline below.
+  const chainLinks = createChainLinks(anchorMaterial, CHAIN_LINK_COUNT, CHAIN_LINK_PITCH_METRES * ANCHOR_DRAWN_SCALE * METRES_TO_KM, ANCHOR_DRAWN_SCALE * METRES_TO_KM);
+  chainLinks.mesh.visible = false;
+  scene.add(chainLinks.mesh);
+  const underwaterLook = createUnderwaterLook(options.waterLook, sampleSeabedHeight);
+  scene.add(underwaterLook.group);
   const chainGeometry = new LineGeometry();
   chainGeometry.setPositions(new Float32Array(CHAIN_POINT_COUNT * 3));
   const chain = kit.createScreenLine(chainGeometry, { color: SCENE_COLORS.anchor, widthPx: CHAIN_WIDTH_PX, hasVertexColors: false, opacity: 1 });
   chain.frustumCulled = false;
   chain.visible = false;
+  // Drawn after the water (not in a data colour): the chain's run down from the hawse stays readable through the sea.
+  chain.renderOrder = 4;
+  if (!Array.isArray(chain.material)) chain.material.transparent = true;
   scene.add(chain);
 
   // The anchor from physics (src/lib/ships/anchor-chain.ts, the detector's own model): the case ship's chain hangs
@@ -706,6 +781,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
   // The anchor's furrow: where the anchor itself went, from the start to the end of the drag window.
   let furrow: ProgressLine | null = null;
+  let furrowTrench: FurrowTrench | null = null;
   if (dragWindow && dragWindow.endMs > dragWindow.startMs) {
     const furrowPoints = Array.from({ length: FURROW_SEGMENTS + 1 }, (_slot, index) => locateAnchor(dragWindow.startMs + ((dragWindow.endMs - dragWindow.startMs) * index) / FURROW_SEGMENTS))
       .flatMap((located) => (located ? [located.point] : []))
@@ -713,6 +789,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     if (furrowPoints.length >= 2) {
       furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX, kit });
       scene.add(drawAfterWater(furrow.line));
+      // The trench itself, in the sediment under the line: about the anchor's drawn width, as deep as its flukes dig.
+      const seabedRamp = buildRamp(palette.depthRamp);
+      const readSeabedColor = (sceneX: number, sceneZ: number, target: THREE.Color) => sampleRamp(seabedRamp, -sampleElevationMetres(sceneX, sceneZ), target);
+      furrowTrench = createFurrowTrench(furrowPoints, FURROW_TRENCH_HALF_WIDTH_METRES * ANCHOR_DRAWN_SCALE * METRES_TO_KM, FURROW_TRENCH_DEPTH_KM, sampleSeabedHeight, readSeabedColor);
+      scene.add(furrowTrench.mesh);
     }
   }
   /** The chain's shape at the primary cut, for the close-up (metres from the anchor along the ground, and up). */
@@ -727,9 +808,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     const marker = new THREE.Group();
     const ring = drawAfterWater(new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_KM, CUT_RING_TUBE_RADIUS_KM, 10, 48), createDataColorMaterial(WEBGL_COLORS.alarm)));
     ring.rotation.x = Math.PI / 2;
-    const beam = drawAfterWater(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 8), createDataColorMaterial(WEBGL_COLORS.alarm, { opacity: 0.7, depthWrite: false })));
-    beam.scale.y = -seabedY + 1.2;
-    beam.position.y = (1.2 - seabedY) / 2;
+    const beam = drawAfterWater(new THREE.Mesh(new THREE.CylinderGeometry(CUT_BEAM_RADIUS_KM, CUT_BEAM_RADIUS_KM, 1, 8), createDataColorMaterial(WEBGL_COLORS.alarm, { opacity: 0.7, depthWrite: false })));
+    beam.scale.y = CUT_BEAM_TOP_KM - seabedY;
+    beam.position.y = (CUT_BEAM_TOP_KM - seabedY) / 2;
     marker.add(ring, beam);
     marker.position.set(point.x, seabedY, point.z);
     marker.visible = false;
@@ -792,6 +873,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
   let lastAtMs = Number.NEGATIVE_INFINITY;
   let vesselFrame: VesselFrame | null = null;
+  // Whether the anchor lies on the seabed at the drawn moment, and whether lookdev asked for it hidden.
+  let isAnchorDrawn = false;
+  let isAnchorHidden = false;
   let lastHeading: ScenePoint = { x: 1, z: 0 };
   const chainPositions = new Float32Array(CHAIN_POINT_COUNT * 3);
   /**
@@ -852,29 +936,50 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
 
     const isDragging = dragWindow !== null && shipPoint !== null && atMs >= dragWindow.startMs && atMs <= dragWindow.endMs;
     if (furrow && dragWindow) furrow.setFraction((atMs - dragWindow.startMs) / (dragWindow.endMs - dragWindow.startMs));
+    if (furrowTrench && dragWindow) furrowTrench.setFraction((atMs - dragWindow.startMs) / (dragWindow.endMs - dragWindow.startMs));
     const located = isDragging ? locateAnchor(atMs) : null;
-    anchor.visible = located !== null;
+    isAnchorDrawn = located !== null;
+    anchor.visible = isAnchorDrawn && !isAnchorHidden;
     chain.visible = located !== null;
+    chainLinks.mesh.visible = false;
     if (located) {
       // The anchor lies where the chain's layback puts it, shank pointing along the chain toward the hawse.
       hawseWorld.copy(shipModel.hawseLocal).applyMatrix4(ship.matrixWorld);
       const towardHawse = unitDirection(located.point, { x: hawseWorld.x, z: hawseWorld.z }, lastHeading);
       anchor.position.set(located.point.x, sampleSeabedHeight(located.point.x, located.point.z) + 0.02, located.point.z);
-      anchor.rotation.set(-0.12, Math.atan2(towardHawse.x, towardHawse.z), 0);
+      // Rolled onto one side, as a dragged anchor lies: one fluke dug in, the other's blade turned up (as in the close-up).
+      anchor.rotation.set(-0.12, Math.atan2(towardHawse.x, towardHawse.z), ANCHOR_ROLL_RADIANS, "YXZ");
       anchor.updateMatrixWorld();
       shackleWorld.copy(anchorModel.shackleLocal).applyMatrix4(anchor.matrixWorld);
       writeChain(located.span);
+      // Links where the camera is close enough to see them; the hairline otherwise.
+      const isChainClose = camera.position.distanceTo(anchor.position) < CHAIN_LINK_VIEW_KM;
+      chainLinks.mesh.visible = isChainClose;
+      if (isChainClose) chainLinks.update(chainPositions, CHAIN_POINT_COUNT);
     }
+
+    // A camera under the surface (the anchor cam) sees the inside of the water and no map labels.
+    const isUnderwater = camera.position.y < 0;
+    underwaterLook.apply(scene, camera, isUnderwater);
+    water.group.visible = !isUnderwater;
+    camera.layers.set(0);
+    camera.layers.enable(isUnderwater ? UNDERWATER_LABEL_LAYER : LABEL_LAYER);
 
     for (const cutSwitch of cutSwitches) {
       const isCut = atMs >= cutSwitch.cut.atMs;
-      cutSwitch.intact.forEach((object) => {
-        object.visible = !isCut;
-      });
-      cutSwitch.pieces.forEach((object) => {
-        object.visible = isCut;
+      cutSwitch.intact.isShown = !isCut;
+      cutSwitch.pieces.forEach((piece) => {
+        piece.isShown = isCut;
       });
     }
+    // Close to the seabed's lines (the Vessel view) each is drawn as the thing it is, carrying its tracer; from the map's
+    // height, as the crisp data-coloured tube. The signal's halo belongs to the map.
+    const isClose = isCloseToLines(camera.position);
+    for (const dataLine of dataTubes) {
+      dataLine.tube.mesh.visible = dataLine.isShown && !isClose;
+      dataLine.physical.group.visible = dataLine.isShown && isClose;
+    }
+    for (const cutSwitch of cutSwitches) if (cutSwitch.halo) cutSwitch.halo.visible = cutSwitch.intact.isShown && !isClose;
     for (const cutMarker of cutMarkers) {
       const isCut = atMs >= cutMarker.cut.atMs;
       cutMarker.marker.visible = isCut;
@@ -964,10 +1069,21 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     });
   }
 
+  /** Whether a camera is low enough to see the lines as things (the absorption's height: water-surface.ts). */
+  function isCloseToLines(cameraPosition: THREE.Vector3): boolean {
+    return cameraPosition.y < WATER_ABSORPTION.fadeHeightKm[0];
+  }
+
   function readColorProbes(cameraPosition: THREE.Vector3): ColorProbe[] {
     const probes: ColorProbe[] = [];
-    for (const { tone, radius, tube } of dataTubes) {
-      if (!tube.mesh.visible) continue;
+    const isClose = isCloseToLines(cameraPosition);
+    for (const { tone, radius, tube, physical, isShown } of dataTubes) {
+      if (!isShown) continue;
+      if (isClose) {
+        // The tracer is a fixed number of pixels wide: its centreline is the probe.
+        COLOR_PROBE_SHARES.forEach((share) => probes.push({ tone, position: physical.tracerCurve.getPointAt(share), widthKm: null }));
+        continue;
+      }
       for (const share of COLOR_PROBE_SHARES) {
         const centre = tube.curve.getPointAt(share);
         const middleOffsetKm = readThinnedTubeMiddle(radius, centre.distanceTo(cameraPosition), fullWidthDistanceKm);
@@ -987,14 +1103,35 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
         if (index % step === 0) probes.push({ tone, position: point.position, widthKm: null });
       });
     }
+    // A line or the track seen through the hull or a cut marker shows that object, not its own colour.
+    const uncoveredProbes = probes.filter((probe) => !isCoveredInView(probe.position, cameraPosition));
     for (const cutMarker of cutMarkers) {
       if (!cutMarker.marker.visible) continue;
       for (const angle of CUT_RING_PROBE_ANGLES) {
         const position = new THREE.Vector3(Math.cos(angle) * CUT_RING_RADIUS_KM, 0, Math.sin(angle) * CUT_RING_RADIUS_KM).add(cutMarker.marker.position);
-        probes.push({ tone: "alarm", position, widthKm: 2 * CUT_RING_TUBE_RADIUS_KM });
+        uncoveredProbes.push({ tone: "alarm", position, widthKm: 2 * CUT_RING_TUBE_RADIUS_KM });
       }
     }
-    return probes.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
+    return uncoveredProbes.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
+  }
+
+  /** Whether the hull, or a cut marker's beam or ring, stands between the camera and a point. */
+  function isCoveredInView(point: THREE.Vector3, cameraPosition: THREE.Vector3): boolean {
+    return isBehindHull(point, cameraPosition) || isBehindCutBeam(point, cameraPosition) || isBehindCutRing(point, cameraPosition);
+  }
+
+  /** Whether the sight line from the camera to a point passes through a shown cut marker's ring (a flat torus). */
+  function isBehindCutRing(point: THREE.Vector3, cameraPosition: THREE.Vector3): boolean {
+    return cutMarkers.some((cutMarker) => {
+      if (!cutMarker.marker.visible) return false;
+      const ringY = cutMarker.marker.position.y;
+      if ((cameraPosition.y - ringY) * (point.y - ringY) >= 0) return false;
+      const share = (cameraPosition.y - ringY) / (cameraPosition.y - point.y);
+      const crossingX = cameraPosition.x + (point.x - cameraPosition.x) * share;
+      const crossingZ = cameraPosition.z + (point.z - cameraPosition.z) * share;
+      const fromCentreKm = Math.hypot(crossingX - cutMarker.marker.position.x, crossingZ - cutMarker.marker.position.z);
+      return Math.abs(fromCentreKm - CUT_RING_RADIUS_KM) < CUT_RING_TUBE_RADIUS_KM * 1.5;
+    });
   }
 
   function followCamera(cameraPosition: THREE.Vector3, targetDistanceKm: number) {
@@ -1049,6 +1186,66 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return seabedProbeCandidates.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
   }
 
+  // The hull's box in its own metres (waterline amidships at the origin), wide enough for the bridge wings: a sight
+  // line through it counts as hidden by the ship.
+  const hullBox = new THREE.Box3(
+    new THREE.Vector3(-shipModel.form.halfLength * 1.05, -shipModel.form.draught, -shipModel.form.halfBeam * 1.6),
+    new THREE.Vector3(shipModel.form.halfLength * 1.05, input.vessel.lengthMetres * 0.25, shipModel.form.halfBeam * 1.6),
+  );
+  const hullRay = new THREE.Ray();
+  const hullHit = new THREE.Vector3();
+  const shipInverse = new THREE.Matrix4();
+  /** Whether the hull stands between the camera and a point. */
+  function isBehindHull(point: THREE.Vector3, cameraPosition: THREE.Vector3): boolean {
+    if (!ship.visible) return false;
+    shipInverse.copy(ship.matrixWorld).invert();
+    const localCamera = cameraPosition.clone().applyMatrix4(shipInverse);
+    const localPoint = point.clone().applyMatrix4(shipInverse);
+    hullRay.set(localCamera, localPoint.clone().sub(localCamera).normalize());
+    const hit = hullRay.intersectBox(hullBox, hullHit);
+    return hit !== null && hit.distanceTo(localCamera) < localPoint.distanceTo(localCamera);
+  }
+
+  /**
+   * Whether a shown cut marker's beam (a translucent alarm column from the seabed to above the surface) stands between
+   * the camera and a point: the sight line passes within the beam's radius of its axis, at a height the beam covers.
+   */
+  function isBehindCutBeam(point: THREE.Vector3, cameraPosition: THREE.Vector3): boolean {
+    return cutMarkers.some((cutMarker) => {
+      if (!cutMarker.marker.visible) return false;
+      const beamX = cutMarker.marker.position.x;
+      const beamZ = cutMarker.marker.position.z;
+      const runX = point.x - cameraPosition.x;
+      const runZ = point.z - cameraPosition.z;
+      const runLengthSquared = runX * runX + runZ * runZ;
+      if (runLengthSquared < 1e-12) return false;
+      const share = ((beamX - cameraPosition.x) * runX + (beamZ - cameraPosition.z) * runZ) / runLengthSquared;
+      if (share <= 0 || share >= 1) return false;
+      const missKm = Math.hypot(cameraPosition.x + runX * share - beamX, cameraPosition.z + runZ * share - beamZ);
+      const sightY = cameraPosition.y + (point.y - cameraPosition.y) * share;
+      return missKm < CUT_BEAM_RADIUS_KM * 1.5 && sightY > cutMarker.marker.position.y - 0.1 && sightY < CUT_BEAM_TOP_KM;
+    });
+  }
+
+  function readLineTraces(cameraPosition: THREE.Vector3): LineTrace[] {
+    const isClose = isCloseToLines(cameraPosition);
+    return dataTubes.flatMap(({ tone, radius, tube, physical, isShown }) => {
+      if (!isShown) return [];
+      const positions = isClose
+        ? physical.tracerPoints.map((point) => point.clone())
+        : tube.curve.getSpacedPoints(Math.max(12, Math.ceil(tube.curve.getLength() / TRACE_STEP_KM))).map((centre) => {
+            centre.y += readThinnedTubeMiddle(radius, centre.distanceTo(cameraPosition), fullWidthDistanceKm);
+            return centre;
+          });
+      return [
+        {
+          tone,
+          points: positions.map((position) => ({ position, isInSight: !isBehindRelief(position, cameraPosition) && !isCoveredInView(position, cameraPosition) })),
+        },
+      ];
+    });
+  }
+
   /** Whether the terrain rises above the sight line from the camera to a point (a ridge hides what is behind it). */
   function isBehindRelief(point: THREE.Vector3, cameraPosition: THREE.Vector3): boolean {
     const sightKm = point.distanceTo(cameraPosition);
@@ -1066,5 +1263,36 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     return false;
   }
 
-  return { scene, camera, controls, presets, primaryCutScene, trackDirection, cableDirection, primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null, readVesselFrame: () => vesselFrame, locateTarget, readPickables, setCompactLabels, update, readColorProbes, readSeabedProbes, followCamera, readSubjects, isBehindRelief, readAnchorFacts };
+  // Every map label lives on its own layer, so a camera under the water can leave them out (CSS2DRenderer tests layers).
+  scene.traverse((object) => {
+    if (object instanceof CSS2DObject && !object.layers.isEnabled(UNDERWATER_LABEL_LAYER)) object.layers.set(LABEL_LAYER);
+  });
+  camera.layers.enable(LABEL_LAYER);
+
+  return {
+    scene,
+    camera,
+    controls,
+    presets,
+    primaryCutScene,
+    trackDirection,
+    cableDirection,
+    primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null,
+    readVesselFrame: () => vesselFrame,
+    locateTarget,
+    readPickables,
+    setCompactLabels,
+    update,
+    readColorProbes,
+    readSeabedProbes,
+    followCamera,
+    readSubjects,
+    isBehindRelief,
+    readAnchorFacts,
+    readLineTraces,
+    readAnchorPosition: () => (isAnchorDrawn ? anchor.position : null),
+    setAnchorHidden(isHidden) {
+      isAnchorHidden = isHidden;
+    },
+  };
 }

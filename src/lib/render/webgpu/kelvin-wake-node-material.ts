@@ -1,7 +1,6 @@
-import { abs, clamp, cos, exp, float, fwidth, inverseSqrt, materialColor, materialOpacity, max, mix, normalize, positionGeometry, positionLocal, select, smoothstep, sqrt, step, transformNormalToView, uniform, vec2, vec3 } from "three/tsl";
+import { abs, clamp, cos, dot, exp, float, floor, fract, fwidth, inverseSqrt, materialColor, materialOpacity, max, mix, normalize, positionGeometry, positionLocal, select, sin, smoothstep, sqrt, step, transformNormalToView, uniform, vec2, vec3 } from "three/tsl";
 import { Color, MeshStandardNodeMaterial, type Node } from "three/webgpu";
 import type { KelvinWakeMaterial } from "@/lib/render/scene-renderer";
-import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { WAVE_DETAIL_FADE } from "@/lib/seabed/scene/water-surface";
 import { KELVIN_PATTERN, type KelvinWakeShape } from "@/lib/ships/kelvin-wake";
 
@@ -53,9 +52,32 @@ export function createKelvinWakeNodeMaterial(shape: KelvinWakeShape): KelvinWake
     return select(isInWedge, decay.mul(wedgeEdge).mul(transverse.add(divergent)), float(0));
   };
 
+  // Two octaves of value noise (0 to 1), the GLSL's readFoamNoise: the foam's clumps and streaks.
+  const readHash = (point: Node<"vec2">): Node<"float"> => fract(sin(dot(point, vec2(127.1, 311.7))).mul(43758.5453));
+  const readValueNoise = (point: Node<"vec2">): Node<"float"> => {
+    const cell = floor(point);
+    const inside = fract(point);
+    const blend = inside.mul(inside).mul(inside.mul(-2).add(3));
+    const bottom = mix(readHash(cell), readHash(cell.add(vec2(1, 0))), blend.x);
+    const top = mix(readHash(cell.add(vec2(0, 1))), readHash(cell.add(vec2(1, 1))), blend.x);
+    return mix(bottom, top, blend.y);
+  };
+  const readFoamNoise = (point: Node<"vec2">): Node<"float"> => {
+    const scaled = point.mul(vec2(PATTERN.foamNoisePerMetre[0], PATTERN.foamNoisePerMetre[1]));
+    return readValueNoise(scaled).mul(0.62).add(readValueNoise(scaled.mul(2.7).add(3.1)).mul(0.38));
+  };
+  // The propeller's wash behind the stern: 0 to 1, broken by the foam noise, fading as it widens and ages.
+  const readPropellerWash = (point: Node<"vec2">): Node<"float"> => {
+    const behind = sternX.sub(point.x);
+    const age = behind.div(wakeLength.mul(PATTERN.washLengths));
+    const width = halfBeam.mul(sqrt(clamp(age, float(0), float(1))).mul(PATTERN.washWidthShares[1] - PATTERN.washWidthShares[0]).add(PATTERN.washWidthShares[0]));
+    const band = float(1).sub(smoothstep(float(0.55), float(1), abs(point.y).div(width))).mul(float(1).sub(smoothstep(float(0), float(1), age))).mul(step(float(0), behind));
+    return band.mul(smoothstep(float(0.25), float(0.7), readFoamNoise(point).add(float(1).sub(age).mul(0.45)).sub(0.2)));
+  };
+
   const readWakeHeight = (point: Node<"vec2">): Node<"float"> => amplitude.mul(readKelvin(point, bowX).sub(readKelvin(point, sternX).mul(PATTERN.sternWeight)).add(readBowWave(point)));
 
-  const material = new MeshStandardNodeMaterial({ color: new Color(SCENE_COLORS.water), roughness: 0.08, metalness: 0, transparent: true, opacity: 0.9, depthWrite: false });
+  const material = new MeshStandardNodeMaterial({ color: new Color(shape.waterHex), roughness: 0.08, metalness: 0, transparent: true, opacity: 0.9, depthWrite: false });
   // The patch's own frame: x along the ship, the second coordinate across it (the GLSL's vWakeLocal).
   const wakeLocal = positionGeometry.xz;
   material.positionNode = positionLocal.add(vec3(0, amplitude.mul(readBowWave(positionLocal.xz)), 0));
@@ -67,7 +89,8 @@ export function createKelvinWakeNodeMaterial(shape: KelvinWakeShape): KelvinWake
   // Crests catch the light (lighter), troughs hold the water's colour, foam breaks on the bow wave and the highest
   // crests. Where the sea is flat the patch is fully clear, so its edges never show.
   const wakeShare = wakeHeight.div(max(amplitude, float(1e-4)));
-  const foam = smoothstep(float(PATTERN.foamBand[0]), float(PATTERN.foamBand[1]), wakeShare);
+  const crestFoam = smoothstep(float(PATTERN.foamBand[0]), float(PATTERN.foamBand[1]), wakeShare).mul(smoothstep(float(PATTERN.crestFoamNoiseBand[0]), float(PATTERN.crestFoamNoiseBand[1]), readFoamNoise(wakeLocal)));
+  const foam = max(crestFoam, readPropellerWash(wakeLocal).mul(PATTERN.washOpacity).mul(step(float(0.01), amplitude)));
   const isInsideHull = step(abs(wakeLocal.y), halfBeam.mul(PATTERN.hullCutoutShare)).mul(step(sternX, wakeLocal.x)).mul(step(wakeLocal.x, bowX));
   material.colorNode = mix(materialColor, vec3(1, 1, 1), clamp(max(wakeShare, float(0)).mul(PATTERN.crestLightening).add(foam), float(0), float(1)));
   material.opacityNode = materialOpacity.mul(clamp(abs(wakeShare).mul(PATTERN.opacityPerHeight).add(foam), float(0), float(PATTERN.maxOpacity))).mul(float(1).sub(isInsideHull));

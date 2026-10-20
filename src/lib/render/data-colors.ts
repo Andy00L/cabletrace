@@ -15,7 +15,7 @@ export const DATA_LINE_RENDER_ORDER = 5;
 /** Turns a material into a data-line material in place: no tone mapping, no haze, drawn in the pass after the water. */
 export function keepDataColorExact<TMaterial extends THREE.Material>(material: TMaterial): TMaterial {
   material.toneMapped = false;
-  // Every built-in material that takes fog has the flag (the base Material type does not declare it).
+  // No haze either: under the water (the anchor cam) the scene's fog would tint the line.
   if ("fog" in material) material.fog = false;
   // Transparent only so it sorts after the water; fully opaque lines stay opaque unless they asked for an opacity.
   material.transparent = true;
