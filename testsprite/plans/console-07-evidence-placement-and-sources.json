@@ -1,0 +1,77 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Trace each placed position to its sources in Evidence mode (signed in, v2)",
+  "description": "Validates Evidence mode: the placed positions with their placement card, and the sources sheet listing every source with a link that opens in a new tab, with a working filter and an empty state.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Evidence\" in the mode switch (data-testid mode-switch)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the card \"How the track is placed\" (data-testid placement-card) lists exactly 3 positions at 10:26, 16:44 and 22:28, the first one \"Over Estlink 2, about 55 km south of Loviisa\""
+    },
+    {
+      "type": "action",
+      "description": "Click the 10:26 position row"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert a card (data-testid placement-popover) opens titled \"Over Estlink 2, about 55 km south of Loviisa\" that says the position is \"placed from statements\""
+    },
+    {
+      "type": "action",
+      "description": "Press Escape to close the card, then click \"All sources\" (data-testid open-sources)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert a sheet titled \"Sources\" (data-testid source-list) opens with the line \"18 pages. Every quote in this case is copied from them.\", lists 18 numbered sources, and shows 18 \"Open the page\" links that each open in a new tab (target _blank)"
+    },
+    {
+      "type": "action",
+      "description": "Type \"Cinia\" in the sheet's search box \"Filter by title or publisher\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert every source still listed contains \"Cinia\" and \"Fault detected in Cinia C-Lion1 submarine cable\" is among them"
+    },
+    {
+      "type": "action",
+      "description": "Replace the search text with \"no such publisher\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the sheet shows \"No source title or publisher contains no such publisher.\""
+    },
+    {
+      "type": "action",
+      "description": "Press Escape"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the sources sheet is closed"
+    }
+  ]
+}

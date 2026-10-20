@@ -26,8 +26,16 @@ function clampProgress(progress: number): number {
   return Number.isFinite(progress) ? Math.min(1, Math.max(0, progress)) : 0;
 }
 
-/** Creates a clock that runs from 0 to 1 over `durationSeconds` of wall time while playing. */
-export function createReplayClock({ durationSeconds, scheduler }: { durationSeconds: number; scheduler: FrameScheduler }): ReplayClock {
+function runAtNormalPace(): number {
+  return 1;
+}
+
+/**
+ * Creates a clock that runs from 0 to 1 over `durationSeconds` of wall time while playing. `readPace` slows it down
+ * where the replay should be watched closely: read at the current progress every frame, 1 is normal speed and 0.5 half
+ * of it (src/lib/seabed/scene/director/replay-pace.ts slows the stretch around each cut).
+ */
+export function createReplayClock({ durationSeconds, scheduler, readPace = runAtNormalPace }: { durationSeconds: number; scheduler: FrameScheduler; readPace?: (progress: number) => number }): ReplayClock {
   let snapshot: ReplaySnapshot = { progress: 0, isPlaying: false };
   let frameHandle: number | null = null;
   let lastFrameMs: number | null = null;
@@ -49,7 +57,10 @@ export function createReplayClock({ durationSeconds, scheduler }: { durationSeco
     frameHandle = null;
     const stepSeconds = lastFrameMs === null ? 0 : Math.min(MAX_FRAME_STEP_SECONDS, (timeMs - lastFrameMs) / 1000);
     lastFrameMs = timeMs;
-    const progress = clampProgress(snapshot.progress + stepSeconds / durationSeconds);
+    const pace = readPace(snapshot.progress);
+    // A pace that is not a positive number would stall the clock or run it backward: such a stretch plays at normal speed.
+    const safePace = Number.isFinite(pace) && pace > 0 ? Math.min(1, pace) : 1;
+    const progress = clampProgress(snapshot.progress + (stepSeconds * safePace) / durationSeconds);
     if (progress >= 1) {
       stopFrames();
       publish({ progress: 1, isPlaying: false });

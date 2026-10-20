@@ -1,0 +1,49 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Health answers signed out, and an unknown case shows 404 once signed in",
+  "description": "Validates the public health check as a browser shows it (JSON with the app up and the recorder, collector and feed check states, a query string refused) while signed out, then signs in and checks that an unknown case slug shows the 404 page instead of a broken console. The health check's status codes are checked by testsprite/backend/health_endpoint.py.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /api/health without signing in"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the response is JSON with \"app\": \"up\", a \"status\" of \"ok\" or \"degraded\", \"recorder\" and \"collector\" objects, and a \"crossSource\" list"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /api/health?probe=1"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page shows the JSON {\"ok\":false,\"reason\":\"the health check takes no query string\"} and no health report (no \"app\" or \"recorder\" field)"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /cases/not-a-real-case"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the page shows \"404\" and \"This page could not be found.\", and no replay console (data-testid replay-console) is shown"
+    }
+  ]
+}

@@ -65,6 +65,13 @@ const ICON_PATHS = {
     </>
   ),
   check: <path d="m5 10.4 3.2 3.2L15 6.8" />,
+  // A film camera: the director, who picks the shot (board 22).
+  director: (
+    <>
+      <rect x="2.8" y="5.4" width="10.4" height="9.2" rx="2.2" />
+      <path d="m13.2 8.6 4-2.2v7.2l-4-2.2" />
+    </>
+  ),
   bookmark: <path d="M6.2 3.4h7.6a1.2 1.2 0 0 1 1.2 1.2v12l-5-3.3-5 3.3v-12a1.2 1.2 0 0 1 1.2-1.2Z" />,
 } satisfies Record<string, ReactNode>;
 

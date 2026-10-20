@@ -65,14 +65,13 @@ type StageOverlaysProps = {
   sceneSummary: SceneSummary | null;
 };
 
-function CameraButton({ icon, label, isPressed, onClick }: { icon: IconName; label: string; isPressed?: boolean; onClick: () => void }) {
+function CameraButton({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
-      aria-pressed={isPressed}
-      className={`grid size-9 place-items-center rounded-full transition-colors duration-140 ease-standard active:scale-[0.97] ${isPressed ? "bg-soft text-ink" : "text-ink hover:bg-page"}`}
+      className="grid size-9 place-items-center rounded-full text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]"
     >
       <Icon name={icon} />
     </button>
@@ -81,7 +80,7 @@ function CameraButton({ icon, label, isPressed, onClick }: { icon: IconName; lab
 
 /** The controls that belong to the picture, inset 16 px inside the stage (board 6). */
 export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, sceneSummary }: StageOverlaysProps) {
-  const { view, setView, detail, setDetail } = useConsole();
+  const { view, setView, detail, setDetail, isDirectorOn, setDirectorOn } = useConsole();
   const [isFullScreen, setIsFullScreen] = useState(false);
   const isCloseUp = view === "closeup";
   const { depth, cables, pipelines, exaggeration } = sceneSummary ?? DEFAULT_SCENE_SUMMARY;
@@ -181,9 +180,21 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
         </Popover.Root>
       </div>
 
-      <div role="group" aria-label="Camera" className="absolute bottom-4 z-(--layer-stage-controls) flex gap-0.5 rounded-full bg-card p-1 shadow-row" style={{ right: clearRight }}>
+      <div role="group" aria-label="Camera" className="absolute bottom-4 z-(--layer-stage-controls) flex items-center gap-0.5 rounded-full bg-card p-1 shadow-row" style={{ right: clearRight }}>
+        {/* The one ink control of the stage while it directs (board 22); dragging the view turns it off. */}
+        <button
+          type="button"
+          onClick={() => setDirectorOn(!isDirectorOn)}
+          aria-pressed={isDirectorOn}
+          title={isDirectorOn ? "The camera follows the story; drag the view to take it" : "Let the camera follow the story"}
+          className={`flex h-9 items-center gap-1.5 rounded-full px-3 text-label transition-colors duration-140 ease-standard active:scale-[0.97] ${isDirectorOn ? "bg-ink text-card hover:bg-ink-hover" : "text-ink hover:bg-page"}`}
+          data-testid="director-toggle"
+          data-state={isDirectorOn ? "on" : "off"}
+        >
+          <Icon name="director" size={18} />
+          Director
+        </button>
         <CameraButton icon="reset" label="Reset the view" onClick={onResetView} />
-        <CameraButton icon="follow" label="Follow the ship" isPressed={view === "vessel"} onClick={() => setView(view === "vessel" ? "overview" : "vessel")} />
         <CameraButton icon={isFullScreen ? "exitFullscreen" : "fullscreen"} label={isFullScreen ? "Leave full screen" : "Full screen"} onClick={toggleFullScreen} />
       </div>
     </>
