@@ -2,7 +2,7 @@
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
   "name": "Case file row links the download and shows the start of its SHA-256 (signed in)",
-  "description": "Validates the case file row in Evidence mode: it links /cases/eagle-s-2024/case-file as a download named cabletrace-eagle-s-2024.json, and the 12 characters it shows are the start of the full SHA-256 in its tooltip. The downloaded file itself is checked by testsprite/backend/case_file_checksum.py, which recomputes the hash.",
+  "description": "Validates the case file row in Evidence mode: it links /cases/eagle-s-2024/case-file as a download named cabletrace-eagle-s-2024.json, and the 12 characters it shows are the start of the full SHA-256 in its tooltip. The downloaded file itself is checked by scripts/cases/verify-case-file.ts, which recomputes the hash.",
   "priority": "p1",
   "planSteps": [
     {
