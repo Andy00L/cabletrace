@@ -48,6 +48,9 @@ export type CloseUpScene = {
   update: (nowSeconds: number, deltaSeconds: number) => void;
   setIllustrated: (isIllustrated: boolean) => void;
   resetCamera: () => void;
+  /** Lookdev (explore/natural-look): the named things a storyboard frame must show, and the seabed that could hide them. */
+  readSubjects: () => { name: string; position: THREE.Vector3 }[];
+  seabed: THREE.Object3D;
 };
 
 type CloseUpOptions = {
@@ -155,7 +158,8 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
 
   const illustratedGroup = new THREE.Group();
   const measuredGroup = new THREE.Group();
-  illustratedGroup.add(buildPatch(true));
+  const illustratedSeabed = buildPatch(true);
+  illustratedGroup.add(illustratedSeabed);
   measuredGroup.add(buildPatch(false));
   scene.add(illustratedGroup, measuredGroup);
 
@@ -375,5 +379,14 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
     plume.markMoved();
   }
 
-  return { scene, camera, controls, update, setIllustrated, resetCamera };
+  function readSubjects() {
+    return [
+      { name: "torn end west", position: cableWest.curve.getPointAt(1) },
+      { name: "torn end east", position: cableEast.curve.getPointAt(0) },
+      { name: "anchor", position: anchor.group.position.clone() },
+      { name: "chain rising", position: chainCurve.getPointAt(0.6) },
+    ];
+  }
+
+  return { scene, camera, controls, update, setIllustrated, resetCamera, readSubjects, seabed: illustratedSeabed };
 }

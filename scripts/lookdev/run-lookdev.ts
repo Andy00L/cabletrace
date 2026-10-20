@@ -20,10 +20,10 @@ import { buildTurntablePage, buildWebGpuTurntablePage } from "./turntable";
 import { canRunWindowsChrome, captureWithWindowsChrome, cropToBox, DEFAULT_PROXY_PORT, DEFAULT_WINDOWS_CHROME, startLookdevProxy, TURNTABLE_PATH, type AgentConfig, type CaptureMode, type WindowsCapture } from "./webgpu-capture";
 
 type TierName = "software" | "hardware" | "webgpu";
-type PlaywrightTierName = Exclude<TierName, "webgpu">;
+export type PlaywrightTierName = Exclude<TierName, "webgpu">;
 
 // The console's desktop layout at device pixel ratio 1, the size docs/PERFORMANCE.md measures.
-const VIEWPORT = { width: 1440, height: 900 };
+export const VIEWPORT = { width: 1440, height: 900 };
 // Baselines are stored at a third of the frame's size (a 3 x 3 box filter, about 50 KB a frame) to keep the
 // repository small; the comparison runs on the frame downscaled the same way. Colour probes run on the full frame.
 const BASELINE_SCALE = 3;
@@ -33,7 +33,7 @@ const BASELINE_SCALE = 3;
 const PIXEL_THRESHOLD = 0.03;
 const MAX_DIFFERING_SHARE = 0.005;
 // Data colours: within 2 per channel (plan: ambition pass 3.3), searched within 2 px of each probe point.
-const COLOR_TOLERANCE = 2;
+export const COLOR_TOLERANCE = 2;
 const PROBE_RADIUS_PX = 2;
 // A tone needs this many probes on screen to be judged, and this share of them exact: terrain ridges, the hull and
 // crossing lines hide some probe points.
@@ -45,7 +45,7 @@ const MIN_PROBES_PER_RUN = 20;
 // least this share of its probes. Allowed for: the sky's Fresnel reflection off the surface (under 1 level looking
 // down at the overview's angle), the ripple detail and the baked occlusion. Measured over all 20 overview frames: a
 // median deviation of 0 or 1 and at least 94.9% within 4; a regraded seabed or a lit material shifts every probe.
-const SEABED_TOLERANCE = 4;
+export const SEABED_TOLERANCE = 4;
 const MIN_SEABED_CLOSE_SHARE = 0.9;
 // The views that look down at the water. The vessel view looks along it, where the surface reflects much of the sky
 // (Fresnel: about 35% at 80 degrees from vertical) and the hull and wakes cover the seabed, so the tokens do not apply.
@@ -58,13 +58,13 @@ const SCRUB_STEPS = 6;
 const TURNTABLE_SHOT_NAME = "ships-turntable";
 
 const DATA_TONES: readonly DataTone[] = ["cable", "pipeline", "suspect", "alarm"];
-const TONE_HEX: Record<DataTone, string> = { cable: WEBGL_COLORS.cable, pipeline: WEBGL_COLORS.pipeline, suspect: WEBGL_COLORS.ink, alarm: WEBGL_COLORS.alarm };
+export const TONE_HEX: Record<DataTone, string> = { cable: WEBGL_COLORS.cable, pipeline: WEBGL_COLORS.pipeline, suspect: WEBGL_COLORS.ink, alarm: WEBGL_COLORS.alarm };
 
 // Chromium flags per tier. Software: SwiftShader, as the test browsers draw (M139 and later need the unsafe flag).
 // Hardware: ANGLE on OpenGL; on WSL2 Mesa's d3d12 driver reaches the Windows GPU through /dev/dxg. On a laptop with
 // two adapters the integrated one lost its contexts and failed to link three.js shaders, so the driver is pointed at
 // the adapter named in LOOKDEV_GPU_ADAPTER (default NVIDIA; Mesa matches part of the name).
-const TIER_LAUNCH: Record<PlaywrightTierName, { args: string[]; env: Record<string, string> }> = {
+export const TIER_LAUNCH: Record<PlaywrightTierName, { args: string[]; env: Record<string, string> }> = {
   software: { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"], env: {} },
   hardware: {
     args: ["--use-angle=gl", "--ignore-gpu-blocklist", "--enable-gpu", "--enable-unsafe-webgpu", "--enable-features=Vulkan"],
@@ -74,7 +74,7 @@ const TIER_LAUNCH: Record<PlaywrightTierName, { args: string[]; env: Record<stri
   },
 };
 
-type ToneVerdict = { tone: DataTone; probeCount: number; exactCount: number; medianDeviation: number; worstFound: string | null; isPass: boolean; reason: string };
+export type ToneVerdict = { tone: DataTone; probeCount: number; exactCount: number; medianDeviation: number; worstFound: string | null; isPass: boolean; reason: string };
 
 type ShotOutcome = {
   shot: string;
@@ -91,7 +91,7 @@ type ShotOutcome = {
   isPass: boolean;
 };
 
-type SeabedVerdict = { probeCount: number; closeCount: number; medianDeviation: number; isPass: boolean };
+export type SeabedVerdict = { probeCount: number; closeCount: number; medianDeviation: number; isPass: boolean };
 
 type CliOptions = {
   baseUrl: string;
@@ -138,7 +138,7 @@ function parseCliOptions(argumentList: string[]): Result<CliOptions> {
 
 // Runs in the page before its scripts: marks the 3D canvas for the viewer's lookdev hook as soon as it is inserted,
 // before its first frame (scene/viewer.ts, recordColorProbes).
-function markLookdevCanvas() {
+export function markLookdevCanvas() {
   const mark = () => {
     for (const canvas of document.querySelectorAll("canvas[data-renderer]")) {
       if (canvas instanceof HTMLCanvasElement && canvas.dataset.lookdev !== "on") canvas.dataset.lookdev = "on";
@@ -154,7 +154,7 @@ function buildShotUrl(baseUrl: string, shot: LookdevShot): string {
 }
 
 /** Waits until the canvas has drawn the asked view and moment, then until it stops drawing. Returns the renderer kind. */
-async function waitForSettledFrame(page: Page, shot: LookdevShot): Promise<string> {
+export async function waitForSettledFrame(page: Page, shot: LookdevShot): Promise<string> {
   await page.waitForSelector('[data-testid="seabed-view"][data-state="ready"]', { timeout: FRAME_TIMEOUT_MS });
   await page.waitForFunction(
     ({ view, atMs }) => {
@@ -223,12 +223,12 @@ async function measureScrubFrameMs(page: Page): Promise<number | null> {
 
 // Hides everything but the 3D view (and, for the colour probes, its labels too), so the rail and the stage controls
 // do not enter the frame and DOM text in a data colour cannot pass for a drawn line.
-const LOOK_ONLY_CSS = `body * { visibility: hidden !important; } [data-testid="seabed-view"], [data-testid="seabed-view"] * { visibility: visible !important; }`;
-const CANVAS_ONLY_CSS = `[data-testid="seabed-view"] canvas ~ div, [data-testid="seabed-view"] canvas ~ div * { visibility: hidden !important; }`;
+export const LOOK_ONLY_CSS = `body * { visibility: hidden !important; } [data-testid="seabed-view"], [data-testid="seabed-view"] * { visibility: visible !important; }`;
+export const CANVAS_ONLY_CSS = `[data-testid="seabed-view"] canvas ~ div, [data-testid="seabed-view"] canvas ~ div * { visibility: hidden !important; }`;
 
-type ProbePoint = { tone: DataTone; x: number; y: number };
+export type ProbePoint = { tone: DataTone; x: number; y: number };
 
-function isProbePoint(value: unknown): value is ProbePoint {
+export function isProbePoint(value: unknown): value is ProbePoint {
   if (typeof value !== "object" || value === null) return false;
   const tone: unknown = Reflect.get(value, "tone");
   return (tone === "cable" || tone === "pipeline" || tone === "suspect" || tone === "alarm") && typeof Reflect.get(value, "x") === "number" && typeof Reflect.get(value, "y") === "number";
@@ -238,7 +238,7 @@ function isProbePoint(value: unknown): value is ProbePoint {
  * The canvas frame with each probe marked: a green square where the exact colour was found within the search
  * radius, a red one where it was not. For a person to see which lines hold their colour and which do not.
  */
-function drawProbeOverlay(image: RgbaImage, probes: readonly ProbePoint[]): RgbaImage {
+export function drawProbeOverlay(image: RgbaImage, probes: readonly ProbePoint[]): RgbaImage {
   const data = Uint8Array.from(image.data);
   const markSize = PROBE_RADIUS_PX + 2;
   for (const probe of probes) {
@@ -259,7 +259,7 @@ function drawProbeOverlay(image: RgbaImage, probes: readonly ProbePoint[]): Rgba
   return { width: image.width, height: image.height, data };
 }
 
-function judgeTones(image: RgbaImage, probes: readonly ProbePoint[], requiredTones: readonly DataTone[]): ToneVerdict[] {
+export function judgeTones(image: RgbaImage, probes: readonly ProbePoint[], requiredTones: readonly DataTone[]): ToneVerdict[] {
   const tones = [...new Set<DataTone>([...requiredTones, ...probes.map((probe) => probe.tone)])];
   return tones.map((tone) => {
     const expected: RgbColor = parseHexColor(TONE_HEX[tone]);
@@ -476,16 +476,16 @@ async function captureWebGpuShot(session: WebGpuSession, shot: LookdevShot, opti
   );
 }
 
-type SeabedProbePoint = { hex: string; x: number; y: number };
+export type SeabedProbePoint = { hex: string; x: number; y: number };
 
-function isSeabedProbe(value: unknown): value is SeabedProbePoint {
+export function isSeabedProbe(value: unknown): value is SeabedProbePoint {
   if (typeof value !== "object" || value === null) return false;
   const hex: unknown = Reflect.get(value, "hex");
   return typeof hex === "string" && /^#[0-9A-F]{6}$/i.test(hex) && typeof Reflect.get(value, "x") === "number" && typeof Reflect.get(value, "y") === "number";
 }
 
 /** Level open seabed must show its depth token within SEABED_TOLERANCE per channel on MIN_SEABED_CLOSE_SHARE of probes. */
-function judgeSeabed(image: RgbaImage, probes: readonly SeabedProbePoint[]): SeabedVerdict | null {
+export function judgeSeabed(image: RgbaImage, probes: readonly SeabedProbePoint[]): SeabedVerdict | null {
   if (probes.length < MIN_PROBES_PER_TONE) return null;
   const deviations = probes.flatMap((probe) => matchColorNear(image, probe.x, probe.y, parseHexColor(probe.hex), PROBE_RADIUS_PX) ?? []).map((match) => match.deviation);
   const closeCount = deviations.filter((deviation) => deviation <= SEABED_TOLERANCE).length;
@@ -667,4 +667,5 @@ async function main(): Promise<number> {
   return failedCount === 0 ? 0 : 1;
 }
 
-process.exit(await main());
+// Run as a script; imported (board-round2.ts on explore/natural-look), it only lends its helpers.
+if (import.meta.main) process.exit(await main());
