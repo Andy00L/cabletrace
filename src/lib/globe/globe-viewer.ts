@@ -79,6 +79,13 @@ const DENSITY_REFERENCE_COUNT = 150;
 const DENSITY_DOT_MIN_PX = 2.6;
 const DENSITY_DOT_MAX_PX = 14;
 const DENSITY_LIFT = 1.001;
+// A dot is a flat sprite; near the limb the sphere's surface under it is closer to the camera on one side and would cut
+// it in half. Moving the dot this far toward the camera along its own sight line (world units, the globe's radius is 1)
+// clears the surface under a 14 px dot at home distance without moving it on screen; dots on the far side stay hidden.
+const DENSITY_DEPTH_BIAS = 0.06;
+// The dot sizes are for a stage about this tall (CSS px); a smaller stage (a phone) draws them smaller, down to this share.
+const DENSITY_REFERENCE_STAGE_PX = 900;
+const DENSITY_MIN_STAGE_SHARE = 0.55;
 // Andy's pick on board 25 (20 Oct 2026): the approved water teal, so the field reads as ships at sea, not as data ink.
 const DENSITY_TONE = WEBGL_COLORS.density;
 const DENSITY_ALPHA = 0.78;
@@ -246,14 +253,20 @@ const SHIP_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-// A density dot's area grows with its cell's ships (radius with the square root), so the eye reads area as count.
+// A density dot's area grows with its cell's ships (radius with the square root), so the eye reads area as count. The
+// dot moves toward the camera along its sight line (DENSITY_DEPTH_BIAS) and fades as its cell turns toward the limb.
 const DENSITY_VERTEX_SHADER = /* glsl */ `
   attribute float aCount;
   uniform float uMinPx;
   uniform float uMaxPx;
   uniform float uReference;
+  uniform float uDepthBias;
+  varying float vFacing;
   void main() {
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+    viewPosition.xyz += normalize(-viewPosition.xyz) * uDepthBias;
+    vFacing = dot(normalize(position), normalize(cameraPosition - position));
+    gl_Position = projectionMatrix * viewPosition;
     gl_PointSize = uMinPx + (uMaxPx - uMinPx) * sqrt(min(aCount / uReference, 1.0));
   }
 `;
@@ -261,9 +274,10 @@ const DENSITY_VERTEX_SHADER = /* glsl */ `
 const DENSITY_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColor;
   uniform float uOpacity;
+  varying float vFacing;
   void main() {
     float edge = 1.0 - smoothstep(0.38, 0.5, length(gl_PointCoord - 0.5));
-    float alpha = edge * uOpacity;
+    float alpha = edge * uOpacity * smoothstep(0.02, 0.25, vFacing);
     if (alpha < 0.02) discard;
     gl_FragColor = vec4(uColor, alpha);
   }
@@ -545,6 +559,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
       uMinPx: { value: DENSITY_DOT_MIN_PX },
       uMaxPx: { value: DENSITY_DOT_MAX_PX },
       uReference: { value: DENSITY_REFERENCE_COUNT },
+      uDepthBias: { value: DENSITY_DEPTH_BIAS },
       uColor: { value: toRawColor(DENSITY_TONE) },
       uOpacity: { value: 0 },
     },
@@ -685,9 +700,12 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   }
 
   let rightInsetPx = 0;
+  // Read once per resize, so the frame loop never asks the DOM for a size.
+  let stageHeightPx = 1;
   function resize() {
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
+    stageHeightPx = height;
     camera.aspect = width / height;
     const shiftPx = Math.min(rightInsetPx / 2, width / 4);
     if (shiftPx > 0) camera.setViewOffset(width, height, shiftPx, 0, width, height);
@@ -842,8 +860,9 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     shipMaterial.uniforms.uOpacity.value = 1 - planetShare;
     ships.visible = planetShare < 1;
     densityMaterial.uniforms.uOpacity.value = planetShare * DENSITY_ALPHA;
-    densityMaterial.uniforms.uMinPx.value = DENSITY_DOT_MIN_PX * pixelRatio;
-    densityMaterial.uniforms.uMaxPx.value = DENSITY_DOT_MAX_PX * pixelRatio * Math.min(2, (HOME_DISTANCE - 1) / Math.max(0.02, distance - 1));
+    const stageShare = Math.min(1, Math.max(DENSITY_MIN_STAGE_SHARE, stageHeightPx / DENSITY_REFERENCE_STAGE_PX));
+    densityMaterial.uniforms.uMinPx.value = DENSITY_DOT_MIN_PX * pixelRatio * stageShare;
+    densityMaterial.uniforms.uMaxPx.value = DENSITY_DOT_MAX_PX * pixelRatio * stageShare * Math.min(2, (HOME_DISTANCE - 1) / Math.max(0.02, distance - 1));
     densityPoints.visible = hasDensity && planetShare > 0;
     outlineMaterial.uniforms.uOpacity.value = (1 - planetShare) * REGION_OUTLINE_ALPHA;
     outlines.visible = planetShare < 1;
