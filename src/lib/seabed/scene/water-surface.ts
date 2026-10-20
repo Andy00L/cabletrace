@@ -74,25 +74,11 @@ export const DEPTH_MAP_MAX_METRES = 255;
 // The CC0 sky (public/textures/CREDITS.md), stored with linear values.
 export const SKY_HDRI_URL = "/hdri/kloofendal-48d-partly-cloudy-512-linear.jpg";
 
-/**
- * The water's colours: the column (what the water itself looks like where the seabed is gone) and the sky it
- * reflects. Two candidates for Andy's palette gate (18 Oct 2026); `?water=b` picks the second.
- */
-export const WATER_LOOKS = {
-  // Baltic winter, measured (explore/natural-look, palettes.md).
-  a: { column: "#2E435D", sky: "#BDC7D6" },
-  // A lighter teal that keeps the console's light feel.
-  b: { column: "#3F7E86", sky: "#D8E3E5" },
-} as const;
+/** The water's colours: the column (what the water itself looks like where the seabed is gone) and the sky it reflects. */
+export type WaterLook = { column: string; sky: string };
 
-export type WaterLookName = keyof typeof WATER_LOOKS;
-export type WaterLook = (typeof WATER_LOOKS)[WaterLookName];
-
-/** The look named by the page's `water` query parameter, the first candidate otherwise. */
-export function readWaterLook(search: string): WaterLook {
-  const requested = new URLSearchParams(search).get("water");
-  return requested === "b" ? WATER_LOOKS.b : WATER_LOOKS.a;
-}
+/** Water B, teal, the approved water (scene-colors.ts). */
+export const WATER_LOOK: WaterLook = { column: SCENE_COLORS.water, sky: SCENE_COLORS.waterSky };
 
 /** Depth under the surface in metres, one byte per grid point, and the scene box (km) it covers. */
 export type WaterDepthMap = { texture: THREE.DataTexture; minX: number; minZ: number; sizeX: number; sizeZ: number };

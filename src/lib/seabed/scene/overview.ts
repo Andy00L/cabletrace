@@ -15,7 +15,7 @@ import type { ScenePalette, SceneSky } from "@/lib/seabed/scene/scene-look";
 import { bakeReliefOcclusion } from "@/lib/seabed/scene/relief-occlusion";
 import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
 import { createPhysicalLine, createSeabedLineMaterials, type PhysicalLine } from "@/lib/seabed/scene/seabed-lines";
-import { buildWaterBody, createWaterDepthMap, WATER_ABSORPTION, type WaterLook } from "@/lib/seabed/scene/water-surface";
+import { buildWaterBody, createWaterDepthMap, WATER_ABSORPTION, WATER_LOOK } from "@/lib/seabed/scene/water-surface";
 import { FULL_WIDTH_DISTANCE_KM, MIN_WIDTH_SHARE, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
@@ -35,6 +35,14 @@ const POWER_CABLE_RADIUS_KM = 0.13;
 const TELECOM_CABLE_RADIUS_KM = 0.075;
 const PIPELINE_RADIUS_KM = 0.14;
 const SIGNAL_HALO_RADIUS_KM = 0.42;
+// Every data line sits on an opaque light casing (docs/UI_DESIGN_SYSTEM.md, Data: the map's white casing), approved for
+// the 3D view on 19 Oct 2026 (plan/next-reset.md, choice 5): a tube's casing is this many times its radius, a screen
+// line's this many device pixels wider. Drawn after the water and before the line, without writing depth, so the line
+// shows over it and the terrain and hulls still hide both.
+const CASING_RADIUS_SHARE = 1.8;
+const CASING_EXTRA_PX = 3;
+const CASING_RENDER_ORDER = 3.5;
+const LINE_CASING = { color: WEBGL_COLORS.casing, extraPx: CASING_EXTRA_PX, renderOrder: CASING_RENDER_ORDER };
 // The radii above are tuned for the 145 km wide Gulf of Finland block. A wider block draws its tubes wider in
 // step, so they keep their share of the screen in the overview instead of breaking into sub-pixel dashes.
 const REFERENCE_BLOCK_WIDTH_KM = 145;
@@ -86,11 +94,13 @@ const TRACE_STEP_KM = 0.05;
 // this far (km) from the probe.
 const OCCLUSION_STEPS = 64;
 const OCCLUSION_START_KM = 0.15;
-const CUT_RING_RADIUS_KM = 0.75;
-const CUT_RING_TUBE_RADIUS_KM = 0.07;
-// The cut marker's beam: its radius and the height its top stands at (km, over the surface).
-const CUT_BEAM_RADIUS_KM = 0.035;
-const CUT_BEAM_TOP_KM = 1.2;
+// The cut marker keeps one size on screen at every distance (plan/next-reset.md): a 24 px ring (its outer edge) with a
+// 3 px stroke, and a 2 px beam 60 px tall rising from it, in CSS px. Built in px and scaled every frame to the km a
+// pixel spans at the marker (fitScreenSizes).
+const CUT_RING_RADIUS_PX = 10.5;
+const CUT_RING_TUBE_RADIUS_PX = 1.5;
+const CUT_BEAM_RADIUS_PX = 1;
+const CUT_BEAM_HEIGHT_PX = 60;
 const CUT_RING_PROBE_ANGLES = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
 // Model metres to scene kilometres. The vessel is drawn 6 times its real size and the anchor 30 times, so
 // both read across a block 145 to 300 km wide; the disclosure under the view says so.
@@ -114,7 +124,7 @@ const CONTACT_SHADOW_LIFT_METRES = 0.3;
 // Room kept around the track when the overview frames it (km), and the smallest framed radius.
 const OVERVIEW_PADDING_KM = 6;
 const OVERVIEW_MIN_RADIUS_KM = 12;
-// A natural look's haze (scene-look.ts): clear up to the camera's target, full this many times as far. Measured from the
+// The look's haze (scene-look.ts): clear up to the camera's target, full this many times as far. Measured from the
 // target, so every view (the gulf from 125 km, the hull from 2 km) fades its far ground alike.
 const HAZE_FAR_SHARE = 6;
 // The sky dome's gradient: the horizon colour at the horizon, the upper sky from this elevation up (degrees).
@@ -205,8 +215,10 @@ export type OverviewScene = {
   readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
   /** Points of level open seabed in sight of `cameraPosition` and their depth tokens, for the lookdev seabed check. */
   readSeabedProbes: (cameraPosition: THREE.Vector3) => SeabedProbe[];
-  /** Keeps a natural look's sky around the camera and its haze measured from the camera's target; no-op otherwise. */
+  /** Keeps the sky around the camera and the haze measured from the camera's target. */
   followCamera: (cameraPosition: THREE.Vector3, targetDistanceKm: number) => void;
+  /** Gives the screen-sized markers (the cut markers) their size for this camera and view height (CSS px); call before each draw. */
+  fitScreenSizes: (viewCamera: THREE.PerspectiveCamera, viewportHeightPx: number) => void;
   /** Lookdev (explore/natural-look): named subjects at the last updated moment. */
   readSubjects: () => SceneSubject[];
   /** Whether the relief rises above the sight line from the camera to a point. */
@@ -238,8 +250,6 @@ type OverviewOptions = {
   rippleNormalMap: THREE.Texture | null;
   /** Environment colours of the look drawn (scene-look.ts). */
   palette: ScenePalette;
-  /** The water's colours (water-surface.ts, WATER_LOOKS). */
-  waterLook: WaterLook;
   /** The CC0 sky HDRI (linear equirectangular) for the water's reflection and the ships' light (GPU tiers), or null. */
   skyMap: THREE.Texture | null;
   /** Called with work that finishes after the first frame (the ship's detail level), so the canvas can say it is pending. */
@@ -358,8 +368,12 @@ function buildBlockSides(terrain: THREE.Mesh, features: SeabedFeatures, baseY: n
   return mesh;
 }
 
-// A tube resting on the seabed; its height is evened out along the line so it does not jitter over every ridge.
-function createSeabedTube(points: readonly ScenePoint[], radius: number, material: THREE.Material, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number) {
+/** A tube's material and its casing's (a thinned tube of CASING_RADIUS_SHARE times the radius, in the casing colour). */
+type TubeMaterials = { line: THREE.Material; casing: THREE.Material };
+
+// A tube resting on the seabed on its casing; its height is evened out along the line so it does not jitter over every
+// ridge. The casing is a child of the tube's mesh, so it shows and hides with it.
+function createSeabedTube(points: readonly ScenePoint[], radius: number, materials: TubeMaterials, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number) {
   const rawHeights = points.map((point) => sampleSeabedHeight(point.x, point.z));
   const vectors = points.map((point, index) => {
     let sum = 0;
@@ -376,9 +390,16 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
   // Where the line rests on the seabed (for its physical twin, seabed-lines.ts).
   const restingPoints = vectors.map((vector) => new THREE.Vector3(vector.x, vector.y - radius - 0.04, vector.z));
   const curve = new THREE.CatmullRomCurve3(vectors, false, "centripetal");
+  const tubularSegments = Math.max(12, vectors.length * 2);
   // Data tubes are drawn unlit and after the water (src/lib/render/data-colors.ts), so they show their exact colour.
-  const mesh = drawAfterWater(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(12, vectors.length * 2), radius, 8, false), material));
+  const mesh = drawAfterWater(new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSegments, radius, 8, false), materials.line));
   mesh.castShadow = true;
+  // The casing's underside rests on the seabed with the line's, so its centreline sits higher by the extra radius.
+  const casingRadius = radius * CASING_RADIUS_SHARE;
+  const casingCurve = new THREE.CatmullRomCurve3(vectors.map((vector) => vector.clone().setY(vector.y + casingRadius - radius)), false, "centripetal");
+  const casing = new THREE.Mesh(new THREE.TubeGeometry(casingCurve, tubularSegments, casingRadius, 8, false), materials.casing);
+  casing.renderOrder = CASING_RENDER_ORDER;
+  mesh.add(casing);
   return { mesh, curve, restingPoints };
 }
 
@@ -422,7 +443,7 @@ function unitDirection(from: ScenePoint, to: ScenePoint, fallback: ScenePoint): 
 }
 
 /**
- * A natural look's sky: a dome around the camera, the horizon colour at eye level fading to the upper sky by
+ * The look's sky: a dome around the camera, the horizon colour at eye level fading to the upper sky by
  * SKY_UPPER_ELEVATION_DEGREES, the haze below the horizon (what the block stands in). Unlit, untouched by tone mapping
  * and haze, drawn before everything else, so each pixel of open sky is a palette colour.
  */
@@ -505,7 +526,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     projection,
     deepestY,
     kit,
-    surface: { hasWaves: options.isHighDetail, sun: sunLight, look: options.waterLook, sky: options.skyMap, depthMap: createWaterDepthMap(elevations, features.grid, projection) },
+    surface: { hasWaves: options.isHighDetail, sun: sunLight, look: WATER_LOOK, sky: options.skyMap, depthMap: createWaterDepthMap(elevations, features.grid, projection) },
   });
   scene.add(terrain, buildBlockSides(terrain, features, baseY, palette), water.group);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(blockRadiusKm * 6, blockRadiusKm * 6), new THREE.ShadowMaterial({ opacity: 0.1 }));
@@ -523,9 +544,12 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   };
   const fullWidthDistanceKm = FULL_WIDTH_DISTANCE_KM * tubeScale;
   // One material per tube radius: each narrows with camera distance from its own radius (tube-thinning.ts).
-  const createCableMaterial = (radiusKm: number) => kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.cable, radiusKm, fullWidthDistanceKm });
-  const cableMaterials = { power: createCableMaterial(tubeRadii.power), telecom: createCableMaterial(tubeRadii.telecom) };
-  const pipelineMaterial = kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.pipeline, radiusKm: tubeRadii.pipeline, fullWidthDistanceKm });
+  const createTubeMaterials = (hex: string, radiusKm: number): TubeMaterials => ({
+    line: kit.createThinnedDataTubeMaterial({ hex, radiusKm, fullWidthDistanceKm }),
+    casing: kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.casing, radiusKm: radiusKm * CASING_RADIUS_SHARE, fullWidthDistanceKm, depthWrite: false }),
+  });
+  const cableMaterials = { power: createTubeMaterials(WEBGL_COLORS.cable, tubeRadii.power), telecom: createTubeMaterials(WEBGL_COLORS.cable, tubeRadii.telecom) };
+  const pipelineMaterial = createTubeMaterials(WEBGL_COLORS.pipeline, tubeRadii.pipeline);
 
   const primaryCut = input.cuts[0];
   const primaryCutScene = toScene(primaryCut.longitude, primaryCut.latitude);
@@ -657,7 +681,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       return isDragging ? WEBGL_COLORS.alarm : WEBGL_COLORS.ink;
     });
     const trackPoints = path.getSpacedPoints(TRACK_SEGMENTS);
-    pastTrack = createProgressLine({ points: trackPoints, color: trackColors, widthPx: TRACK_WIDTH_PX, kit });
+    pastTrack = createProgressLine({ points: trackPoints, color: trackColors, widthPx: TRACK_WIDTH_PX, kit, casing: LINE_CASING });
     scene.add(drawAfterWater(pastTrack.line));
     trackProbePoints = trackPoints.map((position, index) => ({
       position,
@@ -729,7 +753,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   contactShadow.renderOrder = 2.6;
   ship.add(contactShadow);
   // The GPU tier draws the bow wave and the Kelvin wake on a patch that sails with the hull.
-  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form, kit, options.waterLook.column) : null;
+  const kelvinWake = options.isHighDetail ? createKelvinWake(shipModel.form, kit, WATER_LOOK.column) : null;
   if (kelvinWake) ship.add(kelvinWake.mesh);
   const wake = createWake();
   scene.add(wake.mesh);
@@ -749,8 +773,6 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const chainLinks = createChainLinks(anchorMaterial, CHAIN_LINK_COUNT, CHAIN_LINK_PITCH_METRES * ANCHOR_DRAWN_SCALE * METRES_TO_KM, ANCHOR_DRAWN_SCALE * METRES_TO_KM);
   chainLinks.mesh.visible = false;
   scene.add(chainLinks.mesh);
-  const underwaterLook = createUnderwaterLook(options.waterLook, sampleSeabedHeight);
-  scene.add(underwaterLook.group);
   const chainGeometry = new LineGeometry();
   chainGeometry.setPositions(new Float32Array(CHAIN_POINT_COUNT * 3));
   const chain = kit.createScreenLine(chainGeometry, { color: SCENE_COLORS.anchor, widthPx: CHAIN_WIDTH_PX, hasVertexColors: false, opacity: 1 });
@@ -787,7 +809,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       .flatMap((located) => (located ? [located.point] : []))
       .map((point) => new THREE.Vector3(point.x, sampleSeabedHeight(point.x, point.z) + FURROW_SEABED_LIFT, point.z));
     if (furrowPoints.length >= 2) {
-      furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX, kit });
+      furrow = createProgressLine({ points: furrowPoints, color: WEBGL_COLORS.alarm, widthPx: FURROW_WIDTH_PX, kit, casing: LINE_CASING });
       scene.add(drawAfterWater(furrow.line));
       // The trench itself, in the sediment under the line: about the anchor's drawn width, as deep as its flukes dig.
       const seabedRamp = buildRamp(palette.depthRamp);
@@ -806,11 +828,11 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     const point = toScene(cut.longitude, cut.latitude);
     const seabedY = sampleSeabedHeight(point.x, point.z) + 0.2;
     const marker = new THREE.Group();
-    const ring = drawAfterWater(new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_KM, CUT_RING_TUBE_RADIUS_KM, 10, 48), createDataColorMaterial(WEBGL_COLORS.alarm)));
+    const ring = drawAfterWater(new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_PX, CUT_RING_TUBE_RADIUS_PX, 10, 48), createDataColorMaterial(WEBGL_COLORS.alarm)));
     ring.rotation.x = Math.PI / 2;
-    const beam = drawAfterWater(new THREE.Mesh(new THREE.CylinderGeometry(CUT_BEAM_RADIUS_KM, CUT_BEAM_RADIUS_KM, 1, 8), createDataColorMaterial(WEBGL_COLORS.alarm, { opacity: 0.7, depthWrite: false })));
-    beam.scale.y = CUT_BEAM_TOP_KM - seabedY;
-    beam.position.y = (CUT_BEAM_TOP_KM - seabedY) / 2;
+    const beamGeometry = new THREE.CylinderGeometry(CUT_BEAM_RADIUS_PX, CUT_BEAM_RADIUS_PX, CUT_BEAM_HEIGHT_PX, 8);
+    beamGeometry.translate(0, CUT_BEAM_HEIGHT_PX / 2, 0);
+    const beam = drawAfterWater(new THREE.Mesh(beamGeometry, createDataColorMaterial(WEBGL_COLORS.alarm, { opacity: 0.7, depthWrite: false })));
     marker.add(ring, beam);
     marker.position.set(point.x, seabedY, point.z);
     marker.visible = false;
@@ -823,7 +845,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     nameLabel.position.set(point.x, 1.6, point.z);
     cutLabel.position.copy(nameLabel.position);
     scene.add(marker, nameLabel, cutLabel);
-    return { cut, marker, nameLabel, cutLabel };
+    // km per CSS px at the marker on the last frame (fitScreenSizes); the marker group carries it as its scale.
+    return { cut, marker, nameLabel, cutLabel, kmPerPx: 0 };
   });
 
   // Each position placed from statements is a small ring on the track, so a click on it says how it was placed.
@@ -845,11 +868,13 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const topHeightKm = Math.max(projection.depthKm, projection.widthKm / TOP_VIEW_ASPECT) / (2 * halfFovTangent) + 4;
   const camera = new THREE.PerspectiveCamera(OVERVIEW_FOV_DEGREES, 1, 0.1, topHeightKm * 4);
   const controls = new OrbitControls(camera, options.domElement);
-  // A natural look draws its sky inside the far plane, around the camera, and hazes distant ground toward it.
-  const skyDome = palette.sky ? buildSkyDome(palette.sky, topHeightKm * 2) : null;
-  const haze = palette.sky ? new THREE.Fog(palette.sky.hazeHex, 1, 1 + HAZE_FAR_SHARE) : null;
-  if (skyDome) scene.add(skyDome);
+  // The sky is drawn inside the far plane, around the camera, and distant ground hazes toward it.
+  const skyDome = buildSkyDome(palette.sky, topHeightKm * 2);
+  const haze = new THREE.Fog(palette.sky.hazeHex, 1, 1 + HAZE_FAR_SHARE);
+  scene.add(skyDome);
   scene.fog = haze;
+  const underwaterLook = createUnderwaterLook(WATER_LOOK, sampleSeabedHeight, haze);
+  scene.add(underwaterLook.group);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.minDistance = 1.5;
@@ -1108,8 +1133,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     for (const cutMarker of cutMarkers) {
       if (!cutMarker.marker.visible) continue;
       for (const angle of CUT_RING_PROBE_ANGLES) {
-        const position = new THREE.Vector3(Math.cos(angle) * CUT_RING_RADIUS_KM, 0, Math.sin(angle) * CUT_RING_RADIUS_KM).add(cutMarker.marker.position);
-        uncoveredProbes.push({ tone: "alarm", position, widthKm: 2 * CUT_RING_TUBE_RADIUS_KM });
+        const ringRadiusKm = CUT_RING_RADIUS_PX * cutMarker.kmPerPx;
+        const position = new THREE.Vector3(Math.cos(angle) * ringRadiusKm, 0, Math.sin(angle) * ringRadiusKm).add(cutMarker.marker.position);
+        uncoveredProbes.push({ tone: "alarm", position, widthKm: 2 * CUT_RING_TUBE_RADIUS_PX * cutMarker.kmPerPx });
       }
     }
     return uncoveredProbes.filter((probe) => !isBehindRelief(probe.position, cameraPosition));
@@ -1130,13 +1156,24 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       const crossingX = cameraPosition.x + (point.x - cameraPosition.x) * share;
       const crossingZ = cameraPosition.z + (point.z - cameraPosition.z) * share;
       const fromCentreKm = Math.hypot(crossingX - cutMarker.marker.position.x, crossingZ - cutMarker.marker.position.z);
-      return Math.abs(fromCentreKm - CUT_RING_RADIUS_KM) < CUT_RING_TUBE_RADIUS_KM * 1.5;
+      return Math.abs(fromCentreKm - CUT_RING_RADIUS_PX * cutMarker.kmPerPx) < CUT_RING_TUBE_RADIUS_PX * cutMarker.kmPerPx * 1.5;
     });
   }
 
+  const markerInView = new THREE.Vector3();
+  /** Scales each cut marker to its fixed size on screen for a camera and a view `viewportHeightPx` CSS px tall. */
+  function fitScreenSizes(viewCamera: THREE.PerspectiveCamera, viewportHeightPx: number) {
+    const pixelSpanAtUnitDepth = (2 * Math.tan(((viewCamera.fov / 2) * Math.PI) / 180)) / Math.max(1, viewportHeightPx);
+    for (const cutMarker of cutMarkers) {
+      // Depth along the view direction (the camera looks down its own negative z), held off the near plane.
+      markerInView.copy(cutMarker.marker.position).applyMatrix4(viewCamera.matrixWorldInverse);
+      cutMarker.kmPerPx = Math.max(viewCamera.near, -markerInView.z) * pixelSpanAtUnitDepth;
+      cutMarker.marker.scale.setScalar(cutMarker.kmPerPx);
+    }
+  }
+
   function followCamera(cameraPosition: THREE.Vector3, targetDistanceKm: number) {
-    skyDome?.position.copy(cameraPosition);
-    if (!haze) return;
+    skyDome.position.copy(cameraPosition);
     haze.near = targetDistanceKm;
     haze.far = targetDistanceKm * HAZE_FAR_SHARE;
   }
@@ -1223,7 +1260,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (share <= 0 || share >= 1) return false;
       const missKm = Math.hypot(cameraPosition.x + runX * share - beamX, cameraPosition.z + runZ * share - beamZ);
       const sightY = cameraPosition.y + (point.y - cameraPosition.y) * share;
-      return missKm < CUT_BEAM_RADIUS_KM * 1.5 && sightY > cutMarker.marker.position.y - 0.1 && sightY < CUT_BEAM_TOP_KM;
+      const beamTopY = cutMarker.marker.position.y + CUT_BEAM_HEIGHT_PX * cutMarker.kmPerPx;
+      return missKm < CUT_BEAM_RADIUS_PX * cutMarker.kmPerPx * 1.5 && sightY > cutMarker.marker.position.y - 0.1 && sightY < beamTopY;
     });
   }
 
@@ -1286,6 +1324,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     readColorProbes,
     readSeabedProbes,
     followCamera,
+    fitScreenSizes,
     readSubjects,
     isBehindRelief,
     readAnchorFacts,

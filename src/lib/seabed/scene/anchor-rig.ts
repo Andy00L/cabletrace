@@ -178,7 +178,8 @@ const CAUSTIC_SEED = 20241225;
 // The caustic tile's size (px).
 const CAUSTIC_TEXTURE_PX = 256;
 
-export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number): UnderwaterLook {
+/** `aboveWaterFog` is the haze the scene keeps while the camera is above the surface (overview.ts). */
+export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number, aboveWaterFog: THREE.Fog | null): UnderwaterLook {
   const hazeColor = new THREE.Color(look.column);
   const fog = new THREE.FogExp2(hazeColor, UNDERWATER_HAZE_PER_KM);
   const background = createUnderwaterBackground(look);
@@ -202,7 +203,7 @@ export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (scene
   return {
     group,
     apply(scene, camera, isUnderwater) {
-      scene.fog = isUnderwater ? fog : null;
+      scene.fog = isUnderwater ? fog : aboveWaterFog;
       scene.background = isUnderwater ? background : null;
       group.visible = isUnderwater;
       if (!isUnderwater) return;

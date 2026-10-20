@@ -6,7 +6,7 @@ import * as THREE from "three";
 import type { SceneMaterialKit } from "../../src/lib/render/scene-renderer";
 import { DEPTH_TOKEN_RAMP, SCENE_COLORS } from "../../src/lib/seabed/scene/scene-colors";
 import { SCENE_SCALES } from "../../src/lib/seabed/scene-scales";
-import { buildWaterBody, createUniformDepthMap, readWaterLook, SKY_HDRI_URL } from "../../src/lib/seabed/scene/water-surface";
+import { buildWaterBody, createUniformDepthMap, SKY_HDRI_URL, WATER_LOOK } from "../../src/lib/seabed/scene/water-surface";
 import { createWake } from "../../src/lib/seabed/scene/wake";
 import type { ShipKind } from "../../src/lib/replay/replay-scene";
 import { buildShip } from "../../src/lib/ships/build-ship";
@@ -123,14 +123,14 @@ export function buildHeroScene(kit: SceneMaterialKit, isDetailed: boolean, hasBe
     projection: { widthKm: SEA_SIZE_KM, depthKm: SEA_SIZE_KM },
     deepestY: seabedY,
     kit,
-    surface: { hasWaves: isDetailed, sun, look: readWaterLook(window.location.search), sky: skyMap, depthMap: createUniformDepthMap(HERO_DEPTH_METRES) },
+    surface: { hasWaves: isDetailed, sun, look: WATER_LOOK, sky: skyMap, depthMap: createUniformDepthMap(HERO_DEPTH_METRES) },
   });
   water.setWaveTime(0);
   // Named so the frame bench can leave it out to measure what it costs (hero-page.ts, ?without=water).
   water.group.name = HERO_WATER_NAME;
   scene.add(water.group);
 
-  const shipOptions = { isDetailed, skyMap, waterHex: readWaterLook(window.location.search).column };
+  const shipOptions = { isDetailed, skyMap, waterHex: WATER_LOOK.column };
   addShipUnderWay(scene, kit, { kind: "tanker", lengthMetres: HERO_LENGTH_METRES, name: "Eagle S", atKm: { x: 0, z: 0 } }, shipOptions);
   if (hasBenchShips) BENCH_SHIPS.forEach((ship) => addShipUnderWay(scene, kit, ship, shipOptions));
 

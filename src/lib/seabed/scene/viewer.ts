@@ -10,9 +10,9 @@ import { clampValue, easeOutCubic } from "@/lib/seabed/math";
 import { hideOverlappingLabels } from "@/lib/seabed/scene/labels";
 import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
 import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneSubject, type SceneTarget } from "@/lib/seabed/scene/overview";
-import { chooseScenePalette, readSceneLook } from "@/lib/seabed/scene/scene-look";
+import { chooseScenePalette } from "@/lib/seabed/scene/scene-look";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
-import { readWaterLook, SKY_HDRI_URL } from "@/lib/seabed/scene/water-surface";
+import { SKY_HDRI_URL } from "@/lib/seabed/scene/water-surface";
 import type { SeabedData } from "@/lib/seabed/seabed-data";
 import { chooseSmoothingPasses, createElevationSampler, createProjection, downsampleElevations, smoothElevations } from "@/lib/seabed/terrain";
 
@@ -229,6 +229,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   const createdRenderer = await createSceneRenderer();
   if (!createdRenderer.ok) return createdRenderer;
   const renderer = createdRenderer.value;
+  performance.mark("seabed:renderer");
   const tier = RENDER_TIERS[renderer.tier];
   const isGpuTier = renderer.tier !== "software";
   const isCalm = prefersReducedMotion || !isGpuTier;
@@ -246,6 +247,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   const elevations = smoothElevations(grid.elevations, grid.grid, chooseSmoothingPasses(data.features.sources.depth));
   const projection = createProjection(features.region);
   const sampleElevationMetres = createElevationSampler(elevations, grid.grid, projection);
+  performance.mark("seabed:grid");
   const softDot = createSoftDotTexture();
   // The sand-ripple detail (GPU tiers only): a CC0 normal map from Poly Haven (docs/LOOKDEV.md, Credits) that arrives
   // after the first frame. The canvas says how many such assets are still loading, so a screenshot tool can wait.
@@ -268,9 +270,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     rippleNormalMap.wrapT = THREE.RepeatWrapping;
     rippleNormalMap.anisotropy = renderer.maxAnisotropy;
   }
-  // The environment look (explore/natural-look): ?look=natural-a|natural-b, reported back on the canvas for the harness.
-  const palette = chooseScenePalette(readSceneLook(), input.seabedArea);
-  canvas.dataset.sceneLook = palette.look;
+  // Natural look C with the nearest sampled region's values (scene-look.ts).
+  const palette = chooseScenePalette(features.region);
   // The sky HDRI (GPU tiers only, CC0, public/textures/CREDITS.md): the water's reflection and the ships' light.
   let skyMap: THREE.Texture | null = null;
   if (isGpuTier) {
@@ -297,7 +298,6 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     prefersReducedMotion: isCalm,
     isHighDetail: isGpuTier,
     rippleNormalMap,
-    waterLook: readWaterLook(window.location.search),
     skyMap,
     trackPendingAsset(pending) {
       pendingAssetCount += 1;
@@ -306,6 +306,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     },
   });
 
+  performance.mark("seabed:overview");
   // Set whenever the picture must be redrawn even though the replay moment did not change.
   let isDirty = true;
   function markDirty() {
@@ -565,6 +566,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   // (scripts/lookdev) can wait until the picture it asked for has been drawn and has stopped changing.
   function recordDrawnFrame(atMs: number) {
     drawnFrameCount += 1;
+    if (drawnFrameCount === 1) performance.mark("seabed:first-frame");
     const canvasData = canvas.dataset;
     canvasData.frameCount = String(drawnFrameCount);
     if (canvasData.drawnView !== activeView) canvasData.drawnView = activeView;
@@ -631,6 +633,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     isDirty = activeView === "vessel" && hasTimeChanged;
     lastDrawnAtMs = atMs;
     overview.followCamera(overview.camera.position, overview.camera.position.distanceTo(overview.controls.target));
+    overview.camera.updateMatrixWorld();
+    overview.fitScreenSizes(overview.camera, container.clientHeight);
     renderer.draw(overview.scene, overview.camera);
     overviewLabels.render(overview.scene, overview.camera);
     hideOverlappingLabels(overviewLabels.domElement);
@@ -755,6 +759,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     .compile(overview.scene, overview.camera)
     .catch((error: unknown) => console.error(`[createSeabedViewer] shader compile failed: ${error instanceof Error ? error.message : String(error)}`))
     .finally(() => {
+      performance.mark("seabed:compiled");
       hiddenObjects.forEach((object) => {
         object.visible = false;
       });

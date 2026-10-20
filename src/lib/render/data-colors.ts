@@ -4,7 +4,7 @@ import * as THREE from "three";
 // water-tinted cousin of it. Every data line in the 3D view is therefore drawn
 //   - unlit: the material's colour is the pixel's colour, whatever the sun, sky or shadows do;
 //   - outside tone mapping: the renderer's Neutral curve would subtract up to 0.04 from every channel;
-//   - outside the scene's haze (a natural look's fog, scene-look.ts), which would mix the haze colour into the line;
+//   - outside the scene's haze (the look's fog, scene-look.ts), which would mix the haze colour into the line;
 //   - after the water: in the transparent pass, at a render order past the water surface, the wake and the hull's
 //     contact shadow, so nothing blends over it. It still depth-tests against the terrain and the hulls.
 // The lookdev harness (scripts/lookdev) samples the drawn lines and fails when a channel is off by more than 2.

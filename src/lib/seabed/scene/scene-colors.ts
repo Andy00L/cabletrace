@@ -29,13 +29,16 @@ export const SCENE_COLORS = {
   blockTop: "#E7E3D9",
   // Contour lines and the shoreline drawn on the overview terrain (terrain-material.ts).
   seabedContour: "#8CA4A3",
-  landContour: "#BDB6A5",
+  // Land contours in natural look C: a darker olive (approved 19 Oct 2026, plan/next-reset.md choice 5), the FireTrace
+  // reference's forest hue at its shaded slope's lightness and chroma (scene-look.ts, referenceMidToneHex).
+  landContour: "#60634A",
   shoreline: "#5F7574",
   blockBase: "#CBC6BA",
-  water: "#AFCBCA",
+  // Water B, teal (approved 19 Oct 2026, plan/next-reset.md choice 7): the body colour where the seabed is gone.
+  water: "#3F7E86",
   waterRim: "#FFFFFF",
-  // The sky the water surface reflects (water-surface.ts): the studio's white, a breath of the sea's green.
-  waterSky: "#F2F6F5",
+  // The sky the water surface reflects (water-surface.ts), water B.
+  waterSky: "#D8E3E5",
   // The ships' contact shadow on the water: the shadow tint of the interface (docs/UI_DESIGN_SYSTEM.md, Depth).
   contactShadow: "#141412",
   skyLight: "#FFFFFF",

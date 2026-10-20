@@ -1,67 +1,54 @@
-import { DEPTH_TOKEN_RAMP, LAND_TOKEN_RAMP, SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
+import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
+import type { SeabedRegion } from "@/lib/seabed/terrain";
 
-// Exploration only (branch explore/natural-look, round-2 design board): the 3D replay's environment colours in four
-// looks, chosen per page load without a code edit, so the same engine draws every candidate Andy compares.
-//   - current: the approved look (depth and land tokens, a transparent sky over the page).
-//   - natural-a "measured": every value sampled from imagery of the place (the median, in linear sRGB, of a stated
-//     area; the table and the method are in .scratch/round2-renders/palettes.md of the main checkout).
-//   - natural-b "calm natural": natural-a's hues, lighter and less saturated by one fixed transform (calmNaturalHex).
-//   - natural-c "reference mid-tone": natural-a's hues at the lightness and chroma of the FireTrace reference's terrain
-//     (ui-design/references/round-2/3-firetrace-incident-colors-depth.webp), its sky and haze as sampled there.
-// Data colours (cables, pipelines, the track, the alarm) are never part of a look: they stay exact
+// The 3D replay's environment colours: natural look C, "reference mid-tone", approved by Andy on 19 Oct 2026
+// (plan/next-reset.md, choice 5). Each sampled region's hues, measured from imagery of the place, at the lightness and
+// chroma of the FireTrace reference's terrain (ui-design/references/round-2/3-firetrace-incident-colors-depth.webp); its
+// sky and haze are the reference's own pixels. The water is water B (choice 7, water-surface.ts). An area that was not
+// sampled takes the nearest sampled region's values. The method and every source are in the round-2 board notes
+// (.scratch/round2-renders/palettes.md of the main checkout).
+// Data colours (cables, pipelines, the track, the alarm) are never part of the look: they stay exact
 // (src/lib/render/data-colors.ts).
 
-export type SceneLookName = "current" | "natural-a" | "natural-b" | "natural-c";
-
-const SCENE_LOOK_NAMES: readonly SceneLookName[] = ["current", "natural-a", "natural-b", "natural-c"];
-
-/** The sky a natural look draws around the scene, and the haze distant ground fades into (sRGB hex). */
+/** The sky drawn around the scene, and the haze distant ground fades into (sRGB hex). */
 export type SceneSky = { upperHex: string; horizonHex: string; hazeHex: string };
 
 export type ScenePalette = {
-  look: SceneLookName;
   /** Seabed seen through the water, by depth in metres (overview.ts samples it per terrain vertex). */
   depthRamp: readonly [number, string][];
   /** Land by height in metres. */
   landRamp: readonly [number, string][];
-  // Not drawn on this branch: both live in water-surface.ts, which the parallel branch explore/aaa-ships-sea-cables
-  // owns; the lead wires them at merge (palettes.md lists them). Every look draws SCENE_COLORS.waterSky and .water.
-  /** What the water surface reflects. */
-  waterSkyHex: string;
-  /** The water column seen through the block's sides. */
-  waterColumnHex: string;
   /** The hemisphere light: sky and ground. */
   skyLightHex: string;
   groundLightHex: string;
   /** The block's cut faces, at the seabed and at the base. */
   blockTopHex: string;
   blockBaseHex: string;
-  /** Null: no sky, the canvas stays transparent over the page (the approved look). */
-  sky: SceneSky | null;
+  sky: SceneSky;
 };
 
-/** Imagery-measured values for one region (natural-a). */
+/** Imagery-measured values for one region, and the centre of the area they were measured over. */
 type MeasuredRegion = {
+  centre: { longitude: number; latitude: number };
   depthRamp: readonly [number, string][];
   /** Land bands of the block: the shore (0 to 3 m), low land (3 to 30 m), high ground (over 30 m). */
   shoreBandHex: string;
   lowLandHex: string;
   highLandHex: string;
-  /** Bare ground of the coast (granite or sand) at 10 m: the block's cut faces show it in section. */
+  /** Bare ground of the coast (granite or sand): the block's cut faces show it in section. */
   bareGroundHex: string;
-  upperSkyHex: string;
-  horizonHex: string;
   seaSurfaceHex: string;
 };
 
 // Land stops (metres): the shore band at the waterline, low land from 3 m, high ground (forest) from 30 m.
 const LAND_STOPS = { shore: 0, lowLand: 3, highLand: 30 } as const;
 
-// Gulf of Finland, Porkkala to Loviisa. Seabed and land: Copernicus Sentinel-2 (s2cloudless-2024 by EOX, the block's
-// region at 1,250 x 962 px) against the block's own depth grid, one median per depth or height band. Bare ground: the
-// granite rims of the Porkkala skerries (Sentinel-2, 10 m). Sky, horizon, sea surface: "Porkkalanniemi sea wiev.JPG"
-// (Wikimedia Commons, public domain, 10 July 2010).
+// Gulf of Finland, Porkkala to Loviisa (24.0 to 26.6 E, 59.35 to 60.35 N). Seabed and land: Copernicus Sentinel-2
+// (s2cloudless-2024 by EOX) against the block's own depth grid, one median per depth or height band, in linear sRGB.
+// Bare ground: the granite rims of the Porkkala skerries. Sea surface: "Porkkalanniemi sea wiev.JPG" (Wikimedia
+// Commons, public domain).
 const BALTIC: MeasuredRegion = {
+  centre: { longitude: 25.3, latitude: 59.85 },
   depthRamp: [
     [5, "#060F0A"],
     [15, "#050E0A"],
@@ -76,14 +63,13 @@ const BALTIC: MeasuredRegion = {
   lowLandHex: "#1E2A19",
   highLandHex: "#172314",
   bareGroundHex: "#545143",
-  upperSkyHex: "#749EE0",
-  horizonHex: "#BDC7D6",
   seaSurfaceHex: "#2E435D",
 };
 
-// Taiwan Strait, Penghu to the Tainan coast. Same method; bare ground: the Tainan sand barriers (Sentinel-2, 10 m).
-// Sky, horizon, sea surface: "從島上眺望跨海大橋1.jpg" (Wikimedia Commons, CC BY 3.0, Penghu, 7 September 2008).
+// Taiwan Strait, Penghu to the Tainan coast (119.30 to 120.35 E, 22.90 to 23.75 N). Same method; bare ground: the
+// Tainan sand barriers. Sea surface: "從島上眺望跨海大橋1.jpg" (Wikimedia Commons, CC BY 3.0).
 const TAIWAN: MeasuredRegion = {
+  centre: { longitude: 119.825, latitude: 23.325 },
   depthRamp: [
     [5, "#132F32"],
     [15, "#0F292F"],
@@ -98,16 +84,15 @@ const TAIWAN: MeasuredRegion = {
   lowLandHex: "#4C5841",
   highLandHex: "#36432B",
   bareGroundHex: "#8E8D77",
-  upperSkyHex: "#8FB5E2",
-  horizonHex: "#8BB1DC",
   seaSurfaceHex: "#699BB8",
 };
 
-// The FireTrace reference's terrain, sky and haze (natural-c), medians in linear sRGB. Open ground: the tan grass of
-// the lower-left hills (box 100,680 to 400,800 px; pixels with red at least green and luma 90 and up, so the tree dots
-// are left out); sunlit and shaded slope: the brightest and the darkest quarter of those pixels; forest: the vegetated
-// pixels (green over red) of box 1300,560 to 1560,700; sky: box 200,48 to 1500,110; haze: the far ridges, box 300,160
-// to 1400,220.
+const SAMPLED_REGIONS: readonly MeasuredRegion[] = [BALTIC, TAIWAN];
+
+// The FireTrace reference's terrain, sky and haze, medians in linear sRGB. Open ground: the tan grass of the lower-left
+// hills (box 100,680 to 400,800 px; red at least green, luma 90 and up); sunlit and shaded slope: the brightest and the
+// darkest quarter of those pixels; forest: the vegetated pixels of box 1300,560 to 1560,700; sky: box 200,48 to
+// 1500,110; haze: the far ridges, box 300,160 to 1400,220.
 const REFERENCE = {
   openGroundHex: "#7F6E54",
   sunlitSlopeHex: "#B9A27E",
@@ -117,21 +102,8 @@ const REFERENCE = {
   hazeHex: "#A1A4A6",
 } as const;
 
-// Seabed areas off Taiwan use the Taiwan values; every other area (the Baltic ones, and for now Svalbard and the Red
-// Sea, which were not sampled) uses the Gulf of Finland values.
-const TAIWAN_AREAS: readonly string[] = ["taiwan-penghu", "taiwan-keelung", "matsu"];
-
-// natural-b's transform in OKLCH: lightness pulled into the house style's light range (0.84 to 1.00, where the data
-// colours keep their contrast), chroma at 60%.
-const CALM_LIGHTNESS_FLOOR = 0.84;
-const CALM_LIGHTNESS_SPAN = 0.16;
-const CALM_CHROMA_SHARE = 0.6;
-
-/** Reads the look for this page load: `?look=` in the URL, else `<html data-scene-look>`, else the current look. */
-export function readSceneLook(): SceneLookName {
-  const requested = new URLSearchParams(window.location.search).get("look") ?? document.documentElement.dataset.sceneLook ?? "current";
-  return SCENE_LOOK_NAMES.find((name) => name === requested) ?? "current";
-}
+const EARTH_RADIUS_KM = 6371;
+const RADIANS_PER_DEGREE = Math.PI / 180;
 
 function toLinearChannel(encoded: number): number {
   return encoded <= 0.04045 ? encoded / 12.92 : ((encoded + 0.055) / 1.055) ** 2.4;
@@ -185,19 +157,13 @@ function oklchToHex(color: Oklch): string {
   return oklchToHex({ ...color, chroma: 0 });
 }
 
-/** natural-b from natural-a: same hue, lightness mapped from 0..1 to 0.84..1.00 (order kept), chroma at 60%. */
-export function calmNaturalHex(hex: string): string {
-  const measured = hexToOklch(hex);
-  return oklchToHex({ lightness: CALM_LIGHTNESS_FLOOR + CALM_LIGHTNESS_SPAN * measured.lightness, chroma: measured.chroma * CALM_CHROMA_SHARE, hue: measured.hue });
-}
-
-/** natural-c: a measured hue at a reference role's lightness and chroma. */
+/** A measured hue at a reference role's lightness and chroma. */
 export function referenceMidToneHex(measuredHex: string, referenceHex: string): string {
   const reference = hexToOklch(referenceHex);
   return oklchToHex({ lightness: reference.lightness, chroma: reference.chroma, hue: hexToOklch(measuredHex).hue });
 }
 
-/** The base of the block's faces keeps the approved faces' darkening from top to base, channel by channel in linear light. */
+/** The base of the block's faces keeps the first approved faces' darkening from top to base, channel by channel in linear light. */
 function deriveBlockBase(topHex: string): string {
   const approvedTop = parseHex(SCENE_COLORS.blockTop).map(toLinearChannel);
   const approvedBase = parseHex(SCENE_COLORS.blockBase).map(toLinearChannel);
@@ -206,49 +172,11 @@ function deriveBlockBase(topHex: string): string {
   return `#${base.map((channel) => Math.round(toEncodedChannel(Math.min(1, channel)) * 255).toString(16).padStart(2, "0")).join("").toUpperCase()}`;
 }
 
-function buildMeasuredPalette(region: MeasuredRegion): ScenePalette {
-  return {
-    look: "natural-a",
-    depthRamp: region.depthRamp,
-    landRamp: [
-      [LAND_STOPS.shore, region.shoreBandHex],
-      [LAND_STOPS.lowLand, region.lowLandHex],
-      [LAND_STOPS.highLand, region.highLandHex],
-    ],
-    // Looking along the water the surface mirrors the sky near the horizon; the haze is the horizon's own colour.
-    waterSkyHex: region.horizonHex,
-    waterColumnHex: region.seaSurfaceHex,
-    skyLightHex: region.upperSkyHex,
-    groundLightHex: region.seaSurfaceHex,
-    blockTopHex: region.bareGroundHex,
-    blockBaseHex: deriveBlockBase(region.bareGroundHex),
-    sky: { upperHex: region.upperSkyHex, horizonHex: region.horizonHex, hazeHex: region.horizonHex },
-  };
-}
-
-function buildCalmPalette(region: MeasuredRegion): ScenePalette {
-  const measured = buildMeasuredPalette(region);
-  const calmRamp = (ramp: readonly [number, string][]) => ramp.map(([stop, hex]): [number, string] => [stop, calmNaturalHex(hex)]);
-  const blockTopHex = calmNaturalHex(measured.blockTopHex);
-  return {
-    look: "natural-b",
-    depthRamp: calmRamp(measured.depthRamp),
-    landRamp: calmRamp(measured.landRamp),
-    waterSkyHex: calmNaturalHex(measured.waterSkyHex),
-    waterColumnHex: calmNaturalHex(measured.waterColumnHex),
-    skyLightHex: calmNaturalHex(measured.skyLightHex),
-    groundLightHex: calmNaturalHex(measured.groundLightHex),
-    blockTopHex,
-    blockBaseHex: deriveBlockBase(blockTopHex),
-    sky: { upperHex: calmNaturalHex(region.upperSkyHex), horizonHex: calmNaturalHex(region.horizonHex), hazeHex: calmNaturalHex(region.horizonHex) },
-  };
-}
-
 /**
- * natural-c: natural-a's hues at the reference's lightness and chroma. Land: the shore band at the sunlit slope, low
- * land at the open ground, high ground at the forest. Water: the measured seabed hue of each depth stop, its lightness
- * running from the sunlit slope at 5 m to the shaded slope at the deepest stop (shallow clearly lighter than deep), its
- * chroma the open ground's. Sky and haze: the reference's own.
+ * Look C for a region. Land: the shore band at the reference's sunlit slope, low land at its open ground, high ground
+ * at its forest. Seabed: the measured hue of each depth stop, its lightness running from the sunlit slope at 5 m to the
+ * shaded slope at the deepest stop (shallow clearly lighter than deep), at the open ground's chroma. Sky and haze: the
+ * reference's own. The hemisphere's ground light is the measured sea surface's hue at the open ground's tone.
  */
 function buildReferencePalette(region: MeasuredRegion): ScenePalette {
   const sunlit = hexToOklch(REFERENCE.sunlitSlopeHex);
@@ -259,54 +187,37 @@ function buildReferencePalette(region: MeasuredRegion): ScenePalette {
     const share = index / lastStopIndex;
     return [stop, oklchToHex({ lightness: sunlit.lightness + (shaded.lightness - sunlit.lightness) * share, chroma: openGround.chroma, hue: hexToOklch(hex).hue })];
   });
-  const waterColumnHex = oklchToHex({ lightness: openGround.lightness, chroma: openGround.chroma, hue: hexToOklch(region.seaSurfaceHex).hue });
   const blockTopHex = referenceMidToneHex(region.bareGroundHex, REFERENCE.sunlitSlopeHex);
   return {
-    look: "natural-c",
     depthRamp,
     landRamp: [
       [LAND_STOPS.shore, referenceMidToneHex(region.shoreBandHex, REFERENCE.sunlitSlopeHex)],
       [LAND_STOPS.lowLand, referenceMidToneHex(region.lowLandHex, REFERENCE.openGroundHex)],
       [LAND_STOPS.highLand, referenceMidToneHex(region.highLandHex, REFERENCE.forestHex)],
     ],
-    waterSkyHex: REFERENCE.hazeHex,
-    waterColumnHex,
     skyLightHex: REFERENCE.skyHex,
-    groundLightHex: waterColumnHex,
+    groundLightHex: oklchToHex({ lightness: openGround.lightness, chroma: openGround.chroma, hue: hexToOklch(region.seaSurfaceHex).hue }),
     blockTopHex,
     blockBaseHex: deriveBlockBase(blockTopHex),
     sky: { upperHex: REFERENCE.skyHex, horizonHex: REFERENCE.hazeHex, hazeHex: REFERENCE.hazeHex },
   };
 }
 
-const CURRENT_PALETTE: ScenePalette = {
-  look: "current",
-  depthRamp: DEPTH_TOKEN_RAMP,
-  landRamp: LAND_TOKEN_RAMP,
-  waterSkyHex: SCENE_COLORS.waterSky,
-  waterColumnHex: SCENE_COLORS.water,
-  skyLightHex: SCENE_COLORS.skyLight,
-  groundLightHex: SCENE_COLORS.groundLight,
-  blockTopHex: SCENE_COLORS.blockTop,
-  blockBaseHex: SCENE_COLORS.blockBase,
-  sky: null,
-};
+/** Great-circle distance (km) between two points in degrees. */
+function measureGreatCircleKm(from: { longitude: number; latitude: number }, to: { longitude: number; latitude: number }): number {
+  const deltaLatitude = (to.latitude - from.latitude) * RADIANS_PER_DEGREE;
+  const deltaLongitude = (to.longitude - from.longitude) * RADIANS_PER_DEGREE;
+  const chord = Math.sin(deltaLatitude / 2) ** 2 + Math.cos(from.latitude * RADIANS_PER_DEGREE) * Math.cos(to.latitude * RADIANS_PER_DEGREE) * Math.sin(deltaLongitude / 2) ** 2;
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(chord)));
+}
 
-/** The palette a look draws for a seabed area (`ReplaySceneInput.seabedArea`). */
-export function chooseScenePalette(look: SceneLookName, seabedArea: string): ScenePalette {
-  const region = TAIWAN_AREAS.includes(seabedArea) ? TAIWAN : BALTIC;
-  switch (look) {
-    case "current":
-      return CURRENT_PALETTE;
-    case "natural-a":
-      return buildMeasuredPalette(region);
-    case "natural-b":
-      return buildCalmPalette(region);
-    case "natural-c":
-      return buildReferencePalette(region);
-    default: {
-      const unhandledLook: never = look;
-      return unhandledLook;
-    }
-  }
+/** The sampled region nearest a seabed area (by the distance between their centres). */
+function findNearestSampledRegion(area: SeabedRegion): MeasuredRegion {
+  const centre = { longitude: (area.west + area.east) / 2, latitude: (area.south + area.north) / 2 };
+  return SAMPLED_REGIONS.reduce((nearest, region) => (measureGreatCircleKm(centre, region.centre) < measureGreatCircleKm(centre, nearest.centre) ? region : nearest));
+}
+
+/** The palette a seabed area draws in: look C with the nearest sampled region's values. */
+export function chooseScenePalette(area: SeabedRegion): ScenePalette {
+  return buildReferencePalette(findNearestSampledRegion(area));
 }
