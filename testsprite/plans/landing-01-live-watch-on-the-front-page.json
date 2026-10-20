@@ -1,0 +1,29 @@
+{
+ "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+ "type": "frontend",
+ "name": "Front page shows the live watch without signing in",
+ "description": "The public landing page loads signed out, with its headline, the live watch card read from the recorder, the eight watched regions, the newest case and the numbers on file.",
+ "priority": "p0",
+ "planSteps": [
+  {
+   "type": "action",
+   "description": "Navigate to the front page /"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the main heading reads \"Ships are crossing the world's cables right now.\" and the URL path is still / (no redirect to sign in)"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the live watch card (data-testid recorder-status) is shown with a data-state of recording, failing, stale, never-ran or unreachable, and that unless it is unreachable its ship count (data-testid recorder-ships) is a whole number"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the region list (data-testid live-regions) holds exactly 8 items, each with a data-state of heard or quiet, and that one of them reads Gulf of Finland"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the newest case (data-testid latest-cases) holds one case card whose data-testid starts with case-card-, the figures row (data-testid landing-numbers) shows 4 figures, and the evidence card (data-testid landing-evidence) quotes Cinia"
+  }
+ ]
+}

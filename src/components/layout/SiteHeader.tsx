@@ -3,21 +3,20 @@ import { BrandMark } from "@/components/brand/BrandMark";
 
 type SitePage = "home" | "cases" | "live" | "watchlist" | "diagnostics";
 
-// The live globe's code is not prefetched: it would add about 17 KB to every page that shows the bar, against the
-// 200 KB budget for home (docs/PERFORMANCE.md); it loads when the link is followed. Nor is the watchlist: it is
-// dynamic (it needs the reader's session) and carries Clerk's script. Nor is the WebGL check: its probes are 8 KB
-// that put home at 203 KB, and few readers open it.
+// The mark links home (the landing page), so the sections list only the app. The live globe's code is not
+// prefetched: it would add about 17 KB to every page that shows the bar, against the 200 KB budget for the landing
+// (docs/PERFORMANCE.md); it loads when the link is followed. Nor is the watchlist: it is dynamic (it needs the
+// reader's session). Nor is the WebGL check: its probes are 8 KB, and few readers open it.
 const NAV_ITEMS: { page: SitePage; href: string; label: string; shouldPrefetch: boolean }[] = [
-  { page: "home", href: "/", label: "Home", shouldPrefetch: true },
   { page: "cases", href: "/cases", label: "Cases", shouldPrefetch: true },
   { page: "live", href: "/live", label: "Live", shouldPrefetch: false },
   { page: "watchlist", href: "/watchlist", label: "Watchlist", shouldPrefetch: false },
 ];
 
 /**
- * The bar at the top of the pages around the console (style board, board 12): the mark, the sections with the
- * current one on a white pill, and the WebGL check at the far end. Under 640 px the mark stands alone, without its
- * name, so the four sections fit a 360 px phone.
+ * The bar at the top of the pages around the console (style board, board 12) and of the landing (board 13): the
+ * mark, the sections with the current one on a white pill, and the WebGL check at the far end. Under 640 px the mark
+ * stands alone, without its name, so the sections fit a 360 px phone.
  */
 export function SiteHeader({ current }: { current: SitePage }) {
   return (
