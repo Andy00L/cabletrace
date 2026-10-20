@@ -298,7 +298,7 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
 ## 🏆 TestSprite
 
 The TestSprite GitHub App tests every pull request: when Vercel reports the pull request's preview ready, TestSprite
-runs every portal test against that preview, reports the "TestSprite V3" check and comments its report. The 21
+runs every portal test against that preview, reports the "TestSprite V3" check and comments its report. The 28
 browser tests in `testsprite/plans` are the suite. Each plan asserts what a reader sees, through `data-testid`,
 `data-state`, `aria-pressed` and `aria-current` hooks and the console's own wording, never pixel positions.
 
@@ -320,6 +320,13 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 | `live-01` | Live globe, the Eagle S incident, Fly to the seabed | The recorded day loading, and the dive landing on the cut's minute and card |
 | `live-02` | Feed check on `/live` | The verdict text matching its state, with the 90% and 95% targets |
 | `live-03` | Zoom by sea: Planet, a sea, back up, a link to the Baltic, the Gulf of Finland | The busiest seas ranked, each tier's card, breadcrumb and address |
+| `landing-01` | The front page signed out | The live watch, its region states and crossings, with no account |
+| `landing-02` | Open the console from the front page, sign in | The gate sending a reader to sign-in and back into the console |
+| `account-01` | The sign-in page | Google first and an email code, the gate's own wording |
+| `account-02` | A shared replay link, signed out | The link surviving sign-in, minute and card included |
+| `account-03` | The watchlist signed in | The page opening for a reader with an account |
+| `director-01` | The director on, a view picked, the Director button | The camera following the story until the reader takes it, and giving it back |
+| `director-02` | Eagle S near the C-Lion1 cut | The clock slowing around the cut, the countdown, the cut to the close-up |
 | `ship-01` | Vessel inspector on Yi Peng 3 at the C-Lion1 cut, then stowed | The side profile, chain out and layback, the derived figures and their basis |
 | `ship-02` | Yi Peng 3's AIS signal strip and the timeline panel | 114 reports, the 15, 15 and 50 minute silences, the reconstructed stretch |
 | `ship-03` | A ship with no AIS, and the vessel card's profile | The no-AIS state for Eagle S and the anchor chain in the vessel card |
@@ -329,8 +336,9 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 Every plan signs in with a Clerk test address (its code is always 424242 and no email is sent) before it opens an
 app page; `routes-01` reads `/api/health` signed out first. No plan depends on another, and each runs the same
 before and after the app goes behind sign-in. Each plan's steps and assertions were run with Playwright against
-cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both; `live-03`,
-written with the tiers, passed 7 of 7 checks on a local build of its branch. `testsprite/backend` holds two API tests in TestSprite's Python
+cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both. The newer ones were
+walked the same way: `director-01` and `director-02` passed every step on production, `live-03` 7 of 7 checks on a
+local build of its branch, and the landing and account plans on the gate's preview. `testsprite/backend` holds two API tests in TestSprite's Python
 format: the health contract, and the sign-in gate (only the front page and `/api/health` answer a signed-out caller,
 the APIs refuse it with 401, the pages redirect toward sign-in). Both pass with `python3 testsprite/backend/<file>.py`
 against the live app and wait for a TestSprite backend project, since this one is a frontend project. A manual run against any URL is `.github/workflows/testsprite.yml`,
