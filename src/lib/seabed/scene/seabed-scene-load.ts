@@ -1,5 +1,5 @@
 import type { Result } from "@/lib/result";
-import { buildSeabedScene, type SeabedScene } from "@/lib/seabed/scene/seabed-scene";
+import { buildSeabedScene, TERRAIN_STEPS, type SeabedScene } from "@/lib/seabed/scene/seabed-scene";
 import type { TerrainGrid } from "@/lib/seabed/scene/terrain-grid";
 import { TERRAIN_WORKER_PATH } from "@/lib/seabed/scene/terrain-worker-bundle";
 import { loadSeabedData, parseSeabedFeatures, type SeabedData } from "@/lib/seabed/seabed-data";
@@ -88,7 +88,8 @@ function readAreaWorker(area: string): AreaWorker | null {
   };
   worker.onerror = (event) => dropAreaWorker(area, `the worker failed: ${event.message}`);
   areaWorkers.set(area, areaWorker);
-  worker.postMessage({ kind: "fetch", area } satisfies TerrainWorkerRequest);
+  // Most pages draw on a GPU: the worker builds that grid step as soon as the files are in, unless asked for another.
+  worker.postMessage({ kind: "fetch", area, likelyStep: TERRAIN_STEPS.gpu } satisfies TerrainWorkerRequest);
   return areaWorker;
 }
 
