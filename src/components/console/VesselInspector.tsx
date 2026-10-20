@@ -81,7 +81,8 @@ export function VesselInspector() {
         </dl>
         <p className="text-caption font-normal text-muted">
           {sample ? (sample.basis === "recorded" ? "Speed as the ship broadcast it, at its AIS position. " : "Between placed positions: speed is a straight-line average, never a recorded speed. ") : ""}
-          {`MMSI ${vessel.mmsi ?? "not published"}. `}
+          {/* The track's basis stays in the ship card: placed positions are labelled wherever the ship is described. */}
+          {`${vessel.evidence} MMSI ${vessel.mmsi ?? "not published"}. `}
           {anchor.isLengthAssumed ? `${chain.assumptions[0] ?? ""} ` : ""}
           <CitationButtons citations={isAnchorOut ? [...vessel.citations, ...consoleCase.dragCitations] : vessel.citations} />
         </p>
