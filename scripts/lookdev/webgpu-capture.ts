@@ -112,13 +112,15 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
   // Headless Chrome lays the page out in a viewport smaller than --window-size (it keeps room for a window frame that
   // is not there) and resizes it to the window size right after the load event, draws, and takes the screenshot. So
   // the agent releases the load first, waits for that resize and for the viewer's frame at the new size, and only
-  // then reports the boxes and probes, which are the screenshot's. Checked every frame: the screenshot comes soon.
+  // then reports the boxes and probes, which are the screenshot's. Checked every frame: the screenshot comes soon. Up
+  // to 20 s: once the case page drew on WebGPU without a WebGL context opened beside it, 5 s was too short on two runs
+  // in three (the resize waits behind the scene's staged shader compile, most likely).
   const releaseThenReport = async (buildReport: () => Record<string, unknown>, needsNewFrame: boolean) => {
     const isAtScreenshotSize = () => innerWidth === config.viewportWidth && innerHeight === config.viewportHeight;
     const wasAtScreenshotSize = isAtScreenshotSize();
     const countAtRelease = readCanvas()?.dataset.frameCount;
     release();
-    const deadline = performance.now() + 5000;
+    const deadline = performance.now() + 20000;
     while (performance.now() < deadline) {
       await nextFrame();
       const hasNewFrame = wasAtScreenshotSize || !needsNewFrame || readCanvas()?.dataset.frameCount !== countAtRelease;
@@ -226,7 +228,16 @@ type LookdevProxy = { port: number; stop: () => void };
  * Serves `upstreamUrl` on a free port, with the agent and the held script injected into every HTML page. Each page
  * load gets its own hold token; `agentConfig` for the next page is set before each Chrome run.
  */
-export function startLookdevProxy(upstreamUrl: string, turntableDirectory: string | null, port: number): LookdevProxy & { setAgentConfig: (config: AgentConfig) => void; releaseAll: () => void } {
+/**
+ * `readSessionToken` gives a Clerk session token the proxy sends upstream as `Authorization: Bearer`: the app sits
+ * behind sign-in (src/proxy.ts), and this Chrome cannot sign in through the form (session-token.ts).
+ */
+export function startLookdevProxy(
+  upstreamUrl: string,
+  turntableDirectory: string | null,
+  port: number,
+  readSessionToken: () => Promise<Result<string>>,
+): LookdevProxy & { setAgentConfig: (config: AgentConfig) => void; releaseAll: () => void } {
   let agentConfig: AgentConfig | null = null;
   let nextToken = 0;
   const holds = new Map<string, () => void>();
@@ -260,7 +271,10 @@ export function startLookdevProxy(upstreamUrl: string, turntableDirectory: strin
         holds.delete(token);
         return new Response("released");
       }
-      const upstreamResponse = await fetch(`${upstreamUrl}${url.pathname}${url.search}`, { headers: { "accept-encoding": "identity" }, redirect: "manual" });
+      const sessionToken = await readSessionToken();
+      if (!sessionToken.ok) console.error(`[startLookdevProxy] no session token, the page will ask to sign in: ${sessionToken.reason}`);
+      const upstreamHeaders: Record<string, string> = { "accept-encoding": "identity", ...(sessionToken.ok ? { authorization: `Bearer ${sessionToken.value}` } : {}) };
+      const upstreamResponse = await fetch(`${upstreamUrl}${url.pathname}${url.search}`, { headers: upstreamHeaders, redirect: "manual" });
       const contentType = upstreamResponse.headers.get("content-type") ?? "";
       if (!contentType.includes("text/html") || agentConfig === null) return new Response(upstreamResponse.body, { status: upstreamResponse.status, headers: upstreamResponse.headers });
       const html = injectAgent(await upstreamResponse.text());

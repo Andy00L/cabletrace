@@ -16,7 +16,8 @@ import { resolveChromiumPath } from "../perf/chromium-path";
 import { collectRingPixels, compareImages, downscaleImage, findMedianColor, formatHexColor, hasColorNear, matchColorNear, measureContrastRatio, parseHexColor, type RgbColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
 import { listLookdevShots, type LookdevShot } from "./shots";
-import { TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
+import { createSessionTokenSource } from "./session-token";
+import { signInOnce, TIER_LAUNCH, type PlaywrightTierName, type SignedInState } from "./tier-launch";
 import { buildTurntablePage, buildWebGpuTurntablePage } from "./turntable";
 import { canRunWindowsChrome, captureWithWindowsChrome, cropToBox, DEFAULT_PROXY_PORT, DEFAULT_WINDOWS_CHROME, startLookdevProxy, TURNTABLE_PATH, type AgentConfig, type CaptureMode, type WindowsCapture } from "./webgpu-capture";
 
@@ -421,8 +422,8 @@ function judgeCapturedFrames(frames: CapturedFrames, options: CliOptions): Resul
   };
 }
 
-async function captureShot(browser: Browser, tier: PlaywrightTierName, shot: LookdevShot, options: CliOptions): Promise<Result<ShotOutcome>> {
-  const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: "reduce" });
+async function captureShot(browser: Browser, tier: PlaywrightTierName, shot: LookdevShot, options: CliOptions, signedInState: SignedInState): Promise<Result<ShotOutcome>> {
+  const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: "reduce", storageState: signedInState });
   await context.addInitScript(markLookdevCanvas);
   const page = await context.newPage();
   try {
@@ -585,7 +586,13 @@ async function runWebGpuTier(shots: readonly LookdevShot[], isTurntableIncluded:
     console.error(`[runLookdev] the WebGPU ship turntable did not bundle: ${turntableDirectory.reason}`);
     return { outcomes, hasRenderFailure: true };
   }
-  const proxy = startLookdevProxy(options.baseUrl, turntableDirectory?.ok ? turntableDirectory.value : null, options.webGpuProxyPort);
+  // This Chrome cannot sign in through the form, so the proxy signs its requests with a session token instead.
+  const sessionTokens = createSessionTokenSource();
+  if (!sessionTokens.ok) {
+    console.error(`[runLookdev] webgpu: cannot sign in: ${sessionTokens.reason}`);
+    return { outcomes, hasRenderFailure: true };
+  }
+  const proxy = startLookdevProxy(options.baseUrl, turntableDirectory?.ok ? turntableDirectory.value : null, options.webGpuProxyPort, sessionTokens.value);
   const session: WebGpuSession = { chromePath: available.value, proxyOrigin: `http://localhost:${proxy.port}`, setAgentConfig: proxy.setAgentConfig, releaseAll: proxy.releaseAll };
   let hasRenderFailure = false;
   try {
@@ -676,8 +683,17 @@ async function main(): Promise<number> {
       hasRenderFailure = true;
       continue;
     }
+    // The case pages sit behind sign-in: one sign-in per browser, its session reused by every shot's context.
+    const signedIn = shots.length > 0 ? await signInOnce(browser, options.baseUrl) : null;
+    if (signedIn && !signedIn.ok) {
+      console.error(`[runLookdev] ${tier}: could not sign in: ${signedIn.reason}`);
+      hasRenderFailure = true;
+      await browser.close();
+      continue;
+    }
     for (const shot of shots) {
-      const captured = await captureShot(browser, tier, shot, options);
+      if (!signedIn) break;
+      const captured = await captureShot(browser, tier, shot, options, signedIn.value);
       if (!captured.ok) {
         // An unavailable hardware tier in a default run is reported, not failed: most machines that run this have no GPU.
         const isSkippable = tier === "hardware" && !options.isTierExplicit && captured.reason.includes("drew on software");

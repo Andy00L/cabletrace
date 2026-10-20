@@ -12,7 +12,7 @@ import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Page } from "playwright";
 import { resolveChromiumPath } from "../perf/chromium-path";
-import { TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
+import { signInOnce, TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
 
 const VIEWPORT = { width: 1440, height: 900 };
 const FRAME_TIMEOUT_MS = 120_000;
@@ -121,7 +121,13 @@ async function main(): Promise<number> {
   }
   const browser = await chromium.launch({ executablePath: chromiumPath.value, args: TIER_LAUNCH[tier].args, env: { ...process.env, ...TIER_LAUNCH[tier].env } });
   try {
-    const page = await (await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: "reduce" })).newPage();
+    // The case page sits behind sign-in (src/proxy.ts).
+    const signedIn = await signInOnce(browser, baseUrl);
+    if (!signedIn.ok) {
+      console.error(`[cutSequence] could not sign in: ${signedIn.reason}`);
+      return 2;
+    }
+    const page = await (await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: "reduce", storageState: signedIn.value })).newPage();
     await openCloseUp(page, baseUrl, fromMs, query);
     mkdirSync(outDirectory, { recursive: true });
     if (argumentList.includes("--playback")) {

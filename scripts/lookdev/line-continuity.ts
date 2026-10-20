@@ -18,7 +18,7 @@ import { resolveChromiumPath } from "../perf/chromium-path";
 import { matchColorNear, parseHexColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
 import { listLookdevShots, type LookdevShot } from "./shots";
-import { TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
+import { signInOnce, TIER_LAUNCH, type PlaywrightTierName } from "./tier-launch";
 
 const VIEWPORT = { width: 1440, height: 900 };
 const FRAME_TIMEOUT_MS = 120_000;
@@ -299,8 +299,14 @@ async function main(): Promise<number> {
   const reports: ShotReport[] = [];
   let hasFailure = false;
   try {
+    // The case pages sit behind sign-in (src/proxy.ts): one sign-in, its session reused by every shot.
+    const signedIn = await signInOnce(browser, baseUrl);
+    if (!signedIn.ok) {
+      console.error(`[lineContinuity] could not sign in: ${signedIn.reason}`);
+      return 2;
+    }
     for (const shot of shots) {
-      const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: "reduce" });
+      const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, reducedMotion: "reduce", storageState: signedIn.value });
       const page = await context.newPage();
       const report = await checkShot(page, baseUrl, shot, query, outDirectory);
       await context.close();
