@@ -78,6 +78,19 @@ describe("createReplayClock", () => {
     expect(notifications).toBe(1);
   });
 
+  test("runs at the pace read at its progress, and at normal pace where the pace is not a positive number", () => {
+    const frames = createManualScheduler();
+    // Half speed over the first half of the replay, an unusable pace over the second.
+    const clock = createReplayClock({ durationSeconds: 10, scheduler: frames.scheduler, readPace: (progress) => (progress < 0.5 ? 0.5 : Number.NaN) });
+    clock.play();
+    frames.runFrameAt(0);
+    frames.runFrameAt(200);
+    expect(clock.getSnapshot().progress).toBeCloseTo(0.01, 6);
+    clock.seek(0.6);
+    frames.runFrameAt(400);
+    expect(clock.getSnapshot().progress).toBeCloseTo(0.62, 6);
+  });
+
   test("pause and dispose cancel the pending frame", () => {
     const frames = createManualScheduler();
     const clock = createReplayClock({ durationSeconds: 10, scheduler: frames.scheduler });

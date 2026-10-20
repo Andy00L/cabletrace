@@ -8,6 +8,8 @@ import { progressToTimeMs, timeMsToProgress, type ReplaySceneInput } from "@/lib
 
 // The scrubber moves in whole minutes; arrow keys step one minute.
 const MS_PER_MINUTE = 60_000;
+/** The scrubber's element id, for the console's skip link (one console per page). */
+export const REPLAY_SCRUBBER_ID = "replay-scrubber";
 // A cut label closer than this share of the width to an end is aligned to that end instead of centred on its marker.
 const LABEL_EDGE_SHARE = 0.1;
 // Cuts closer than this share of the width would have overlapping labels. A close pair (Fitburg's two cables, 6
@@ -132,6 +134,7 @@ export function ReplayTimeline({ input, events, clock, onCutSelect }: Omit<Repla
     <div className="relative h-15 w-full min-w-0 flex-none lg:w-auto lg:flex-1">
       <input
         type="range"
+        id={REPLAY_SCRUBBER_ID}
         min={0}
         max={totalMinutes}
         step={1}

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { StageLoading, type StageLoadStep } from "@/components/console/StageLoading";
 import type { ReplayClock } from "@/lib/replay/replay-clock";
 import { progressToTimeMs, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewer, SeabedViewName } from "@/lib/seabed/scene/viewer";
 import { loadSeabedData } from "@/lib/seabed/seabed-data";
 
-type ViewerState = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; reason: string };
+type ViewerState = { kind: "loading"; step: StageLoadStep } | { kind: "ready" } | { kind: "failed"; reason: string };
 
 type SeabedViewProps = {
   input: ReplaySceneInput;
@@ -28,7 +29,7 @@ type SeabedViewProps = {
 export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, onViewerChange, onTargetPick, still }: SeabedViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SeabedViewer | null>(null);
-  const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading" });
+  const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading", step: "seabed" });
   const [attempt, setAttempt] = useState(0);
   // The latest callbacks, so passing new functions does not rebuild the scene.
   const onViewerChangeRef = useRef(onViewerChange);
@@ -53,6 +54,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
         setViewerState({ kind: "failed", reason: "The seabed data could not be loaded." });
         return;
       }
+      setViewerState({ kind: "loading", step: "ship" });
       const created = await viewerModule.createSeabedViewer({
         container: host,
         data: loaded.value,
@@ -105,15 +107,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
         role="img"
         aria-label={`3D model of the seabed with ${input.cuts[0].label} and the track of ${input.vessel.name}`}
       />
-      {viewerState.kind === "loading" && (
-        <div className="absolute inset-0 grid place-items-center p-6">
-          <div className="flex w-full max-w-xs flex-col gap-3 rounded-inner bg-card p-5 shadow-card" aria-live="polite">
-            <p className="text-label">Loading the seabed</p>
-            <div className="h-2.5 w-full rounded-full bg-soft" />
-            <div className="h-2.5 w-3/4 rounded-full bg-soft" />
-          </div>
-        </div>
-      )}
+      {viewerState.kind === "loading" && <StageLoading step={viewerState.step} />}
       {viewerState.kind === "failed" && still && (
         <div className="absolute inset-0" data-testid="seabed-still">
           {still}
@@ -130,7 +124,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
             <button
               type="button"
               onClick={() => {
-                setViewerState({ kind: "loading" });
+                setViewerState({ kind: "loading", step: "seabed" });
                 setAttempt((previousAttempt) => previousAttempt + 1);
               }}
               className="h-10 self-start rounded-full bg-ink px-5 text-label text-card transition-colors duration-140 ease-standard hover:bg-ink-hover active:scale-[0.97]"

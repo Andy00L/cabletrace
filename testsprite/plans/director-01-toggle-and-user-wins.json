@@ -1,0 +1,57 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "The director picks the camera, the user takes it, the Director button gives it back (signed in)",
+  "description": "Validates the camera director on Eagle S: a plain case link starts with the director on, playing moves the camera from the establishing overview to the ship, picking a view turns the director off, and the Director button turns it back on.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Type 424242 in the verification code field"
+    },
+    {
+      "type": "action",
+      "description": "Wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024 and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the Director button (data-testid director-toggle) has data-state \"on\" and aria-pressed true, and \"Overview\" is pressed in the view switch (data-testid view-switch)"
+    },
+    {
+      "type": "action",
+      "description": "Click the button labelled \"Play replay\" (data-testid replay-play), wait 4 seconds, then click \"Pause replay\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert \"Vessel\" is now pressed in the view switch and the Director button still has data-state \"on\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"From above\" in the view switch"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert \"From above\" is pressed and the Director button has data-state \"off\" and aria-pressed false"
+    },
+    {
+      "type": "action",
+      "description": "Click the Director button"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the Director button has data-state \"on\" again and \"Vessel\" is pressed in the view switch"
+    }
+  ]
+}

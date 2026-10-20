@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
 import { Icon } from "@/components/icons/Icon";
+import { formatCountdown, readMinutesToNextEvent } from "@/lib/console/event-countdown";
 import { describeAnchorStatus } from "@/lib/replay/anchor-status";
 import { progressToTimeMs } from "@/lib/replay/replay-scene";
 
-
 /**
- * The anchor status at the top of the stage: a white pill saying what the anchor is doing; pressed, it grows into
+ * The anchor status at the top of the stage: a white pill saying what the anchor is doing and, while the replay plays,
+ * how much replay time is left until the next event; pressed, it grows into
  * the latest event with its quote, then what the sources say about the drag itself, so that evidence is one press
  * away (after bencho.dev's dynamic-island, MIT: one shape grows, the content fades in). Re-renders only when the
  * status or the latest event changes, not on every frame.
@@ -17,20 +18,25 @@ import { progressToTimeMs } from "@/lib/replay/replay-scene";
 export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
   const { input, consoleCase, clock } = useConsole();
   const [isOpen, setIsOpen] = useState(false);
+  const eventTimesMs = useMemo(() => consoleCase.events.map((event) => event.atMs), [consoleCase.events]);
   const readKey = () => {
-    const atMs = progressToTimeMs(input, clock.getSnapshot().progress);
+    const snapshot = clock.getSnapshot();
+    const atMs = progressToTimeMs(input, snapshot.progress);
     let latestIndex = -1;
     consoleCase.events.forEach((event, index) => {
       if (event.atMs <= atMs) latestIndex = index;
     });
-    return `${describeAnchorStatus(input, atMs).kind}|${latestIndex}`;
+    // Counts down only while playing: paused, the latest event and the status say enough.
+    const minutesToNext = snapshot.isPlaying ? readMinutesToNextEvent(eventTimesMs, atMs) : null;
+    return `${describeAnchorStatus(input, atMs).kind}|${latestIndex}|${minutesToNext ?? ""}`;
   };
   const key = useSyncExternalStore(clock.subscribe, readKey, readKey);
-  const [statusKind, latestIndexText] = key.split("|");
+  const [statusKind, latestIndexText, minutesToNextText] = key.split("|");
   const atMs = progressToTimeMs(input, clock.getSnapshot().progress);
   const status = describeAnchorStatus(input, atMs);
   const latestEvent = consoleCase.events[Number(latestIndexText)] ?? null;
   const isDragging = statusKind === "dragging";
+  const minutesToNext = minutesToNextText ? Number(minutesToNextText) : null;
 
   return (
     <div className={`pointer-events-none absolute left-4 z-(--layer-stage-controls) flex justify-center xl:top-4 xl:left-1/2 xl:-translate-x-1/2 ${isCloseUp ? "top-28" : "top-16"}`}>
@@ -49,6 +55,13 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
         >
           {isDragging && <span className="size-2 flex-none rounded-full bg-alarm" aria-hidden="true" />}
           <span aria-live="polite">{status.text}</span>
+          {/* Read by eye, not announced: a live region ticking every replay minute would drown the status. Under
+              640 px the pill has no room for both, and the status wins; the timeline sits right under the stage. */}
+          {minutesToNext !== null && (
+            <span className="hidden text-muted tabular-nums sm:inline" data-testid="event-countdown" data-minutes={minutesToNext}>
+              next event {formatCountdown(minutesToNext)}
+            </span>
+          )}
           <Icon name="chevronDown" size={16} className={`flex-none text-muted transition-transform duration-220 ease-standard ${isOpen ? "rotate-180" : ""}`} />
         </button>
         {isOpen && (
