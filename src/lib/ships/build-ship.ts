@@ -67,7 +67,7 @@ type BuildShipOptions = {
 
 /** The bridge, accommodation and funnel for the type's placement, and the stretch of deck left for cargo. */
 function addSuperstructure(kind: ShipKind, form: HullForm, parts: ShipParts): { cargoStartX: number; cargoEndX: number; house: HouseLayout } {
-  const { superstructure } = SHIP_SPECS[kind];
+  const { house: superstructure } = SHIP_SPECS[kind];
   const frontX = readBridgeFrontX(form, superstructure);
   const deckY = readDeckY(form, 0);
   const length = form.lengthMetres;

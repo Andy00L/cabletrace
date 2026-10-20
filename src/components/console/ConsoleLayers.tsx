@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CitationButtons } from "@/components/console/CitationButtons";
@@ -27,7 +28,13 @@ const SCENE_ANCHOR_BOX_PX = 32;
 // Far outside any stage: an anchor parked here hides its card until the object is back in view.
 const OFF_VIEW_POSITION_PX = -10_000;
 const SHOW_TARGET_LABELS: Record<SceneTarget["kind"], string> = { vessel: "Show the ship", cut: "Show the cut", placement: "Show the position" };
-const ACTION_BUTTON_CLASS = "flex h-10 items-center gap-2 rounded-full bg-soft px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]";
+// The ship's side profile loads with the vessel card, outside the route's chunks (see VesselInspector in ConsoleRail);
+// the placeholder holds the drawing's 118 px so the card does not grow under the reader.
+const VesselProfileAtMoment = dynamic(() => import("@/components/console/VesselProfile").then((module) => module.VesselProfileAtMoment), {
+  ssr: false,
+  loading: () => <div className="h-[118px]" aria-hidden="true" />,
+});
+const ACTION_BUTTON_CLASS ="flex h-10 items-center gap-2 rounded-full bg-soft px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]";
 
 /**
  * Where a card sits: next to the control that opened it, or, when it was opened by a link or its control has gone
@@ -321,6 +328,7 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
         testId="vessel-card"
       >
         <CardHeader eyebrow={`${vessel.type}, ${vessel.flag} flag`} title={vessel.name} onClose={closeLayer} />
+        <VesselProfileAtMoment />
         <VesselMoment />
         <p className="text-caption font-normal text-muted">{vessel.evidenceBrief}.</p>
         <CitationButtons citations={vessel.citations} />

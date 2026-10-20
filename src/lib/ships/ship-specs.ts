@@ -22,7 +22,7 @@ export type Superstructure =
   | { placement: "aft"; frontFromSternShare: number; lengthShare: number; tiers: number }
   | { placement: "forward" | "midship" | "full-length"; tiers: number };
 
-export type ShipSpec = {
+type DrawnShipSpec = {
   beamToLength: number;
   /** Moulded depth, keel to the main deck at the side. */
   depthToLength: number;
@@ -42,10 +42,16 @@ export type ShipSpec = {
   counterToLength: number;
   /** Bulwark height around the forecastle (m), 0 for none. */
   bulwarkMetres: number;
-  superstructure: Superstructure;
+  house: Superstructure;
 };
 
-export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
+/**
+ * A spec as the rest of the app reads it: the house, and its placement and tier count on their own as well (the
+ * console's vessel profile, src/lib/console/vessel-profile.ts, draws from those two), derived so they cannot drift.
+ */
+export type ShipSpec = DrawnShipSpec & { superstructure: SuperstructurePlacement; superstructureTiers: number };
+
+const DRAWN_SHIP_SPECS: Record<ShipKind, DrawnShipSpec> = {
   // Eagle S (see the file comment).
   tanker: {
     beamToLength: 0.1413,
@@ -60,7 +66,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0.01,
     counterToLength: 0.022,
     bulwarkMetres: 0.8,
-    superstructure: { placement: "aft", frontFromSternShare: 0.19, lengthShare: 0.15, tiers: 4 },
+    house: { placement: "aft", frontFromSternShare: 0.19, lengthShare: 0.15, tiers: 4 },
   },
   "bulk-carrier": {
     beamToLength: 0.143,
@@ -75,7 +81,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0.01,
     counterToLength: 0.02,
     bulwarkMetres: 1.2,
-    superstructure: { placement: "aft", frontFromSternShare: 0.17, lengthShare: 0.12, tiers: 5 },
+    house: { placement: "aft", frontFromSternShare: 0.17, lengthShare: 0.12, tiers: 5 },
   },
   "general-cargo": {
     beamToLength: 0.155,
@@ -90,7 +96,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0.015,
     counterToLength: 0.022,
     bulwarkMetres: 1.1,
-    superstructure: { placement: "aft", frontFromSternShare: 0.18, lengthShare: 0.12, tiers: 4 },
+    house: { placement: "aft", frontFromSternShare: 0.18, lengthShare: 0.12, tiers: 4 },
   },
   "container-ship": {
     beamToLength: 0.155,
@@ -105,7 +111,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0.01,
     counterToLength: 0.025,
     bulwarkMetres: 1.4,
-    superstructure: { placement: "aft", frontFromSternShare: 0.19, lengthShare: 0.09, tiers: 6 },
+    house: { placement: "aft", frontFromSternShare: 0.19, lengthShare: 0.09, tiers: 6 },
   },
   // A stern trawler: short and beamy, wheelhouse forward, a gantry and ramp over the stern.
   fishing: {
@@ -121,7 +127,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0.02,
     counterToLength: 0.01,
     bulwarkMetres: 1,
-    superstructure: { placement: "forward", tiers: 1 },
+    house: { placement: "forward", tiers: 1 },
   },
   // A harbour tug: almost a third as wide as long, deep, a tall wheelhouse forward of amidships.
   tug: {
@@ -137,7 +143,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0.02,
     counterToLength: 0.01,
     bulwarkMetres: 0.9,
-    superstructure: { placement: "midship", tiers: 2 },
+    house: { placement: "midship", tiers: 2 },
   },
   // A ro-ro cargo ship: high-sided enclosed vehicle decks from end to end, bridge at the front, a stern ramp.
   "ro-ro": {
@@ -153,7 +159,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0,
     counterToLength: 0.015,
     bulwarkMetres: 1.2,
-    superstructure: { placement: "full-length", tiers: 4 },
+    house: { placement: "full-length", tiers: 4 },
   },
   // A passenger ferry: decks of cabins and lounges over most of the length, the funnel aft of amidships.
   passenger: {
@@ -169,7 +175,7 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0.01,
     counterToLength: 0.02,
     bulwarkMetres: 1.2,
-    superstructure: { placement: "full-length", tiers: 7 },
+    house: { placement: "full-length", tiers: 7 },
   },
   // A cable layer: bridge forward, cable tanks amidships, a sheave over the bow and the stern for laying and repair.
   "cable-layer": {
@@ -185,8 +191,24 @@ export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
     sheerAftToDepth: 0.01,
     counterToLength: 0.012,
     bulwarkMetres: 1.1,
-    superstructure: { placement: "forward", tiers: 4 },
+    house: { placement: "forward", tiers: 4 },
   },
+};
+
+function describeSpec(spec: DrawnShipSpec): ShipSpec {
+  return { ...spec, superstructure: spec.house.placement, superstructureTiers: spec.house.tiers };
+}
+
+export const SHIP_SPECS: Record<ShipKind, ShipSpec> = {
+  tanker: describeSpec(DRAWN_SHIP_SPECS.tanker),
+  "bulk-carrier": describeSpec(DRAWN_SHIP_SPECS["bulk-carrier"]),
+  "general-cargo": describeSpec(DRAWN_SHIP_SPECS["general-cargo"]),
+  "container-ship": describeSpec(DRAWN_SHIP_SPECS["container-ship"]),
+  fishing: describeSpec(DRAWN_SHIP_SPECS.fishing),
+  tug: describeSpec(DRAWN_SHIP_SPECS.tug),
+  "ro-ro": describeSpec(DRAWN_SHIP_SPECS["ro-ro"]),
+  passenger: describeSpec(DRAWN_SHIP_SPECS.passenger),
+  "cable-layer": describeSpec(DRAWN_SHIP_SPECS["cable-layer"]),
 };
 
 /** Every ship kind, in a stable order (the lookdev turntable and the tests walk it). */

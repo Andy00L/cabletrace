@@ -5,6 +5,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { CABLE_CASES } from "../../src/data/cases";
 import type { CableCase } from "../../src/lib/cases/case-file";
 import type { Result } from "../../src/lib/result";
+import { signInTestUser } from "../auth/sign-in-test-user";
 import { resolveChromiumPath } from "../perf/chromium-path";
 
 // The same software renderer as scripts/perf, so the 3D view draws on a machine without a GPU.
@@ -62,7 +63,8 @@ export async function launchBrowser(chromiumPath: string): Promise<Result<Browse
 }
 
 /**
- * Loads a console URL (`/cases/<slug>` plus any query) and waits until the console is on screen. CSS animations and
+ * Loads a console URL (`/cases/<slug>` plus any query), signing in first when the gate asks, and waits until the
+ * console is on screen. CSS animations and
  * transitions are switched off: under the software renderer a busy machine can stall an exit animation for
  * seconds, and Radix keeps a closing layer in the page until its animation ends. These checks are about what is
  * reachable and where focus goes, not motion, and the console shows its content without waiting for an animation
@@ -71,6 +73,13 @@ export async function launchBrowser(chromiumPath: string): Promise<Result<Browse
 export async function openConsole(page: Page, url: string): Promise<Result<null>> {
   try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+    // The console sits behind sign-in (src/proxy.ts): a fresh context lands on the form first, signs in once, and
+    // keeps the session for the rest of its pages.
+    if (new URL(page.url()).pathname.startsWith("/sign-in")) {
+      const signedIn = await signInTestUser(page, new URL(url).origin);
+      if (!signedIn.ok) return signedIn;
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+    }
     await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; }" });
     await page.getByTestId("replay-console").waitFor({ state: "visible", timeout: NAVIGATION_TIMEOUT_MS });
     // The 3D view adds its place and line labels once the seabed has loaded (src/components/replay/SeabedView.tsx:

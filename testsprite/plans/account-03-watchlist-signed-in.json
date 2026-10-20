@@ -1,0 +1,33 @@
+{
+ "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+ "type": "frontend",
+ "name": "Watchlist opens for a signed-in reader",
+ "description": "After signing in with an email code, the watchlist page shows its alerts card and its watched items card instead of sending the reader to sign in.",
+ "priority": "p1",
+ "planSteps": [
+  {
+   "type": "action",
+   "description": "Navigate to /sign-in"
+  },
+  {
+   "type": "action",
+   "description": "Type testsprite+clerk_test@example.com into the \"Email address\" field and click Continue"
+  },
+  {
+   "type": "action",
+   "description": "On the verification code screen, type 424242; if a Continue button is still shown after the sixth digit, click it"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the URL path is no longer under /sign-in within 30 seconds"
+  },
+  {
+   "type": "action",
+   "description": "Navigate to /watchlist"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the URL path is /watchlist and both the alerts card (data-testid watchlist-alerts) and the watched items card (data-testid watchlist-items) are shown"
+  }
+ ]
+}

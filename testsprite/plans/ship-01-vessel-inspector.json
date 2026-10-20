@@ -1,0 +1,41 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Read the vessel inspector at the C-Lion1 cut and after the anchor is raised",
+  "description": "Validates Ship mode's vessel inspector on Yi Peng 3: the side profile with the anchor dragging and 316 m of chain to scale at 02:00 UTC, the figures derived at that moment, and the anchor stowed once the drag window has ended.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/yi-peng-3-2024?t=2024-11-18T02:00Z&mode=ship and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the ship card (data-testid ship-card) shows \"Yi Peng 3\" and \"Bulk carrier, 224 m, China. IMO 9224984\", and the inspector inside it (data-testid vessel-inspector) has data-state \"dragging\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the side profile (data-testid vessel-profile) has data-state \"dragging\", data-chain-out-metres \"316\" and data-layback-metres \"302\", and its text includes \"chain out 316 m\", \"anchor, 302 m behind the hawse\" and \"47 m\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the anchor status (data-testid vessel-anchor-state) reads \"Anchor dragging\" with data-state \"dragging\", and the line above the figures reads \"At 02:00 UTC\" followed by \"derived\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the figures read Speed \"5.6\" kn (data-testid vessel-number-speed), Course \"233\" (data-testid vessel-number-course) and C-Lion1 \"18\" m (data-testid vessel-number-nearest-line), each with data-state \"interpolated\", and the text says \"never a recorded speed\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert Chain out (data-testid vessel-chain-out) reads \"316 m, 84 mm, all of one anchor\" and the Anchor row reads \"8.7 t, IACS UR A1 for this size\""
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /cases/yi-peng-3-2024?t=2024-11-18T10:00Z&mode=ship and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the anchor status (data-testid vessel-anchor-state) reads \"Anchor stowed\", the side profile (data-testid vessel-profile) has data-state \"stowed\", Chain out (data-testid vessel-chain-out) reads \"None, the anchor is stowed\", and the line above the figures reads \"At 10:00 UTC\" followed by \"from AIS\""
+    }
+  ]
+}

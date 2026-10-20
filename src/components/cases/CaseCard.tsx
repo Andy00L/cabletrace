@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Icon } from "@/components/icons/Icon";
 import type { CableCase } from "@/lib/cases/case-file";
 import { SKETCH_HEIGHT, SKETCH_WIDTH, type CaseSketch } from "@/lib/cases/case-sketch";
 import { describeTrackEvidenceBriefly } from "@/lib/cases/case-view";
@@ -47,49 +46,14 @@ export function CaseSketchMap({ sketch, vesselName }: { sketch: CaseSketch; vess
 }
 
 /**
- * One case as a card whose whole surface opens its replay; on hover the shadow deepens and nothing moves.
- * `row` (the case list, grouped by region): a small sketch beside the
- * place, date, title and one line of facts, so a dozen cases fit one screen. `wide` (the home page, board 12a): the
- * sketch beside the place, date, title and the three facts that set cases apart; from 1,024 px it shares the height
- * of its column with the other wide cards.
+ * One case as a row on the case list (grouped by region), whose whole surface opens its replay: a small sketch beside
+ * the place, date, title and one line of facts, so a dozen cases fit one screen. On hover the shadow deepens and
+ * nothing moves.
  */
-export function CaseCard({ cableCase, sketch, layout }: { cableCase: CableCase; sketch: CaseSketch | null; layout: "row" | "wide" }) {
+export function CaseCard({ cableCase, sketch }: { cableCase: CableCase; sketch: CaseSketch | null }) {
   const cutsLabel = cableCase.cuts.map((cut) => cut.label).join(", ");
   const trackLabel = describeTrackEvidenceBriefly(cableCase);
   const map = <div className="size-full overflow-hidden rounded-inner bg-depth-40">{sketch && <CaseSketchMap sketch={sketch} vesselName={cableCase.vessel.name} />}</div>;
-  if (layout === "wide") {
-    const facts = [
-      { label: "Cuts shown", value: cutsLabel },
-      { label: "Track", value: trackLabel },
-      { label: "Sources", value: String(cableCase.sources.length) },
-    ];
-    return (
-      <Link
-        href={`/cases/${cableCase.slug}`}
-        className="grid gap-2 rounded-card bg-card p-2 shadow-card transition-shadow duration-140 ease-standard hover:shadow-raised md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:gap-5 lg:min-h-0 lg:flex-1"
-        data-testid={`case-card-${cableCase.slug}`}
-      >
-        {/* Between 1,024 and 1,280 px the card's map box is nearly square, and filling it would crop a cut away. */}
-        <div className="aspect-video md:aspect-auto md:min-h-0 lg:max-xl:aspect-video lg:max-xl:self-start">{map}</div>
-        <div className="flex min-w-0 flex-col gap-1.5 px-3 pt-2 pb-3 md:py-4 md:pr-4 md:pl-0">
-          <span className="text-caption text-muted">{cableCase.subtitle}</span>
-          <h3 className="text-heading">{cableCase.title}</h3>
-          <dl className="mt-2 grid grid-cols-[84px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-small">
-            {facts.map((fact) => (
-              <div key={fact.label} className="contents">
-                <dt className="text-muted">{fact.label}</dt>
-                <dd className="tabular-nums">{fact.value}</dd>
-              </div>
-            ))}
-          </dl>
-          <span className="mt-auto flex items-center gap-1 pt-3 text-label">
-            Open the replay
-            <Icon name="chevronRight" />
-          </span>
-        </div>
-      </Link>
-    );
-  }
   return (
     <Link
       href={`/cases/${cableCase.slug}`}

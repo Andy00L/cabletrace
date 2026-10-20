@@ -1,25 +1,18 @@
 import type { Metadata } from "next";
 import { SignUp } from "@clerk/nextjs";
 import { Suspense } from "react";
-import { SiteHeader } from "@/components/layout/SiteHeader";
+import { ACCOUNT_FORM_APPEARANCE, AccountPage } from "@/components/account/AccountPage";
 
-// Clerk's development tier: production keys need a domain of our own, which *.vercel.app is not (plan/decision-log.md).
-const ACCOUNTS_NOTE = "Accounts run on Clerk's development tier during the hackathon: at most 100 readers, and the form says Development mode.";
+export const metadata: Metadata = { title: "Create an account", description: "Create an account to open the CableTrace console, the live watch and your watchlist." };
 
-export const metadata: Metadata = { title: "Create an account", description: "Create an account to keep a watchlist of cases, cables and ships." };
-
-/** Clerk's sign-up form, reached from the sign-in form's link. */
+/** Clerk's sign-up form, reached from the sign-in form's link: Google first, then a code by email. */
 export default function SignUpPage() {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-[1440px] flex-col px-4 pb-6 sm:px-6">
-      <SiteHeader current="watchlist" />
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 py-10">
-        {/* Clerk's form reads the URL, so it renders in the browser behind a card of its size. */}
-        <Suspense fallback={<div className="h-[420px] w-[400px] max-w-full rounded-card bg-card shadow-card" aria-busy="true" />}>
-          <SignUp />
-        </Suspense>
-        <p className="max-w-[400px] text-center text-caption font-normal text-muted">{ACCOUNTS_NOTE}</p>
-      </main>
-    </div>
+    <AccountPage testId="sign-up-page">
+      {/* Clerk's form reads the URL, so it renders in the browser behind a plate of its size. */}
+      <Suspense fallback={<div className="h-[480px] w-full rounded-card border border-ink/20 bg-paper shadow-raised" aria-busy="true" />}>
+        <SignUp appearance={ACCOUNT_FORM_APPEARANCE} />
+      </Suspense>
+    </AccountPage>
   );
 }

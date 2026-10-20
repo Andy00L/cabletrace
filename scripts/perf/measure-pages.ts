@@ -8,6 +8,7 @@
 // Headless Chromium draws WebGL with SwiftShader (on the CPU), so the 3D numbers are a slow-machine bound, not a GPU result.
 import { chromium, type Browser, type Page, type Request } from "playwright";
 import type { Result } from "../../src/lib/result";
+import { signInTestUser } from "../auth/sign-in-test-user";
 import { TIER_LAUNCH } from "../lookdev/tier-launch";
 import { resolveChromiumPath } from "./chromium-path";
 
@@ -315,6 +316,17 @@ async function waitForPageDone(page: Page, kind: PageKind, timeoutFactor: number
 
 async function measurePage(browser: Browser, url: string, kind: PageKind, profile: MeasureProfile): Promise<Result<PageSample>> {
   const context = await browser.newContext({ viewport: profile.viewport, deviceScaleFactor: profile.deviceScaleFactor, isMobile: profile.isMobile, hasTouch: profile.isMobile });
+  // Every page but the landing sits behind sign-in (src/proxy.ts). The context signs in first, unthrottled and on its
+  // own tab, so the measured load is a signed-in reader's.
+  if (kind !== "home") {
+    const signInPage = await context.newPage();
+    const signedIn = await signInTestUser(signInPage, new URL(url).origin);
+    await signInPage.close();
+    if (!signedIn.ok) {
+      await context.close();
+      return signedIn;
+    }
+  }
   const page = await context.newPage();
   // Throttling goes through the DevTools protocol, before the first request, so the whole load runs on the slow link.
   if (profile.network !== null || profile.cpuSlowdown > 1) {
@@ -527,6 +539,15 @@ function recordCaseClick() {
 
 async function measureCaseClick(browser: Browser, baseUrl: string, slug: string, profile: MeasureProfile): Promise<Result<CaseClickSample>> {
   const context = await browser.newContext({ viewport: profile.viewport, deviceScaleFactor: profile.deviceScaleFactor });
+  // /cases and the case pages sit behind sign-in (src/proxy.ts): the context signs in first, on its own tab, outside
+  // the timing, which starts at the click.
+  const signInPage = await context.newPage();
+  const signedIn = await signInTestUser(signInPage, baseUrl);
+  await signInPage.close();
+  if (!signedIn.ok) {
+    await context.close();
+    return signedIn;
+  }
   const page = await context.newPage();
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -691,7 +712,7 @@ async function measurePages(): Promise<number> {
   } else printTable(
     ["Part drawn after the first paint", "Done at ms", "Detail"],
     [
-      ["/ live recorder card streamed", spreadAcross(homeSamples, (sample) => sample.recorderCardMs), "Supabase read on the server"],
+      ["/ live watch card drawn", spreadAcross(homeSamples, (sample) => sample.recorderCardMs), "read once a minute into the cached page"],
       ["/diagnostics map rendered", spreadAcross(diagnosticsSamples, (sample) => sample.mapRenderedMs), "MapLibre first idle"],
       [
         "/diagnostics 3D seabed measured",

@@ -1,14 +1,24 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import dynamic from "next/dynamic";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
 import { CaseCharts } from "@/components/console/ConsoleDock";
-import { describeNearestLine, describeSpeed, describeWaterUnder, NumberGrid, useMomentSample } from "@/components/console/MomentNumbers";
 import { Icon } from "@/components/icons/Icon";
 import { CaseEventList } from "@/components/replay/CaseEventList";
 import { formatUtcClock } from "@/lib/replay/format-utc";
-import { progressToTimeMs } from "@/lib/replay/replay-scene";
+
+// The inspector and the AIS strip load with Ship mode, in their own chunk: home prefetches the console's route chunks
+// for its case links, and home's JS budget (docs/PERFORMANCE.md) has no room for them. Each placeholder keeps the
+// card's height so nothing below it moves when it arrives.
+const VesselInspector = dynamic(() => import("@/components/console/VesselInspector").then((module) => module.VesselInspector), {
+  ssr: false,
+  loading: () => <div className="h-[384px]" aria-hidden="true" />,
+});
+const AisSignalCard = dynamic(() => import("@/components/console/AisSignalStrip").then((module) => module.AisSignalCard), {
+  ssr: false,
+  loading: () => <div className="h-[168px] flex-none rounded-row bg-card shadow-card" aria-hidden="true" />,
+});
 
 const CARD_CLASS = "flex flex-col gap-3 rounded-row bg-card px-5 py-4.5 shadow-card";
 const ROW_BUTTON_CLASS = "grid w-full items-center gap-x-3 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-page";
@@ -88,73 +98,25 @@ function ReplayRail({ onHide }: { onHide: (() => void) | null }) {
   );
 }
 
-/** The replay's current minute; re-renders once a minute of replay time, not every frame. */
-function ReplayMinute() {
-  const { input, clock } = useConsole();
-  const readMinute = () => formatUtcClock(progressToTimeMs(input, clock.getSnapshot().progress));
-  return <>{useSyncExternalStore(clock.subscribe, readMinute, readMinute)}</>;
-}
-
-/** The numbers derived at the replay moment, re-rendered only when the chart sample under the cursor changes. */
-function DerivedNumbers() {
-  const sample = useMomentSample();
-  return (
-    <section className={CARD_CLASS} aria-label="Derived at this moment">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-card-title tabular-nums">
-          At <ReplayMinute /> UTC
-        </h2>
-        <span className="text-caption font-normal text-muted">{sample?.basis === "recorded" ? "from AIS" : "derived"}</span>
-      </div>
-      {sample ? (
-        <>
-          <NumberGrid numbers={[describeSpeed(sample), describeNearestLine(sample), describeWaterUnder(sample)]} />
-          <p className="text-caption font-normal text-muted">
-            {sample.basis === "recorded"
-              ? "Speed as the ship broadcast it; distance and depth at its AIS position."
-              : "Speed is the straight-line average between two placed positions, never a recorded speed; distance and depth are read on that straight line."}
-            {sample.nearestLine ? ` Nearest line: ${sample.nearestLine.name}.` : ""}
-          </p>
-        </>
-      ) : (
-        <p className="text-small text-muted">No position for the ship at this moment: the track starts later or has ended.</p>
-      )}
-    </section>
-  );
-}
-
-/** Ship mode: the full ship card, the numbers derived at the replay moment, and the charts when the dock has none. */
+/**
+ * Ship mode: the vessel inspector under the ship's name (profile, anchor, figures at the replay moment), the AIS
+ * signal strip, and the charts when the dock has none. Scrolls inside itself when the stage is short.
+ */
 function ShipRail({ onHide, showsCharts }: { onHide: (() => void) | null; showsCharts: boolean }) {
-  const { consoleCase, series } = useConsole();
-  const { vessel } = consoleCase;
-  const facts = [
-    { label: "Type", value: vessel.type },
-    { label: "Flag", value: vessel.flag },
-    { label: "IMO", value: vessel.imo ?? "Not published" },
-    { label: "MMSI", value: vessel.mmsi ?? "Not published" },
-  ];
+  const { series } = useConsole();
   return (
-    <>
-      <section className={CARD_CLASS} data-testid="ship-card">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+      <section className={`${CARD_CLASS} flex-none`} aria-label="Vessel inspector" data-testid="ship-card">
         <ShipHeading onHide={onHide} />
-        <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2 text-small">
-          {facts.map((fact) => (
-            <div key={fact.label} className="contents">
-              <dt className="text-muted">{fact.label}</dt>
-              <dd className="tabular-nums">{fact.value}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className="text-caption font-normal text-muted">{vessel.evidence}</p>
-        <CitationButtons citations={vessel.citations} />
+        <VesselInspector />
       </section>
-      <DerivedNumbers />
+      <AisSignalCard />
       {showsCharts && series && (
-        <section className={CARD_CLASS} aria-label="Charts on the replay's time axis">
+        <section className={`${CARD_CLASS} flex-none`} aria-label="Charts on the replay's time axis">
           <CaseCharts series={series} isStacked />
         </section>
       )}
-    </>
+    </div>
   );
 }
 
