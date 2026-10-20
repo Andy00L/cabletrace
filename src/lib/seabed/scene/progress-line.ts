@@ -19,6 +19,11 @@ type ProgressLineOptions = {
   widthPx: number;
   opacity?: number;
   kit: SceneMaterialKit;
+  /**
+   * A casing under the line: its colour, how many device pixels wider it is and its render order. It shares the
+   * line's geometry, so it reveals with it, and writes no depth, so the line draws over it.
+   */
+  casing?: { color: string; extraPx: number; renderOrder: number };
 };
 
 /**
@@ -40,11 +45,24 @@ export function createProgressLine(options: ProgressLineOptions): ProgressLine {
   // Its colours are data colours: no tone mapping (src/lib/render/data-colors.ts).
   const materials = Array.isArray(line.material) ? line.material : [line.material];
   materials.forEach((material) => keepDataColorExact(material));
+  if (options.casing) {
+    const casing = kit.createScreenLine(geometry, { color: options.casing.color, hasVertexColors: false, widthPx: widthPx + options.casing.extraPx, opacity: 1 });
+    const casingMaterials = Array.isArray(casing.material) ? casing.material : [casing.material];
+    casingMaterials.forEach((material) => {
+      keepDataColorExact(material);
+      material.depthWrite = false;
+    });
+    casing.renderOrder = options.casing.renderOrder;
+    line.add(casing);
+  }
   geometry.instanceCount = 0;
+  line.visible = false;
   return {
     line,
     setFraction(fraction) {
       geometry.instanceCount = Math.round(Math.min(1, Math.max(0, fraction)) * segmentCount);
+      // Nothing to draw yet: hidden, so its shaders wait for the scene's second step instead of the first frame.
+      line.visible = geometry.instanceCount > 0;
     },
     readRevealedPointCount: () => geometry.instanceCount + 1,
   };

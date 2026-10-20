@@ -1,20 +1,25 @@
-import type * as THREE from "three";
-import { cameraViewMatrix, clamp, cos, float, fwidth, max, normalize, positionViewDirection, positionWorld, pow, sin, smoothstep, sqrt, uniform, vec2, vec3, vec4 } from "three/tsl";
+import { cameraPosition, cameraViewMatrix, clamp, cos, equirectUV, exp, float, fwidth, max, mix, normalize, positionViewDirection, positionWorld, pow, reflect, sin, smoothstep, sqrt, texture, uniform, vec2, vec3, vec4 } from "three/tsl";
 import { Color, MeshBasicNodeMaterial, Vector3, type Node } from "three/webgpu";
 import type { WaterSurfaceMaterial } from "@/lib/render/scene-renderer";
-import { decodeSrgb } from "@/lib/render/webgpu/srgb-nodes";
+import { decodeSrgb, encodeSrgb } from "@/lib/render/webgpu/srgb-nodes";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
-import { METRES_PER_KM, readGerstnerTerms, WATER_BASE_REFLECTANCE, WAVE_DETAIL_FADE } from "@/lib/seabed/scene/water-surface";
+import { DEPTH_MAP_MAX_METRES, METRES_PER_KM, readGerstnerTerms, SKY_MEAN_LUMINANCE, SKY_STRUCTURE, WATER_ABSORPTION, WATER_BASE_REFLECTANCE, WAVE_DETAIL_FADE, type WaterSurfaceOptions } from "@/lib/seabed/scene/water-surface";
 
-// The water surface for the WebGPU tier: the TSL port of src/lib/seabed/scene/water-surface.ts. The surface adds only
-// what a surface adds over a seabed whose colours already carry the water: the sky's reflection weighted by Fresnel
-// (0.02 looking straight down) and the sun's glints off Gerstner waves that follow the replay's clock. The glint is
-// the GGX specular three.js's standard material gives the WebGL surface (roughness 0.06, a dielectric's 4%), written
-// out here so the surface needs no lighting pass of its own.
+// The water surface for the WebGPU tier: the TSL port of src/lib/seabed/scene/water-surface.ts, from the same numbers:
+// the body colour absorbed along the path through the water (fading out as the camera climbs), the HDRI sky's
+// reflection weighted by Fresnel, and the sun's glints off the Gerstner swell and chop that follow the replay's clock.
+// The glint is the GGX specular three.js's standard material gives the WebGL surface (roughness 0.06, a dielectric's
+// 4%), written out here so the surface needs no lighting pass of its own.
 
 const SURFACE_ROUGHNESS = 0.06;
 // A dielectric's reflectance at normal incidence as three.js's standard material sets it (specular colour 0.04).
 const GLINT_BASE_REFLECTANCE = 0.04;
+
+/** A hex colour as linear RGB in a vector (TSL's colour uniforms do not type as vec3). */
+function readLinearVector(hex: string): Vector3 {
+  const color = new Color(hex);
+  return new Vector3(color.r, color.g, color.b);
+}
 
 /** Gerstner surface normal (Tessendorf 2001, section 3.1, differentiated) at a point in metres, in world space. */
 function readGerstnerNormal(pointMetres: Node<"vec2">, waveTimeSeconds: Node<"float">): Node<"vec3"> {
@@ -54,10 +59,11 @@ function readSunGlint(normal: Node<"vec3">, sunDirection: Node<"vec3">, sunIrrad
 }
 
 /**
- * The surface's material: drawn premultiplied over the seabed, outside tone mapping as on the WebGL tiers. `sun` is
- * the scene's sun (the WebGL material takes it from the scene's lights instead).
+ * The surface's material: drawn premultiplied over the seabed, outside tone mapping as on the WebGL tiers. The sun is
+ * read from `options.sun` (the WebGL material takes it from the scene's lights instead).
  */
-export function createWaterSurfaceNodeMaterial(hasWaves: boolean, sun: THREE.DirectionalLight): WaterSurfaceMaterial {
+export function createWaterSurfaceNodeMaterial(options: WaterSurfaceOptions): WaterSurfaceMaterial {
+  const { hasWaves, sun, look, sky, depthMap } = options;
   const waveTime = uniform(0);
   const material = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false });
   material.premultipliedAlpha = true;
@@ -69,12 +75,34 @@ export function createWaterSurfaceNodeMaterial(hasWaves: boolean, sun: THREE.Dir
   const sunViewDirection = normalize(cameraViewMatrix.mul(vec4(sunWorldDirection, 0)).xyz);
   // Linear RGB of the sun's colour times its intensity, as a vector so the glint can scale it.
   const sunIrradiance = uniform(new Vector3(sun.color.r, sun.color.g, sun.color.b).multiplyScalar(sun.intensity));
-  const facing = clamp(viewNormal.dot(positionViewDirection), float(0), float(1));
+  const toEye = normalize(cameraPosition.sub(positionWorld));
+  const facing = clamp(worldNormal.dot(toEye), float(0), float(1));
   const reflectance = pow(float(1).sub(facing), float(5)).mul(1 - WATER_BASE_REFLECTANCE).add(WATER_BASE_REFLECTANCE);
-  const skyReflection = uniform(new Color(SCENE_COLORS.waterSky)).mul(reflectance);
+  // The sky: the look's colour, its brightness following the HDRI's clouds faintly toward the horizon.
+  const skyColor = uniform(readLinearVector(look.sky));
+  let skyReflection: Node<"vec3"> = skyColor;
+  if (sky) {
+    const reflected = reflect(toEye.negate(), worldNormal);
+    const upward = normalize(vec3(reflected.x, max(reflected.y, float(0.02)), reflected.z));
+    const structure = clamp(texture(sky, equirectUV(upward)).rgb.dot(vec3(0.2126, 0.7152, 0.0722)).div(SKY_MEAN_LUMINANCE), float(SKY_STRUCTURE.range[0]), float(SKY_STRUCTURE.range[1]));
+    const towardHorizon = float(1).sub(smoothstep(float(SKY_STRUCTURE.facing[0]), float(SKY_STRUCTURE.facing[1]), facing));
+    skyReflection = skyColor.mul(mix(float(1), structure, towardHorizon.mul(SKY_STRUCTURE.weight)));
+  }
+  // The body colour: the share of the seabed's light the water replaces on the way to the eye.
+  const depthUv = positionWorld.xz.sub(vec2(depthMap.minX, depthMap.minZ)).div(vec2(depthMap.sizeX, depthMap.sizeZ));
+  const depthMetres = texture(depthMap.texture, depthUv).r.mul(DEPTH_MAP_MAX_METRES);
+  const pathFactor = float(1).add(float(1).div(pow(max(facing, float(WATER_ABSORPTION.minFacing)), float(WATER_ABSORPTION.grazingPower))));
+  // 1 for a camera close to the water (the sea's look), 0 from the map's height (the approved map look, tokens intact).
+  const gate = float(1).sub(smoothstep(float(WATER_ABSORPTION.fadeHeightKm[0]), float(WATER_ABSORPTION.fadeHeightKm[1]), cameraPosition.y));
+  const absorbed = gate.mul(float(1).sub(exp(depthMetres.mul(pathFactor).mul(-WATER_ABSORPTION.perMetre))));
+  const transmitted = float(1).sub(reflectance);
+  const columnColor = uniform(readLinearVector(look.column));
+  // Weighted as encoded values, as the WebGL surface weighs them over its sRGB canvas.
+  const mapSkyColor = uniform(readLinearVector(SCENE_COLORS.waterSky));
+  const premultiplied = mix(mapSkyColor, encodeSrgb(skyReflection), gate).mul(reflectance).add(readSunGlint(viewNormal, sunViewDirection, sunIrradiance)).add(encodeSrgb(columnColor).mul(absorbed.mul(transmitted)));
   // The WebGL surface writes this sum into its sRGB canvas as it is, unencoded (water-surface.ts); the tier encodes
   // every material's output, so the sum is decoded first and lands on the same values.
-  material.outputNode = vec4(decodeSrgb(skyReflection.add(readSunGlint(viewNormal, sunViewDirection, sunIrradiance))), reflectance);
+  material.outputNode = vec4(decodeSrgb(premultiplied), reflectance.add(absorbed.mul(transmitted)));
   return {
     material,
     setWaveTime(seconds) {

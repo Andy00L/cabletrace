@@ -115,3 +115,55 @@ export function matchColorNear(image: RgbaImage, centerX: number, centerY: numbe
   }
   return best;
 }
+
+/** WCAG 2 relative luminance of an sRGB colour (0 black to 1 white). */
+function readRelativeLuminance(color: RgbColor): number {
+  const linear = [color.red, color.green, color.blue].map((channel) => {
+    const encoded = channel / 255;
+    return encoded <= 0.04045 ? encoded / 12.92 : ((encoded + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * (linear[0] ?? 0) + 0.7152 * (linear[1] ?? 0) + 0.0722 * (linear[2] ?? 0);
+}
+
+/** WCAG 2 contrast ratio of two colours, 1 to 21. */
+export function measureContrastRatio(first: RgbColor, second: RgbColor): number {
+  const [lighter, darker] = [readRelativeLuminance(first), readRelativeLuminance(second)].sort((one, other) => other - one);
+  return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05);
+}
+
+/**
+ * The pixels of a ring around a point (from `innerPx` to `outerPx` away), leaving out any within `tolerance` per channel
+ * of one of `excluded` (the line's own colours, its casing): what the line and its casing stand on.
+ */
+export function collectRingPixels(image: RgbaImage, centerX: number, centerY: number, ring: { innerPx: number; outerPx: number }, excluded: readonly RgbColor[], tolerance: number): RgbColor[] {
+  const pixels: RgbColor[] = [];
+  for (let row = Math.max(0, Math.floor(centerY - ring.outerPx)); row <= Math.min(image.height - 1, Math.ceil(centerY + ring.outerPx)); row += 1) {
+    for (let column = Math.max(0, Math.floor(centerX - ring.outerPx)); column <= Math.min(image.width - 1, Math.ceil(centerX + ring.outerPx)); column += 1) {
+      const distance = Math.hypot(column - centerX, row - centerY);
+      if (distance < ring.innerPx || distance > ring.outerPx) continue;
+      const offset = (row * image.width + column) * 4;
+      const found = { red: image.data[offset] ?? 0, green: image.data[offset + 1] ?? 0, blue: image.data[offset + 2] ?? 0 };
+      const isExcluded = excluded.some((color) => Math.max(Math.abs(found.red - color.red), Math.abs(found.green - color.green), Math.abs(found.blue - color.blue)) <= tolerance);
+      if (!isExcluded) pixels.push(found);
+    }
+  }
+  return pixels;
+}
+
+/** The per-channel median of a set of colours, or null for none. */
+export function findMedianColor(colors: readonly RgbColor[]): RgbColor | null {
+  if (colors.length === 0) return null;
+  const median = (channel: "red" | "green" | "blue") => {
+    const sorted = colors.map((color) => color[channel]).sort((first, second) => first - second);
+    return sorted[Math.floor(sorted.length / 2)] ?? 0;
+  };
+  return { red: median("red"), green: median("green"), blue: median("blue") };
+}
+
+/** Whether any pixel within `radiusPx` of a point is within `tolerance` per channel of one of `colors`. */
+export function hasColorNear(image: RgbaImage, centerX: number, centerY: number, radiusPx: number, colors: readonly RgbColor[], tolerance: number): boolean {
+  return colors.some((color) => {
+    const match = matchColorNear(image, centerX, centerY, color, radiusPx);
+    return match !== null && match.deviation <= tolerance;
+  });
+}

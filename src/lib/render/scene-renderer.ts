@@ -2,6 +2,7 @@ import type * as THREE from "three";
 import type { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import type { RendererKind } from "@/lib/diagnostics/webgl-renderer";
 import type { TerrainLighting } from "@/lib/seabed/scene/terrain-material";
+import type { WaterSurfaceOptions } from "@/lib/seabed/scene/water-surface";
 import type { KelvinWakeShape } from "@/lib/ships/kelvin-wake";
 
 // The seam between the 3D replay's scene code and the renderer that draws it. The scene (overview.ts, close-up.ts, the
@@ -51,8 +52,8 @@ export type SceneMaterialKit = {
   /** The studio room's reflections (three.js RoomEnvironment, prefiltered) for the scene's metal and glass. */
   createEnvironment: () => THREE.Texture;
   createTerrainMaterial: (lighting: TerrainLighting, rippleNormalMap: THREE.Texture | null) => THREE.Material;
-  /** `hasWaves`: Gerstner waves (the GPU tiers) or a flat surface; `sun`: the light its glints reflect. */
-  createWaterSurfaceMaterial: (options: { hasWaves: boolean; sun: THREE.DirectionalLight }) => WaterSurfaceMaterial;
+  /** The sea's surface (water-surface.ts, WaterSurfaceOptions): waves or flat, body colour, sky, the sun's glints. */
+  createWaterSurfaceMaterial: (options: WaterSurfaceOptions) => WaterSurfaceMaterial;
   /**
    * A data-coloured tube material (exact colour, drawn after the water; src/lib/render/data-colors.ts) that narrows
    * its tube with camera distance (tube-thinning.ts). Only for TubeGeometry built with `radiusKm`.
@@ -81,8 +82,12 @@ export type SceneRenderer = {
   /** Sizes the canvas in CSS px. */
   setSize: (widthPx: number, heightPx: number) => void;
   draw: (scene: THREE.Scene, camera: THREE.PerspectiveCamera) => void;
-  /** Compiles the scene's materials before its first frame, hidden objects included when the caller shows them. */
-  compile: (scene: THREE.Scene, camera: THREE.PerspectiveCamera) => Promise<void>;
+  /**
+   * Compiles the materials under `objects` with `scene`'s lights and settings (hidden objects included when the caller
+   * shows them while it is called: the walk happens at once). Resolves when every program can draw, the page free
+   * between programs.
+   */
+  compile: (objects: THREE.Object3D, camera: THREE.PerspectiveCamera, scene: THREE.Scene) => Promise<void>;
   /** Frees the GPU resources and the context now, not at garbage collection. */
   dispose: () => void;
 };

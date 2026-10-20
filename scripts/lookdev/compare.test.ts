@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compareImages, downscaleImage, matchColorNear, parseHexColor } from "./compare";
+import { collectRingPixels, compareImages, downscaleImage, findMedianColor, matchColorNear, measureContrastRatio, parseHexColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
 
 function makeImage(width: number, height: number, paint: (column: number, row: number) => [number, number, number]): RgbaImage {
@@ -37,5 +37,20 @@ describe("lookdev image checks", () => {
     const image = makeImage(9, 9, (column, row) => (column === 6 && row === 4 ? [47, 107, 216] : [13, 99, 214]));
     expect(matchColorNear(image, 4, 4, cable, 2)?.deviation).toBe(0);
     expect(matchColorNear(image, 4, 4, cable, 1)?.deviation).toBe(34);
+  });
+});
+
+describe("lookdev casing checks", () => {
+  test("white on black is 21:1 and a colour on itself 1:1", () => {
+    expect(measureContrastRatio(parseHexColor("#FFFFFF"), parseHexColor("#000000"))).toBeCloseTo(21, 5);
+    expect(measureContrastRatio(parseHexColor("#2F6BD8"), parseHexColor("#2F6BD8"))).toBeCloseTo(1, 5);
+  });
+
+  test("a ring leaves out the line and its casing and finds the ground under them", () => {
+    // A blue line 2 px wide on a white casing 8 px wide, on dark ground: the ring 6 to 9 px out sees only ground.
+    const image = makeImage(31, 31, (column) => (Math.abs(column - 15) <= 1 ? [47, 107, 216] : Math.abs(column - 15) <= 4 ? [255, 255, 255] : [60, 80, 70]));
+    const ring = collectRingPixels(image, 15, 15, { innerPx: 6, outerPx: 9 }, [parseHexColor("#2F6BD8"), parseHexColor("#FFFFFF")], 24);
+    expect(ring.length).toBeGreaterThan(0);
+    expect(findMedianColor(ring)).toEqual({ red: 60, green: 80, blue: 70 });
   });
 });

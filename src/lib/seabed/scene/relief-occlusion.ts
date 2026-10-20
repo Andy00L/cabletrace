@@ -25,20 +25,36 @@ const OCCLUSION_STRENGTH = 0.45;
  */
 export function bakeReliefOcclusion(heights: Float32Array, columns: number, rows: number, cellWidthKm: number, cellDepthKm: number): Float32Array {
   const occlusion = new Float32Array(columns * rows);
+  // Per direction and step: the cell offsets, the index offset and the distance, worked out once (this runs for every
+  // point of a 300,000-point grid, 48 samples each).
+  const stepCount = STEPS_CELLS.length;
+  const sampleCount = DIRECTIONS.length * stepCount;
+  const columnOffsets = new Int32Array(sampleCount);
+  const rowOffsets = new Int32Array(sampleCount);
+  const indexOffsets = new Int32Array(sampleCount);
+  const inverseDistances = new Float64Array(sampleCount);
+  DIRECTIONS.forEach(([stepColumn, stepRow], direction) => {
+    STEPS_CELLS.forEach((steps, step) => {
+      const sample = direction * stepCount + step;
+      columnOffsets[sample] = stepColumn * steps;
+      rowOffsets[sample] = stepRow * steps;
+      indexOffsets[sample] = stepRow * steps * columns + stepColumn * steps;
+      inverseDistances[sample] = 1 / Math.hypot(stepColumn * steps * cellWidthKm, stepRow * steps * cellDepthKm);
+    });
+  });
   for (let row = 0; row < rows; row += 1) {
     for (let column = 0; column < columns; column += 1) {
       const index = row * columns + column;
       const height = heights[index] ?? 0;
       let sineSum = 0;
-      for (const [stepColumn, stepRow] of DIRECTIONS) {
+      for (let direction = 0; direction < DIRECTIONS.length; direction += 1) {
         let steepest = 0;
-        for (const steps of STEPS_CELLS) {
-          const sampleColumn = column + stepColumn * steps;
-          const sampleRow = row + stepRow * steps;
+        for (let sample = direction * stepCount; sample < (direction + 1) * stepCount; sample += 1) {
+          const sampleColumn = column + (columnOffsets[sample] ?? 0);
+          const sampleRow = row + (rowOffsets[sample] ?? 0);
           if (sampleColumn < 0 || sampleRow < 0 || sampleColumn >= columns || sampleRow >= rows) break;
-          const rise = (heights[sampleRow * columns + sampleColumn] ?? height) - height;
-          const distanceKm = Math.hypot(stepColumn * steps * cellWidthKm, stepRow * steps * cellDepthKm);
-          steepest = Math.max(steepest, rise / distanceKm);
+          const slope = ((heights[index + (indexOffsets[sample] ?? 0)] ?? height) - height) * (inverseDistances[sample] ?? 0);
+          if (slope > steepest) steepest = slope;
         }
         sineSum += steepest / Math.sqrt(1 + steepest * steepest);
       }

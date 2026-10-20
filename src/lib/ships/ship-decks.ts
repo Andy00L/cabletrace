@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { ShipKind } from "@/lib/replay/replay-scene";
 import { clampValue, createSeededRandom } from "@/lib/seabed/math";
 import { readHalfBreadth, type HullForm } from "@/lib/ships/hull-form";
-import { addBox, addCylinder, addSlopedBeam, readDeckHalfWidth, readDeckY, type ShipParts } from "@/lib/ships/ship-parts";
+import { addBox, addCylinder, addPipe, addSlopedBeam, readDeckHalfWidth, readDeckY, type PartList, type ShipParts } from "@/lib/ships/ship-parts";
 
 // The deck of each ship type: the gear that makes a tanker read as a tanker from a kilometre away. Sizes follow the
 // hull: `along` scales lengths from a 228 m reference hull, `across` scales widths from its 32.2 m beam, and fixed
@@ -19,6 +19,21 @@ const CONTAINER_WIDTH = 2.44;
 const CONTAINER_TIER_HEIGHT = 2.59;
 // Fixed seed so the stack skyline is identical on every load (the Balticconnector damage date).
 const CONTAINER_LAYOUT_SEED = 20231008;
+// Box colours, a small fixed set: the hues lines' boxes carry (blue, red, green, sand, white, grey), each dulled toward
+// grey so no box can pass for a data colour (cable blue, pipeline amber, alarm red: docs/UI_DESIGN_SYSTEM.md, Data).
+const CONTAINER_COLORS: readonly THREE.Color[] = ["#6E7C8C", "#8C6A62", "#6F7F6E", "#A89A80", "#C9C6BE", "#85878A", "#5F6670"].map((hex) => new THREE.Color(hex));
+
+/** A box whose vertices carry one colour (drawn by the ship's vertex-coloured material). */
+function addPaintedBox(parts: PartList, size: [number, number, number], center: [number, number, number], color: THREE.Color) {
+  const geometry = new THREE.BoxGeometry(...size);
+  geometry.translate(...center);
+  const flat = geometry.toNonIndexed();
+  geometry.dispose();
+  const colors = new Float32Array(flat.getAttribute("position").count * 3);
+  for (let vertex = 0; vertex < colors.length / 3; vertex += 1) color.toArray(colors, vertex * 3);
+  flat.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  parts.push(flat);
+}
 
 export type DeckFrame = { form: HullForm; along: number; across: number; deckY: number; cargoStartX: number; cargoEndX: number };
 
@@ -26,27 +41,89 @@ export function createDeckFrame(form: HullForm, cargoStartX: number, cargoEndX: 
   return { form, along: form.halfLength / REFERENCE_HALF_LENGTH, across: form.halfBeam / REFERENCE_HALF_BEAM, deckY: readDeckY(form, 0), cargoStartX, cargoEndX };
 }
 
-/** Pipe rack and catwalk down the centreline, cargo manifold with hose cranes, tank domes in two rows. */
+/** A point on the hull at a share of the length overall measured from the stem (Eagle S's photograph is read that way). */
+function readXFromBow(form: HullForm, shareFromBow: number): number {
+  return form.bowX - shareFromBow * form.lengthMetres;
+}
+
+/**
+ * An Aframax crude tanker's deck, laid out after Eagle S's side photograph (ship-specs.ts): the cargo pipes in a rack
+ * down the centreline under a raised catwalk, the manifold across the beam a little forward of amidships with a hose
+ * crane whose horizontal jib reaches forward over it and a small control house under it, kingposts with deck lights at
+ * 27%, 54% and 70% of the length from the stem, P/V valve risers and tank hatches in two rows.
+ */
 function buildTankerDeck(frame: DeckFrame, parts: ShipParts) {
-  const { deckY, along, across, cargoStartX: rackStart, cargoEndX: rackEnd } = frame;
+  const { form, deckY, along, across, cargoStartX: rackStart, cargoEndX: rackEnd } = frame;
   const rackLength = rackEnd - rackStart;
   const rackCenter = (rackStart + rackEnd) / 2;
-  for (const sideOffset of [-0.9, 0, 0.9]) addCylinder(parts.equipment, 0.32, rackLength, [rackCenter, deckY + 1.4, sideOffset], "x", 8);
-  addBox(parts.equipment, [rackLength, 0.12, 1.2], [rackCenter, deckY + 2.6, 2.2]);
-  for (let positionX = rackStart + 4; positionX < rackEnd; positionX += 12 * along) {
-    addBox(parts.equipment, [0.3, 2.6, 0.3], [positionX, deckY + 1.3, 2.2]);
-    addBox(parts.equipment, [0.3, 1.4, 3.2], [positionX, deckY + 0.7, 0]);
+  // The cargo pipes: six lines of 0.25 to 0.4 m on supports 1.2 m high, the catwalk over them 3 m up.
+  const pipeOffsets: readonly [number, number][] = [
+    [-1.5, 0.3],
+    [-0.8, 0.38],
+    [0, 0.4],
+    [0.8, 0.36],
+    [1.5, 0.3],
+    [2.2, 0.25],
+  ];
+  for (const [offset, radius] of pipeOffsets) addCylinder(parts.pipes, radius * across, rackLength, [rackCenter, deckY + 1.2 + radius, offset * across], "x", 8);
+  addBox(parts.equipment, [rackLength, 0.12, 1.1], [rackCenter, deckY + 3.0, -0.2 * across]);
+  for (let positionX = rackStart + 2; positionX < rackEnd; positionX += 6 * along) {
+    addBox(parts.equipment, [0.25, 3.0, 0.25], [positionX, deckY + 1.5, -0.2 * across - 0.5]);
+    addBox(parts.equipment, [0.25, 1.2, 4.6 * across], [positionX, deckY + 0.6, 0.35 * across]);
   }
-  for (const manifoldX of [-2.5, 0, 2.5]) addCylinder(parts.equipment, 0.28, frame.form.halfBeam * 1.7, [manifoldX * along, deckY + 1.1, 0], "z", 8);
+  // The catwalk's handrails.
+  for (const side of [-1, 1]) addCylinder(parts.equipment, 0.04, rackLength, [rackCenter, deckY + 4.0, -0.2 * across + side * 0.55], "x", 4);
+  // Along each side: the spill coaming at the deck edge and the fire main on its supports inside it, the low band of
+  // gear the photograph shows over the whole cargo deck.
   for (const side of [-1, 1]) {
-    const craneZ = side * 9.5 * across;
-    addCylinder(parts.equipment, 0.55, 8 * along, [4.5 * along, deckY + 4 * along, craneZ], "y", 10);
-    addSlopedBeam(parts.equipment, [4.5 * along, deckY + 8 * along, craneZ], 15 * along, 0.32, -1, 0.45);
+    addBox(parts.equipment, [rackLength, 0.35, 0.12], [rackCenter, deckY + 0.175, side * (readDeckHalfWidth(form, rackCenter) - 0.6)]);
+    addCylinder(parts.pipes, 0.22, rackLength, [rackCenter, deckY + 0.75, side * (readDeckHalfWidth(form, rackCenter) - 1.4)], "x", 6);
   }
+  // The manifold: crossover pipes from the rack out to both sides, with valves and drip trays at the rail.
+  const manifoldX = readXFromBow(form, 0.47);
+  for (const offset of [-2.4, -0.8, 0.8, 2.4]) {
+    const pipeX = manifoldX + offset * along;
+    addCylinder(parts.pipes, 0.32 * across, 2 * readDeckHalfWidth(form, pipeX) - 2, [pipeX, deckY + 1.6, 0], "z", 8);
+    for (const side of [-1, 1]) addBox(parts.equipment, [0.9, 0.9, 0.9], [pipeX, deckY + 1.6, side * (readDeckHalfWidth(form, pipeX) - 3)]);
+  }
+  for (const side of [-1, 1]) addBox(parts.equipment, [11 * along, 0.4, 2.2], [manifoldX, deckY + 0.2, side * (readDeckHalfWidth(form, manifoldX) - 1.6)]);
+  // The hose crane, as the photograph shows it (shares of the length from the stem): its control house on the deck
+  // from 43.1% to 45.6%, 3.6 m high, the crane pillar rising out of it at 44.5%, a pair of lattice posts at 43%, a level
+  // jib 1.3 m deep about 7.6 m over the deck from 39.5% to 50.8%, a block hanging 2.8 m under its aft end and a strut
+  // from the jib down to that block.
+  const controlHouseFore = readXFromBow(form, 0.431);
+  const controlHouseAft = readXFromBow(form, 0.456);
+  const controlHouseHeight = 3.6 * along;
+  const jibForeX = readXFromBow(form, 0.395);
+  const jibAftX = readXFromBow(form, 0.508);
+  const jibY = deckY + 7.6 * along;
+  const jibDepth = 1.3 * along;
+  addBox(parts.structure, [controlHouseFore - controlHouseAft, controlHouseHeight, 4.4 * across], [(controlHouseFore + controlHouseAft) / 2, deckY + controlHouseHeight / 2, 0]);
+  const pillarX = readXFromBow(form, 0.445);
+  const pillarFootY = deckY + controlHouseHeight;
+  addBox(parts.structure, [1.4 * along, jibY - pillarFootY, 1.4 * along], [pillarX, (pillarFootY + jibY) / 2, 0]);
+  addBox(parts.structure, [2.6 * along, 2.6 * along, 2.4 * along], [pillarX, jibY + 0.5 * along, 0]);
+  const postX = readXFromBow(form, 0.43);
+  for (const side of [-1, 1]) addCylinder(parts.equipment, 0.25 * along, jibY - deckY, [postX, deckY + (jibY - deckY) / 2, side * 1.2 * across], "y", 6);
+  // The jib rises about 1 m from its forward tip to its aft end.
+  const jibRise = Math.atan2(1.0 * along, jibForeX - jibAftX);
+  addBox(parts.structure, [jibForeX - jibAftX, jibDepth, 0.9 * along], [(jibForeX + jibAftX) / 2, jibY, 0], new THREE.Euler(0, 0, -jibRise));
+  const blockHeight = 2.8 * along;
+  addBox(parts.structure, [1.2 * along, blockHeight, 1.0 * along], [jibAftX + 0.6 * along, jibY - jibDepth / 2 - blockHeight / 2 + 0.2, 0]);
+  addPipe(parts.structure, [new THREE.Vector3(readXFromBow(form, 0.483), jibY - jibDepth / 2, 0), new THREE.Vector3(jibAftX + 1.0 * along, jibY - jibDepth / 2 - blockHeight + 0.4, 0)], 0.25 * along + 0.05, 6);
+  // Kingposts with deck lights.
+  for (const share of [0.275, 0.54, 0.705]) {
+    const postX = readXFromBow(form, share);
+    const postHeight = 5.6 * along + 0.5;
+    addCylinder(parts.structure, 0.32 * along + 0.08, postHeight, [postX, deckY + postHeight / 2, -2.6 * across], "y", 8, 0.22 * along + 0.06);
+    addBox(parts.equipment, [0.5, 0.35, 1.6], [postX, deckY + postHeight, -2.6 * across]);
+  }
+  // Tank hatches and P/V valve risers in two rows, one pair per cargo tank.
   for (let positionX = rackStart + 8 * along; positionX < rackEnd - 6 * along; positionX += 17 * along) {
     for (const side of [-1, 1]) {
       addCylinder(parts.equipment, 0.9 * across, 0.8, [positionX, deckY + 0.4, side * 8.5 * across], "y", 12);
-      addCylinder(parts.equipment, 0.18, 3.2, [positionX + 3 * along, deckY + 1.6, side * 6.2 * across], "y", 6);
+      addCylinder(parts.pipes, 0.18, 3.2, [positionX + 3 * along, deckY + 1.6, side * 6.2 * across], "y", 6);
+      addCylinder(parts.equipment, 0.32, 0.5, [positionX + 3 * along, deckY + 3.4, side * 6.2 * across], "y", 8);
     }
   }
 }
@@ -121,9 +198,9 @@ function buildContainerShipDeck(frame: DeckFrame, parts: ShipParts) {
       const rowZ = -stackWidth / 2 + CONTAINER_ROW_PITCH * (row + 0.5);
       const tiers = Math.max(1, tallestTiers - (nextRandom() < 0.3 ? 1 : 0));
       for (let tier = 0; tier < tiers; tier += 1) {
-        const target = nextRandom() < 0.4 ? parts.structure : parts.equipment;
+        const color = CONTAINER_COLORS[Math.floor(nextRandom() * CONTAINER_COLORS.length)] ?? CONTAINER_COLORS[0];
         // 5 cm shorter than the tier pitch so each box shows a seam above it.
-        addBox(target, [CONTAINER_BAY_LENGTH - 0.2, CONTAINER_TIER_HEIGHT - 0.05, CONTAINER_WIDTH], [centerX, deckY + 1.2 + CONTAINER_TIER_HEIGHT * (tier + 0.5), rowZ]);
+        addPaintedBox(parts.painted, [CONTAINER_BAY_LENGTH - 0.2, CONTAINER_TIER_HEIGHT - 0.05, CONTAINER_WIDTH], [centerX, deckY + 1.2 + CONTAINER_TIER_HEIGHT * (tier + 0.5), rowZ], color);
       }
     }
   }
