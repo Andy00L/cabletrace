@@ -212,6 +212,9 @@ async function createSceneRenderer(webGpuDeviceRequest: Promise<Result<WebGpuDev
       console.warn(`[createSceneRenderer] the WebGPU tier did not load, drawing with WebGL: ${error instanceof Error ? error.message : String(error)}`);
     }
     webGpuDevice.value.device.destroy();
+  } else {
+    // Not a fault (most browsers have no WebGPU adapter), but the reason tells a slow adapter from a missing one.
+    console.info(`[createSceneRenderer] drawing with WebGL: ${webGpuDevice.reason}`);
   }
   return createWebGlSceneRenderer(kind, RENDER_TIERS[kind], openedWebGl.kind === "hardware" ? openedWebGl : null);
 }

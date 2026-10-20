@@ -5,16 +5,22 @@ import { TERRAIN_WORKER_PATH } from "@/lib/seabed/scene/terrain-worker-bundle";
 import { loadSeabedData, parseSeabedFeatures, type SeabedData } from "@/lib/seabed/seabed-data";
 import type { TerrainWorkerRequest } from "@/lib/seabed/scene/terrain-worker";
 
-// Loads a seabed area for the 3D replay: the terrain worker (terrain-worker.ts, served as the bundle at
+// Loads a seabed area for the 3D replay: the area's terrain worker (terrain-worker.ts, served as the bundle at
 // TERRAIN_WORKER_PATH) fetches the files, decodes them and builds the terrain's arrays while the main thread renders the
-// console and opens the WebGL context; where workers are unavailable or fail, the main thread does it. Each area and
-// step is loaded once per page and kept, so opening another case on the same seabed area (or coming back after a
-// client navigation) neither fetches nor builds again, and a second grid step of an area (the software tier's half
-// grid) is built from the files already decoded. A failed load is not kept, so a retry starts over. Three-free.
+// console and opens the WebGL context; where workers are unavailable or fail, the main thread does it. The fetch starts
+// while the console renders (warmSeabedArea), before the renderer tier says which grid step to build, so no step is
+// built for nothing. Each area and step is loaded once per page and kept, and the area's worker stays, so opening
+// another case on the same seabed area (or coming back after a client navigation) neither fetches nor builds again,
+// and a second grid step is built from the files the worker holds. A failed load is not kept, so a retry starts over.
+// Three-free.
 
 const loadedScenes = new Map<string, Promise<Result<SeabedScene>>>();
-// Each area's decoded files, once a load has fetched them: read, never written.
-const decodedAreas = new Map<string, SeabedData>();
+// The main-thread fallback's decoded files per area, once it has fetched them.
+const mainThreadAreas = new Map<string, Promise<Result<SeabedData>>>();
+
+/** An area's worker and the builds it owes, by grid step. */
+type AreaWorker = { worker: Worker; pendingBuilds: Map<number, (answer: Result<SeabedScene>) => void> };
+const areaWorkers = new Map<string, AreaWorker>();
 
 function isFloat32Array(value: unknown): value is Float32Array {
   return value instanceof Float32Array;
@@ -35,89 +41,103 @@ function parseTerrainGrid(value: unknown): TerrainGrid | null {
   return { grid: { width, height }, elevations, positions, normals, uvs, colors, occlusion, indices };
 }
 
-/** What the worker answers: the scene, and the area's decoded grid and elevations when it fetched them itself. */
-type WorkerScene = { scene: SeabedScene; decoded: { grid: { width: number; height: number }; elevations: Float32Array } | null };
-
-/** The decoded grid the worker sends back with a fetch, or null. */
-function parseDecoded(value: unknown): WorkerScene["decoded"] {
-  if (typeof value !== "object" || value === null) return null;
-  const grid: unknown = Reflect.get(value, "grid");
-  const elevations: unknown = Reflect.get(value, "elevations");
-  if (typeof grid !== "object" || grid === null || !isFloat32Array(elevations)) return null;
-  const width: unknown = Reflect.get(grid, "width");
-  const height: unknown = Reflect.get(grid, "height");
-  return typeof width === "number" && typeof height === "number" && width * height === elevations.length ? { grid: { width, height }, elevations } : null;
-}
-
-/** Checks the worker's answer: a scene, or its reason for failing. */
-function parseWorkerAnswer(answer: unknown): Result<WorkerScene> {
-  if (typeof answer !== "object" || answer === null) return { ok: false, reason: "the worker answered nothing" };
-  if (Reflect.get(answer, "ok") !== true) return { ok: false, reason: String(Reflect.get(answer, "reason")) };
+/** Checks a build's answer from the worker (it arrives as unknown): its step, and the scene or the reason it failed. */
+function parseWorkerAnswer(message: unknown): { step: number; answer: Result<SeabedScene> } | null {
+  if (typeof message !== "object" || message === null) return null;
+  const step: unknown = Reflect.get(message, "step");
+  const answer: unknown = Reflect.get(message, "answer");
+  if (typeof step !== "number" || typeof answer !== "object" || answer === null) return null;
+  if (Reflect.get(answer, "ok") !== true) return { step, answer: { ok: false, reason: String(Reflect.get(answer, "reason")) } };
   const value: unknown = Reflect.get(answer, "value");
-  if (typeof value !== "object" || value === null) return { ok: false, reason: "the worker answered no scene" };
-  const scene: unknown = Reflect.get(value, "scene");
-  if (typeof scene !== "object" || scene === null) return { ok: false, reason: "the worker answered no scene" };
+  const scene: unknown = typeof value === "object" && value !== null ? Reflect.get(value, "scene") : null;
+  if (typeof scene !== "object" || scene === null) return { step, answer: { ok: false, reason: "the worker answered no scene" } };
   const features = parseSeabedFeatures(Reflect.get(scene, "features"));
   const terrain = parseTerrainGrid(Reflect.get(scene, "terrain"));
-  if (!features.ok) return features;
-  if (!terrain) return { ok: false, reason: "the worker answered a malformed terrain" };
-  return { ok: true, value: { scene: { features: features.value, terrain }, decoded: parseDecoded(Reflect.get(value, "decoded")) } };
+  if (!features.ok) return { step, answer: features };
+  if (!terrain) return { step, answer: { ok: false, reason: "the worker answered a malformed terrain" } };
+  return { step, answer: { ok: true, value: { features: features.value, terrain } } };
 }
 
-function askWorker(request: TerrainWorkerRequest): Promise<Result<WorkerScene>> {
+/** Ends an area's worker, answering every build it still owes with `reason`; the next load of the area starts a new one. */
+function dropAreaWorker(area: string, reason: string) {
+  const areaWorker = areaWorkers.get(area);
+  if (!areaWorker) return;
+  areaWorkers.delete(area);
+  areaWorker.worker.terminate();
+  areaWorker.pendingBuilds.forEach((resolve) => resolve({ ok: false, reason }));
+}
+
+/** The area's worker, started (and asked to fetch the files) on first use; null where workers cannot start. */
+function readAreaWorker(area: string): AreaWorker | null {
+  const known = areaWorkers.get(area);
+  if (known) return known;
+  if (typeof Worker === "undefined") return null;
+  let worker: Worker;
+  try {
+    worker = new Worker(TERRAIN_WORKER_PATH);
+  } catch (error) {
+    console.warn(`[readAreaWorker] no worker for ${area}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+  const areaWorker: AreaWorker = { worker, pendingBuilds: new Map() };
+  worker.onmessage = (event: MessageEvent<unknown>) => {
+    const parsed = parseWorkerAnswer(event.data);
+    if (!parsed) return dropAreaWorker(area, "the worker answered something unreadable");
+    areaWorker.pendingBuilds.get(parsed.step)?.(parsed.answer);
+    areaWorker.pendingBuilds.delete(parsed.step);
+  };
+  worker.onerror = (event) => dropAreaWorker(area, `the worker failed: ${event.message}`);
+  areaWorkers.set(area, areaWorker);
+  worker.postMessage({ kind: "fetch", area } satisfies TerrainWorkerRequest);
+  return areaWorker;
+}
+
+function buildInWorker(areaWorker: AreaWorker, area: string, step: number): Promise<Result<SeabedScene>> {
   return new Promise((resolve) => {
-    let worker: Worker;
-    try {
-      worker = new Worker(TERRAIN_WORKER_PATH);
-    } catch (error) {
-      resolve({ ok: false, reason: `no worker: ${error instanceof Error ? error.message : String(error)}` });
-      return;
-    }
-    worker.onmessage = (event: MessageEvent<unknown>) => {
-      worker.terminate();
-      resolve(parseWorkerAnswer(event.data));
-    };
-    worker.onerror = (event) => {
-      worker.terminate();
-      resolve({ ok: false, reason: `the worker failed: ${event.message}` });
-    };
-    worker.postMessage(request);
+    areaWorker.pendingBuilds.set(step, resolve);
+    areaWorker.worker.postMessage({ kind: "build", area, step } satisfies TerrainWorkerRequest);
   });
 }
 
 async function loadOnMainThread(area: string, step: number): Promise<Result<SeabedScene>> {
-  const known = decodedAreas.get(area);
-  const loaded = known ? { ok: true as const, value: known } : await loadSeabedData(area);
-  if (!loaded.ok) return loaded;
-  decodedAreas.set(area, loaded.value);
+  const loading = mainThreadAreas.get(area) ?? loadSeabedData(area);
+  mainThreadAreas.set(area, loading);
+  const loaded = await loading;
+  if (!loaded.ok) {
+    mainThreadAreas.delete(area);
+    return loaded;
+  }
   return { ok: true, value: buildSeabedScene(loaded.value, step) };
 }
 
 async function loadWithFallback(area: string, step: number): Promise<Result<SeabedScene>> {
-  if (typeof Worker === "undefined") return loadOnMainThread(area, step);
-  const known = decodedAreas.get(area);
-  const inWorker = await askWorker(known ? { kind: "build", data: known, step } : { kind: "fetch", area, step });
-  if (inWorker.ok) {
-    const { scene, decoded } = inWorker.value;
-    // The scene's features carry the drawn grid's size; the decoded files keep the published one's.
-    if (decoded && !known) decodedAreas.set(area, { features: { ...scene.features, grid: decoded.grid }, elevations: decoded.elevations });
-    return { ok: true, value: scene };
-  }
+  const areaWorker = readAreaWorker(area);
+  if (!areaWorker) return loadOnMainThread(area, step);
+  const inWorker = await buildInWorker(areaWorker, area, step);
+  if (inWorker.ok) return inWorker;
+  // A fetch the server refused fails on the main thread too; anything else (no worker script, a crash) may not.
+  dropAreaWorker(area, inWorker.reason);
   console.warn(`[loadSeabedScene] the worker did not build ${area}, building on the main thread: ${inWorker.reason}`);
   return loadOnMainThread(area, step);
 }
 
 /**
- * The seabed area `area` with its terrain at grid `step` (seabed-scene.ts, TERRAIN_STEPS), loaded once per page. Safe
- * to call while rendering, to start the download early: a second call returns the first one's promise. Never rejects.
+ * Starts fetching and decoding seabed area `area` in its worker, before the grid step is known. Safe to call while
+ * rendering: the worker starts once per area.
+ */
+export function warmSeabedArea(area: string) {
+  readAreaWorker(area);
+}
+
+/**
+ * The seabed area `area` with its terrain at grid `step` (seabed-scene.ts, TERRAIN_STEPS), loaded once per page: a
+ * second call returns the first one's promise. Never rejects.
  */
 export function loadSeabedScene(area: string, step: number): Promise<Result<SeabedScene>> {
   const key = `${area}@${step}`;
   const pending = loadedScenes.get(key);
   if (pending) return pending;
-  // Another step of this area on its way fetches the files: wait for it and build from them instead of fetching twice.
-  const sameAreaLoads = [...loadedScenes.entries()].filter(([otherKey]) => otherKey.startsWith(`${area}@`)).map(([, otherLoad]) => otherLoad);
-  const loading = Promise.all(sameAreaLoads).then(() => loadWithFallback(area, step)).then((loaded) => {
+  const loading = loadWithFallback(area, step).then((loaded) => {
     if (!loaded.ok) loadedScenes.delete(key);
     return loaded;
   });
