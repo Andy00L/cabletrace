@@ -1,7 +1,7 @@
 {
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
-  "name": "Trace each placed position to its sources in Evidence mode (signed in)",
+  "name": "Trace each placed position to its sources in Evidence mode (signed in, v2)",
   "description": "Validates Evidence mode: the placed positions with their placement card, and the sources sheet listing every source with a link that opens in a new tab, with a working filter and an empty state.",
   "priority": "p1",
   "planSteps": [

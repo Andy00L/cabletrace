@@ -1,7 +1,7 @@
 {
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
-  "name": "Open the newest case replay from the front page (signed in)",
+  "name": "Open the newest case replay from the front page (signed in, v2)",
   "description": "Validates the front page (its heading, the live recorder card, the newest cases) and that the first case card opens that case's replay console with its 3D view drawn. It accepts both the home page and the landing page that replaces it.",
   "priority": "p0",
   "planSteps": [

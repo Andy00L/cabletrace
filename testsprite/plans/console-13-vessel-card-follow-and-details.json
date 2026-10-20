@@ -1,7 +1,7 @@
 {
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
-  "name": "Open the vessel card, follow the ship and read its details (signed in)",
+  "name": "Open the vessel card, follow the ship and read its details (signed in, v2)",
   "description": "Validates the vessel card opened from the ship's name: its figures at the replay moment and their basis, Follow switching to the Vessel view, and Ship details opening Ship mode with the ship's identity.",
   "priority": "p1",
   "planSteps": [
