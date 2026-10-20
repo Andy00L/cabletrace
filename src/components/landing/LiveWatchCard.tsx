@@ -1,0 +1,143 @@
+import { REGIONS } from "@/data/regions";
+import { readFlagFromMmsi } from "@/lib/globe/ship-identity";
+import type { LandingLive } from "@/lib/landing/landing-live";
+import { CLOSE_PASS_METRES, type CloseCrossing } from "@/lib/landing/live-watch";
+import type { RecorderHealth } from "@/lib/recorder/recorder-summary";
+
+// The recorder keeps positions within 3 km of a cable.
+// sourceRef: supabase/migrations/20261017020000_live_recorder.sql (ingest_vessel_positions, near_cable_metres default 3000).
+const NEAR_CABLE_KILOMETRES = 3;
+
+// Short names for the card's region list, so the eight fit on three lines (board 13); the full names are in
+// src/data/regions and on /live.
+const REGION_SHORT_NAMES: Readonly<Record<string, string>> = {
+  "gulf-of-finland": "Gulf of Finland",
+  "central-baltic": "Central Baltic",
+  "norway-svalbard": "Norway and Svalbard",
+  "taiwan-strait": "Taiwan Strait",
+  "north-sea-shetland": "North Sea",
+  perth: "Perth",
+  "english-channel": "English Channel",
+  "danish-straits-kattegat": "Danish straits",
+};
+
+// Lines split into several OpenStreetMap ways keep the way number in their stored name, "IFA 2000 (way/117931186)";
+// the card shows the line's name. sourceRef: supabase/migrations (the seeded cables' names).
+const OSM_WAY_SUFFIX = / \(way\/\d+\)$/u;
+// ITU's longest administration names, shortened for a one-line row (src/lib/globe/maritime-identification-digits.ts).
+const FLAG_SHORT_NAMES: Readonly<Record<string, string>> = {
+  "United Kingdom of Great Britain and Northern Ireland": "United Kingdom",
+  "United States of America": "United States",
+};
+
+function formatUtcTime(moment: Date): string {
+  return `${moment.toISOString().slice(11, 16)} UTC`;
+}
+
+function describeHealth(health: RecorderHealth): string {
+  switch (health.kind) {
+    case "recording":
+      return "Recording";
+    case "failing":
+      return "Last run failed";
+    case "stale":
+      return `Behind by ${health.minutesSinceLastRun} min`;
+    case "never-ran":
+      return "Not started";
+    default: {
+      const unhandledHealth: never = health;
+      return unhandledHealth;
+    }
+  }
+}
+
+/** "Finland flag, 10.7 kn, 106 m away": the flag the MMSI implies, never the ship's name (style board, choice 4). */
+function describeCrossing(crossing: CloseCrossing): string {
+  const flag = readFlagFromMmsi(crossing.mmsi);
+  // ITU writes some administrations with a qualifier, "Panama (Republic of)"; the card keeps the country.
+  const country = flag.kind === "flag" ? (FLAG_SHORT_NAMES[flag.administration] ?? flag.administration.split(" (")[0]) : null;
+  const flagText = country === null ? "Flag unknown" : `${country} flag`;
+  const speedText = crossing.speedKnots === null ? "speed not reported" : `${crossing.speedKnots.toFixed(1)} kn`;
+  return `${flagText}, ${speedText}, ${Math.round(crossing.distanceMetres)} m away`;
+}
+
+function LiveDot({ isLive }: { isLive: boolean }) {
+  if (!isLive) return <span className="size-1.5 flex-none rounded-full bg-faint" aria-hidden="true" />;
+  return (
+    <span className="relative flex size-1.5 flex-none" aria-hidden="true">
+      <span className="absolute inset-0 animate-ping rounded-full bg-live opacity-60" />
+      <span className="relative size-1.5 rounded-full bg-live" />
+    </span>
+  );
+}
+
+/**
+ * The landing's live card (board 13), printed in ink on the paper: ships near cables in the last hour, the regions
+ * heard in the last 15 minutes, and the three latest close passes. Every figure comes from the recorder, read at most
+ * once a minute; the card says when.
+ */
+export function LiveWatchCard({ live }: { live: LandingLive }) {
+  const { recorder, crossings, heardRegionIds, readAt } = live;
+  const heardIds = new Set(heardRegionIds.ok ? heardRegionIds.value : []);
+  const state = recorder.ok ? recorder.value.health.kind : "unreachable";
+  return (
+    <section
+      className="relative flex flex-col gap-5 rounded-card bg-ink p-6 text-paper shadow-raised sm:p-7"
+      data-testid="recorder-status"
+      data-state={state}
+      aria-labelledby="live-watch-title"
+    >
+      {/* The plate line of the engravings, pressed into the card. */}
+      <span className="pointer-events-none absolute inset-2 rounded-[18px] border border-paper/15" aria-hidden="true" />
+      <div className="flex items-center justify-between gap-4">
+        <h2 id="live-watch-title" className="text-label">Live watch</h2>
+        <span className="flex items-center gap-2 text-caption text-paper/80" data-testid="recorder-state">
+          <LiveDot isLive={state === "recording"} />
+          {recorder.ok ? describeHealth(recorder.value.health) : "Unavailable"}
+          <span className="text-paper/60">as of {formatUtcTime(readAt)}</span>
+        </span>
+      </div>
+      {recorder.ok ? (
+        <div className="flex flex-col gap-1">
+          <p className="text-display tabular-nums" data-testid="recorder-ships">{recorder.value.summary.shipsLastHour.toLocaleString("en-US")}</p>
+          <p className="text-small text-paper/70">ships within {NEAR_CABLE_KILOMETRES} km of a cable in the last hour</p>
+        </div>
+      ) : (
+        <p className="text-body text-paper/70">The recorder could not be read just now. The next read is within a minute.</p>
+      )}
+      <ul className="flex flex-wrap gap-x-3.5 gap-y-1.5" aria-label="Watched regions" data-testid="live-regions">
+        {REGIONS.map((region) => {
+          const isHeard = heardIds.has(region.id);
+          return (
+            <li key={region.id} className={`flex items-center gap-1.5 text-caption ${isHeard ? "text-paper" : "text-paper/50"}`} data-state={isHeard ? "heard" : "quiet"}>
+              <LiveDot isLive={isHeard} />
+              {REGION_SHORT_NAMES[region.id] ?? region.name}
+              {!isHeard && <span className="sr-only">, quiet in the last 15 minutes</span>}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex flex-col border-t border-paper/15 pt-4" data-testid="live-crossings">
+        <h3 className="text-micro text-paper/60">Closest passes, within {CLOSE_PASS_METRES} m of a cable</h3>
+        {!crossings.ok && <p className="mt-2 text-small text-paper/70">The latest passes could not be read just now.</p>}
+        {crossings.ok && crossings.value.length === 0 && <p className="mt-2 text-small text-paper/70">No ship came this close in the last hour.</p>}
+        {crossings.ok && crossings.value.length > 0 && (
+          <ol className="mt-1 flex flex-col">
+            {crossings.value.map((crossing) => (
+              <li key={`${crossing.mmsi}-${crossing.cableName}`} className="flex items-baseline justify-between gap-4 border-b border-paper/10 py-2.5 last:border-b-0">
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-label">{crossing.cableName.replace(OSM_WAY_SUFFIX, "")}</span>
+                  <span className="text-caption font-normal text-paper/60">{describeCrossing(crossing)}</span>
+                </span>
+                <time dateTime={crossing.observedAt.toISOString()} className="flex-none text-caption text-paper/60 tabular-nums">
+                  {formatUtcTime(crossing.observedAt)}
+                </time>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+      <p className="text-micro text-paper/60">Positions: Fintraffic Digitraffic (CC BY 4.0) and aisstream.io</p>
+    </section>
+  );
+}

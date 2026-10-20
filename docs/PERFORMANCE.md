@@ -344,3 +344,28 @@ Baseline, live site, 18 Oct 2026, 3 runs, load average 0.6 (median, min-max):
 Not measured yet: frame rate while playing, interaction latency and long tasks while dragging, panning or scrubbing on
 the phone; they need a scripted interaction, which this tool does not run.
 
+### The landing and the sign-in gate (20 Oct 2026)
+
+The landing replaced the home page, and every page but the landing now sits behind sign-in. Local production build
+(`bun run start`), 3 runs each, median (min-max):
+
+| Measure | Old home (18 Oct baseline) | Landing |
+| --- | --- | --- |
+| Desktop `/` LCP | 388 ms (240-536), live site | 536 ms (424-872): pass |
+| Desktop `/` JS | 195.7 KB | 185.5 KB: pass (Clerk's script never loads on the landing) |
+| 3G phone `/` first screen (LCP) | 1,260 ms, 80.1 KB before it | 2,140 ms (2,120-2,176), 39.4 KB before it: pass |
+| 3G phone `/` CLS | 0.302 in two of three runs | 0.004: pass |
+
+The landing's first screen on a phone is the headline, the buttons and the live card; the engraving sits below it, so
+the headline is the LCP element and the 64 KB phone art no longer delays it. The phone CLS came from the headline and
+the sentence re-wrapping when TikTok Sans arrived: the heading fallback face and the Liberation Sans sources in
+`src/app/layout.tsx` make both fonts wrap identically at 360, 390, 430 and 600 px (measured with font requests blocked
+against loaded). The live card's data is read at most once a minute into the cached page (`use cache`, 60 s), so
+it costs the visitor nothing at request time.
+
+**Signing in.** The perf tool, the console checks (`scripts/checks/console-page.ts`) and the lookdev harness sign in
+as `cabletrace-tools+clerk_test@example.com` before opening a page behind the gate (`scripts/auth/sign-in-test-user.ts`,
+about 5 s once per browser context, unthrottled and outside the measured load). Clerk test addresses work on the
+development instance only; a production instance needs another route in for these tools, for example a session
+created through Clerk's Backend API.
+

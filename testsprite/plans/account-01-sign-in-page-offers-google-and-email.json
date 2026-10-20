@@ -1,0 +1,21 @@
+{
+ "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+ "type": "frontend",
+ "name": "Sign-in page offers Google first and an email code",
+ "description": "The sign-in page is public and shows Google as the main action, the email code below it, and the note about Clerk's development tier.",
+ "priority": "p1",
+ "planSteps": [
+  {
+   "type": "action",
+   "description": "Navigate to /sign-in"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the page (data-testid sign-in-page) shows the heading Sign in to CableTrace, a Continue with Google button, an Email address field and a Continue button"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the page shows the text \"Accounts run on Clerk's development tier during the hackathon\" and a link Sign up"
+  }
+ ]
+}

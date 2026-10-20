@@ -7,7 +7,7 @@
   derived, every event links to a verbatim quote from its source, and every case downloads as a file whose SHA-256
   anyone can recompute.
 </p>
-<p align="center">Built for the TestSprite Hackathon Season 4, Project Track. Live at <a href="https://cabletrace.vercel.app">cabletrace.vercel.app</a>.</p>
+<p align="center">Built for the TestSprite Hackathon Season 4, Project Track. Live at <a href="https://cabletrace.vercel.app">cabletrace.vercel.app</a>: the front page is public, and "Continue with Google" (or a code by email) opens the console. Anyone can create an account.</p>
 
 <p align="center">
   <img alt="live" src="https://img.shields.io/badge/live-cabletrace.vercel.app-2E9E5B">
@@ -131,7 +131,7 @@ browser loads the seabed block and draws it. Everything live runs on Supabase's 
 server of its own. Recorder tables, detections, drafts and watch items have no public read: the site reads them
 through capped functions or with the secret key on the server. When a run fails, the failure shows rather than hides:
 
-- The recorder card on the home page says "Run failed" or "Stopped" with the minutes since the last run.
+- The live card on the landing page says "Last run failed" or "Behind by N min", and "as of" the time it last read.
 - A collector run that writes no frame leaves a gap in the `/live` timeline, one tick per stored frame.
 - A frame that cannot be loaded puts a notice on the globe, and the last good pair stays on screen.
 - A depth grid the detector cannot load is logged and skipped; ships outside every grid get the unknown-depth band.
@@ -160,7 +160,8 @@ tugs, dredgers and other working craft (AIS ship types 30 to 34, 36, 37, 50 to 5
 
 | What                         | Where                                                                                     |
 | ---------------------------- | ----------------------------------------------------------------------------------------- |
-| The app                      | [cabletrace.vercel.app](https://cabletrace.vercel.app)                                    |
+| The app (public front page)  | [cabletrace.vercel.app](https://cabletrace.vercel.app)                                    |
+| Sign in (Google or an email code; every link below needs it, except health) | [/sign-in](https://cabletrace.vercel.app/sign-in) |
 | A replay                     | [/cases/eagle-s-2024](https://cabletrace.vercel.app/cases/eagle-s-2024)                   |
 | A replay from the trawler's own AIS | [/cases/svalbard-2022](https://cabletrace.vercel.app/cases/svalbard-2022)          |
 | A deep link (minute, view, card) | [/cases/yi-peng-3-2024?t=2024-11-18T07:10Z&mode=ship&view=top](https://cabletrace.vercel.app/cases/yi-peng-3-2024?t=2024-11-18T07:10Z&mode=ship&view=top) |
@@ -233,12 +234,12 @@ bun test src
 bun run build
 ```
 
-Success: each exits 0; `bun test src` runs 328 tests.
+Success: each exits 0; `bun test src` runs 338 tests.
 
-Check a case file from the live site (it touches nothing):
+Check a case file (it touches nothing). Download it from a case's Case file row while signed in, then:
 
 ```bash
-bun scripts/cases/verify-case-file.ts https://cabletrace.vercel.app/cases/eagle-s-2024/case-file
+bun scripts/cases/verify-case-file.ts ~/Downloads/cabletrace-eagle-s-2024.json
 ```
 
 Success: the recorded and computed hashes print equal, then `intact`, exit 0.
@@ -284,7 +285,9 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
 - **Fault signals are thin.** NGA's warning feed has published nothing newer than 10 May 2024. IODA publishes no terms
   for redisplay, so a signal shows only its title and a link. ENTSO-E power-link outages wait for an API token.
 - **Accounts run on Clerk's development instance.** A production instance needs a custom domain; the development tier
-  allows 100 users.
+  allows 100 users, and the sign-in form says "Development mode".
+- **The whole app sits behind sign-in.** Only the front page, the sign-in pages and `/api/health` are public, so a case
+  file is downloaded signed in (the console's Case file row) and checked from the saved file.
 - **The WebGPU tier was tested on one adapter.** It ran on an AMD GCN 5 laptop GPU through Windows Chrome; other GPUs
   and browsers fall back to WebGL when they offer no real adapter. Its code (199.5 KB compressed) loads only when the
   tier is chosen.

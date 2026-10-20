@@ -36,7 +36,7 @@ export default async function CasesPage() {
                 <span className="text-caption font-normal text-muted tabular-nums">{group.items.length === 1 ? "1 case" : `${group.items.length} cases`}</span>
               </h2>
               {group.items.map((cableCase) => (
-                <CaseCard key={cableCase.slug} cableCase={cableCase} sketch={sketchesBySlug.get(cableCase.slug) ?? null} layout="row" />
+                <CaseCard key={cableCase.slug} cableCase={cableCase} sketch={sketchesBySlug.get(cableCase.slug) ?? null} />
               ))}
             </section>
           ))}

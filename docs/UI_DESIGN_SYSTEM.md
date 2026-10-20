@@ -13,6 +13,7 @@ Theme: light only for the first version. Palette approved by Andy on 2026-10-16 
 | Token | Hex | Use | Contrast |
 |---|---|---|---|
 | `page` | `#F3F3F1` | The field under everything. Warm neutral, never the cool `#F3F4F6` family. | |
+| `paper` | `#F9F1E2` | The landing and sign-in pages only: the median paper of Andy's engravings, so the art dissolves into the page (approved on the style board, 19 Oct 2026). The console keeps `page`. | `ink` 16.4:1, `muted` 5.5:1 on it |
 | `card` | `#FFFFFF` | Cards, list rows, the map frame | |
 | `soft` | `#E8E8E5` | Second buttons, segmented control track, disabled fill | |
 | `ink` | `#141414` | Text, icons, the main action fill | 18.4:1 on card, 16.7:1 on page |
@@ -56,6 +57,7 @@ One family: TikTok Sans (SIL Open Font License 1.1, served by Google Fonts, vari
 
 | Token | Size / line | Weight | Tracking | Use |
 |---|---|---|---|---|
+| `hero` | 56 / 60 | 600 | -0.01em | The landing's headline only, from 640 px (`title` below) |
 | `display` | 44 / 48 | 600 | -0.02em | The big number on a card |
 | `title` | 32 / 38 | 600 | -0.015em | Page titles |
 | `heading` | 22 / 28 | 600 | -0.01em | Section headings |
@@ -67,6 +69,8 @@ One family: TikTok Sans (SIL Open Font License 1.1, served by Google Fonts, vari
 | `micro` | 12 / 16 | 500 | +0.01em | Map labels, attribution. The smallest size. |
 
 Sentence case everywhere, including map labels. No uppercase labels.
+
+The 600-weight sizes (`hero`, `display`, `title`, `heading`) take their own fallback face, Arial Bold or Liberation Sans Bold at 91.8%, which wraps like TikTok Sans at 600 while the web font loads (`src/app/layout.tsx`). Body text keeps Next's fallback at 104.34%. Both faces list Liberation Sans, which has Arial's widths, for Linux.
 
 ## Space and shape
 
@@ -220,16 +224,37 @@ Primitives are written in `src/components/ui/` on the tokens above. Behaviour co
 
 ## Site pages
 
-Home, the case list, the live globe, the watchlist and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark, the sections with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Under 640 px the mark drops its name and the WebGL check hides, so the four sections fit a 360 px phone. Content sits 24 px from the edges up to 1,440 px wide.
+The landing, the case list, the live globe, the watchlist and the WebGL check share one bar (`src/components/layout/SiteHeader.tsx`): the mark (it links to the landing), the sections Cases, Live and Watchlist with the current one on a `card` pill with `shadow-selected`, and the WebGL check at the far end. Under 640 px the mark drops its name and the WebGL check hides. Content sits 24 px from the edges up to 1,440 px wide.
 
 | Page | 1024 px and up | Under 1024 px |
 |---|---|---|
-| Home (board 12a) | One screen. Left, 400 px: the title, what CableTrace does, the live recorder card and a link to the recorded day on the globe. Right: the two newest cases as wide cards (sketch beside place, date, title and three facts) sharing the column's height. Between 1,024 and 1,280 px the sketch keeps 16:9 so no cut is cropped. | One column that scrolls; the sketch sits over the text. |
+| Landing (board 13) | See "Landing" below. | |
 | Case list | Cases grouped by region (Gulf of Finland, Central Baltic, Norway and Svalbard, Taiwan Strait, Red Sea; `src/lib/cases/case-regions.ts`), newest first in each, as compact rows: a 112 px sketch beside place, date, title and one line of facts. Three columns from 1,280 px, two from 768 px, so a dozen cases fit one screen. | One column. |
 | Watchlist | Two cards side by side: alerts of the last 24 hours (the detector's findings on a watched ship, a watched cable, or a cable cut in a watched case; `alarm` for an alert, `ink` for a watch) and the watched items with a remove button each. Signed out, the page sends the reader to sign in. | The two cards stack. |
-| Sign in, sign up | Clerk's form in the middle of the page, colored from the tokens (`src/app/(account)/layout.tsx`). | Same. |
+| Sign in, sign up (board 16) | On `paper`, the threads engraving rising from the bottom; Clerk's form centred, 420 px, styled as a plate: Google first as the ink pill, the email code under it, the development-tier note below (`src/components/account/AccountPage.tsx`). | Same, full width with the 16 px gutter. |
 
-Accounts (Clerk) exist only for the watchlist. Clerk's script loads on the account pages alone, and its proxy runs only on those paths and `/api/watchlist` (`src/proxy.ts`), so the other pages stay static. A Watch button (bookmark icon) sits in the console's top bar for the case, in a cut card for its cable, and in the vessel card for the ship when its MMSI is published; it does not ask whether the item is already watched, so pages carry no session check. Watched items live in `public.watch_items`, reachable only by the server with the secret key, at most 100 per reader.
+The whole app sits behind sign-in (Andy, 17 Oct 2026). Public: the landing, the sign-in and sign-up pages, `/api/health`, and static files. Every other page sends a signed-out reader to sign in and back to the exact link afterwards (same origin only); every other API answers 401 (`src/proxy.ts`). Anyone can create an account, with Google or a code by email. Clerk's script loads on the pages behind sign-in and the account pages (`src/components/account/ClerkAppProvider.tsx`, used by their layouts) and never on the landing; it keeps the short-lived session cookie fresh for the APIs those pages call. Pages stay prerendered; the proxy checks the session before serving them. A Watch button (bookmark icon) sits in the console's top bar for the case, in a cut card for its cable, and in the vessel card for the ship when its MMSI is published; it does not ask whether the item is already watched, so pages carry no session check. Watched items live in `public.watch_items`, reachable only by the server with the secret key, at most 100 per reader.
+
+## Landing
+
+The public front door (`src/app/page.tsx`, board 13, approved 19 Oct 2026). On `paper`, Andy's three engravings (one print medium: Prussian blue ink, one vermilion accent that marks the incident; "Art generated with Google Nano Banana") dissolve into the page top and bottom instead of sitting in boxes (`art-dissolve`, `art-dissolve-top` in `src/app/globals.css`). Every number on it is read from the recorder or the case files.
+
+| Section | 1024 px and up | Under 1024 px |
+|---|---|---|
+| First screen | The `hero` headline, one sentence, the ink pill "Open the console" (the Eagle S replay) and a "Sign in" text button, on the sky of engraving 1 (the gulf at anchor). The live watch card floats in that sky on the right. | Headline, sentence, buttons, then the live watch card, then the engraving: the live numbers are the phone's first screen. |
+| Newest case | Engraving 2 (the furrow) with the newest case on file as a plate on its left: sketch, place and date, title, cut and evidence, "Open the replay". | The plate over the bottom of the engraving. |
+| On file | Four figures printed on the paper between hairlines: cases and sources, lines watched, regions, positions in the last hour. | Two by two. |
+| Evidence | Engraving 3 (the threads) with the C-Lion1 placement as a plate: Cinia's words, their page and archived copy, how the point was placed, "See it in the replay". | The plate over the bottom of the engraving. |
+| Close | One line and the same ink pill; the data credits, the repository and the hackathon line. | Same. |
+
+Andy asked for fewer plain white cards on these pages, so they have two card styles of their own, both from the print medium and only approved colors:
+
+- **The ink card** (live watch): `ink` with `paper` text at 100, 80, 70 or 60% opacity, a plate line inset 8 px (`paper` at 15%), live dots in `live`. 60% `paper` on `ink` measures 6.5:1, 50% (the quiet regions) 4.8:1.
+- **The plate** (`src/components/landing/Plate.tsx`, also the sign-in form): `paper` on `paper`, lifted by `shadow-raised`, framed by a fine `ink` rule at 20% with a second one inset 6 px at 10%, like the plate mark around an engraving.
+
+The live card shows ships within 3 km of a cable in the last hour (`recorder_summary`), which regions the recorder heard in the last 15 minutes, and the three latest passes within 150 m of a cable: the line, the flag the MMSI implies, speed and distance, never a ship's name. It reads at most once a minute for every visitor together (`src/lib/landing/landing-live.ts`, `use cache` with a 60 s life) and says "as of" the read time. States: recording, last run failed, behind by N minutes, not started, unreachable; no pass in the hour; a read that failed.
+
+The art is cropped inside its printed plate mark, its paper moved onto `paper`, and served as AVIF and WebP at 960, 1,600 and 2,400 px (600 and 1,200 px for the 4:5 phone cuts under 768 px) by `scripts/art/build-landing-art.ts`. Swapping a piece means replacing its file and rerunning the script; the layout reads the sizes from the generated manifest. No blurred placeholder: a blur of fine lines turns grey, and the bare paper is the right color to wait on.
 
 ## Live globe
 

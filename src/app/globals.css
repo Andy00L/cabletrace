@@ -1,3 +1,6 @@
+/* Clerk's styles sit in their own layer under the utilities, so the account form takes our classes
+   (src/components/account/ClerkAppProvider.tsx, cssLayerName). */
+@layer theme, base, clerk, components, utilities;
 @import "tailwindcss";
 
 /*
@@ -8,6 +11,9 @@
 @theme {
   --color-*: initial;
   --color-page: #F3F3F1;
+  /* The landing and sign-in pages' paper: the median paper of Andy's engravings, approved on the style board on
+     2026-10-19 (docs/UI_DESIGN_SYSTEM.md, Landing). The console keeps `page`. */
+  --color-paper: #F9F1E2;
   --color-card: #FFFFFF;
   --color-soft: #E8E8E5;
   --color-ink: #141414;
@@ -30,6 +36,11 @@
 
   /* Type scale (docs/UI_DESIGN_SYSTEM.md, Type). The default scale is cleared so only these sizes exist. */
   --text-*: initial;
+  /* The landing's headline only (board 13). */
+  --text-hero: 56px;
+  --text-hero--line-height: 60px;
+  --text-hero--letter-spacing: -0.01em;
+  --text-hero--font-weight: 600;
   --text-display: 44px;
   --text-display--line-height: 48px;
   --text-display--letter-spacing: -0.02em;
@@ -125,6 +136,26 @@ body {
 /* The white halo under every map and 3D scene label (docs/UI_DESIGN_SYSTEM.md, Data: labels use a white halo). */
 @utility map-label-halo {
   text-shadow: 0 0 3px var(--color-card), 0 0 3px var(--color-card), 0 0 6px var(--color-card);
+}
+
+/* The 600-weight sizes use the heading stack, whose fallback face wraps like the web font (src/app/layout.tsx). In the
+   components layer, so a utility on the same element still wins. */
+@layer components {
+  .text-hero,
+  .text-display,
+  .text-title,
+  .text-heading {
+    font-family: var(--font-heading, var(--font-sans));
+  }
+}
+
+/* The landing's engravings dissolve into the paper instead of sitting in a box (board 13): top and bottom fade out,
+   or only the top where the art runs to the page's end. */
+@utility art-dissolve {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14%, #000 82%, transparent 100%);
+}
+@utility art-dissolve-top {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22%);
 }
 
 /* One focus treatment for every interactive element (docs/UI_DESIGN_SYSTEM.md, focus-ring). */

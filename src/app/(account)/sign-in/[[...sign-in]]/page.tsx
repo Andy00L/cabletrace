@@ -1,25 +1,21 @@
 import type { Metadata } from "next";
 import { SignIn } from "@clerk/nextjs";
 import { Suspense } from "react";
-import { SiteHeader } from "@/components/layout/SiteHeader";
+import { ACCOUNT_FORM_APPEARANCE, AccountPage } from "@/components/account/AccountPage";
 
-// Clerk's development tier: production keys need a domain of our own, which *.vercel.app is not (plan/decision-log.md).
-const ACCOUNTS_NOTE = "Accounts run on Clerk's development tier during the hackathon: at most 100 readers, and the form says Development mode.";
+export const metadata: Metadata = { title: "Sign in", description: "Sign in to open the CableTrace console, the live watch and your watchlist." };
 
-export const metadata: Metadata = { title: "Sign in", description: "Sign in to keep a watchlist of cases, cables and ships." };
-
-/** Clerk's sign-in form; after it, the reader lands on the watchlist (or the page that sent them here). */
+/**
+ * Clerk's sign-in form. Google first, then a code by email; anyone can create an account. Afterwards the reader goes
+ * back to the page that sent them here, or to the console (src/components/account/ClerkAppProvider.tsx).
+ */
 export default function SignInPage() {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-[1440px] flex-col px-4 pb-6 sm:px-6">
-      <SiteHeader current="watchlist" />
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 py-10">
-        {/* Clerk's form reads the URL, so it renders in the browser behind a card of its size. */}
-        <Suspense fallback={<div className="h-[420px] w-[400px] max-w-full rounded-card bg-card shadow-card" aria-busy="true" />}>
-          <SignIn />
-        </Suspense>
-        <p className="max-w-[400px] text-center text-caption font-normal text-muted">{ACCOUNTS_NOTE}</p>
-      </main>
-    </div>
+    <AccountPage testId="sign-in-page">
+      {/* Clerk's form reads the URL, so it renders in the browser behind a plate of its size. */}
+      <Suspense fallback={<div className="h-[440px] w-full rounded-card border border-ink/20 bg-paper shadow-raised" aria-busy="true" />}>
+        <SignIn appearance={ACCOUNT_FORM_APPEARANCE} />
+      </Suspense>
+    </AccountPage>
   );
 }
