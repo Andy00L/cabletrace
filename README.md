@@ -73,7 +73,9 @@ one.
 - **Shows a recorded day of the world's ships.** Every 10 minutes a collector writes one compressed frame of every ship
   aisstream.io and Digitraffic heard; `/live` plays the last 24 hours on a globe with the world's submarine cables and
   pipelines (4,186 OpenStreetMap lines), hatches the sea no receiver heard, lists the ships that crossed a clicked
-  line, and dives from a cut on the globe into its case.
+  line, and dives from a cut on the globe into its case. It zooms by sea, not by land: from orbit a dot per 220 km
+  cell sized by its ships and the busiest of 104 named seas counted; a sea's own ships and the watched regions in it;
+  a region up close; the picked ship. The tier and the centre stay in the address.
 
 ## 🧭 How it works
 
@@ -296,7 +298,7 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
 ## 🏆 TestSprite
 
 The TestSprite GitHub App tests every pull request: when Vercel reports the pull request's preview ready, TestSprite
-runs every portal test against that preview, reports the "TestSprite V3" check and comments its report. The 20
+runs every portal test against that preview, reports the "TestSprite V3" check and comments its report. The 21
 browser tests in `testsprite/plans` are the suite. Each plan asserts what a reader sees, through `data-testid`,
 `data-state`, `aria-pressed` and `aria-current` hooks and the console's own wording, never pixel positions.
 
@@ -317,6 +319,7 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 | `console-14` | Keyboard shortcuts | Event jumps, view keys, Space to play and pause, the shortcuts dialog |
 | `live-01` | Live globe, the Eagle S incident, Fly to the seabed | The recorded day loading, and the dive landing on the cut's minute and card |
 | `live-02` | Feed check on `/live` | The verdict text matching its state, with the 90% and 95% targets |
+| `live-03` | Zoom by sea: Planet, a sea, back up, a link to the Baltic, the Gulf of Finland | The busiest seas ranked, each tier's card, breadcrumb and address |
 | `ship-01` | Vessel inspector on Yi Peng 3 at the C-Lion1 cut, then stowed | The side profile, chain out and layback, the derived figures and their basis |
 | `ship-02` | Yi Peng 3's AIS signal strip and the timeline panel | 114 reports, the 15, 15 and 50 minute silences, the reconstructed stretch |
 | `ship-03` | A ship with no AIS, and the vessel card's profile | The no-AIS state for Eagle S and the anchor chain in the vessel card |
@@ -326,7 +329,8 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 Every plan signs in with a Clerk test address (its code is always 424242 and no email is sent) before it opens an
 app page; `routes-01` reads `/api/health` signed out first. No plan depends on another, and each runs the same
 before and after the app goes behind sign-in. Each plan's steps and assertions were run with Playwright against
-cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both. `testsprite/backend` holds two API tests in TestSprite's Python
+cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both; `live-03`,
+written with the tiers, passed 7 of 7 checks on a local build of its branch. `testsprite/backend` holds two API tests in TestSprite's Python
 format: the health contract, and the sign-in gate (only the front page and `/api/health` answer a signed-out caller,
 the APIs refuse it with 401, the pages redirect toward sign-in). Both pass with `python3 testsprite/backend/<file>.py`
 against the live app and wait for a TestSprite backend project, since this one is a frontend project. A manual run against any URL is `.github/workflows/testsprite.yml`,
@@ -342,6 +346,7 @@ started from the Actions tab.
 | Cables, seabed blocks and globe | OpenStreetMap contributors; EE-S1 traced off a Yle map (yle.fi/a/74-20056160); TP3 placed from Taiwan's Ministry of Digital Affairs and Coast Guard statements | ODbL 1.0; the derived files (`public/globe/cables.json`, the lines in `public/seabed/*-seabed.json`) are offered under ODbL 1.0 |
 | Pipelines                    | EMODnet Human Activities                                                                | CC BY 4.0                     |
 | Globe land                   | Natural Earth 1:50m                                                                     | public domain                 |
+| Named seas on the globe      | Natural Earth 1:50m marine areas, drawn into `public/globe/seas.json` by `scripts/globe/build-seas.ts` | public domain                 |
 | Sand ripple detail (GPU tier) | Poly Haven, Aerial Beach 01 by Rob Tuytel                                              | CC0                           |
 | Recorded AIS, Yi Peng 3 and Vezhen | Danish Maritime Authority AIS archive (aisdata.ais.dk)                            | DMA terms for the archive     |
 | Recorded AIS, Svalbard       | Norwegian Coastal Administration, Kystdatahuset                                         | NLOD                          |

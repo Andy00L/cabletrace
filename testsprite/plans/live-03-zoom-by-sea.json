@@ -1,0 +1,69 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Zoom the live globe by sea: Planet, a sea, then a watched region (signed in)",
+  "description": "Validates the /live tiers: the globe opens at the Planet tier with the busiest seas counted, a sea row flies down to the Sea tier with its own card, breadcrumb and address, Planet flies back up, and a shared link opens the Baltic whose Gulf of Finland row reaches the Strait tier.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /live and wait up to 60 seconds for the globe (data-testid live-globe-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the tier box (data-testid live-tier) has data-tier \"planet\", and in the zoom ladder (data-testid live-tier-ladder) the \"Planet\" button has aria-pressed=\"true\" and the \"Ship\" button is disabled"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert, within 30 seconds, the card \"Busiest seas in this frame\" (data-testid live-busiest-seas) lists at least 3 rows (data-testid live-busiest-sea), each with a sea name and a whole number of ships, the first row's number being the largest"
+    },
+    {
+      "type": "action",
+      "description": "Remember the first row's sea name, then click that row and wait 3 seconds for the camera to fly down"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the tier box (data-testid live-tier) now has data-tier \"sea\", the breadcrumb (data-testid live-breadcrumb) reads \"World\" then the remembered sea name, the sea card (data-testid live-sea-card) is titled with that sea name and shows a whole number (data-testid live-sea-ship-count), and the URL query holds tier=sea"
+    },
+    {
+      "type": "action",
+      "description": "Click \"Planet\" in the zoom ladder (data-testid live-tier-ladder) and wait 3 seconds"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the tier box (data-testid live-tier) has data-tier \"planet\" again, the URL query no longer holds tier, and the card \"Busiest seas in this frame\" (data-testid live-busiest-seas) is shown"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /live?tier=sea&at=20.63,59.63 and wait up to 60 seconds for the globe (data-testid live-globe-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the tier box (data-testid live-tier) has data-tier \"sea\", the breadcrumb (data-testid live-breadcrumb) reads \"World\" then \"Baltic Sea\", and the sea card (data-testid live-sea-card) lists \"Gulf of Finland\" under \"Recorded every minute here\""
+    },
+    {
+      "type": "action",
+      "description": "Click the \"Gulf of Finland\" row in the sea card (data-testid live-sea-region-gulf-of-finland) and wait 3 seconds"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the tier box (data-testid live-tier) has data-tier \"strait\", the \"Strait\" button of the zoom ladder has aria-pressed=\"true\", and the breadcrumb (data-testid live-breadcrumb) reads \"World\", \"Baltic Sea\", \"Gulf of Finland\""
+    }
+  ]
+}

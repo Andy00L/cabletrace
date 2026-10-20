@@ -7,6 +7,7 @@ import { LiveDay } from "@/components/live/LiveDay";
 import type { DetectionsState } from "@/components/live/LiveRail";
 import { fetchRecentDraftCases } from "@/lib/fault-signals/fault-api";
 import { createFrameSource } from "@/lib/globe/frame-source";
+import type { WatchedRegionOutline } from "@/lib/globe/globe-tier";
 import { fetchFeedCheck } from "@/lib/health/feed-check-report";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { fetchRecentDetections } from "@/lib/globe/live-api";
@@ -18,12 +19,13 @@ type IndexState = { kind: "loading" } | { kind: "failed" } | { kind: "empty" } |
 type LiveConsoleProps = {
   watchedLines: readonly WatchedLine[];
   incidents: readonly GlobeIncident[];
-  /** Watched region names by id, for the feed check. */
-  regionNames: Readonly<Record<string, string>>;
+  /** The watched regions' names and boxes: outlined on the globe, and named in the feed check. */
+  watchedRegions: readonly WatchedRegionOutline[];
 };
 
 /** Finds the recorded day (the frame index), the detector's results and the feed check, then shows the day on the globe. */
-export function LiveConsole({ watchedLines, incidents, regionNames }: LiveConsoleProps) {
+export function LiveConsole({ watchedLines, incidents, watchedRegions }: LiveConsoleProps) {
+  const regionNames = Object.fromEntries(watchedRegions.map((region) => [region.id, region.name]));
   const [frameSource] = useState(createFrameSource);
   const [indexState, setIndexState] = useState<IndexState>({ kind: "loading" });
   const [detectionsState, setDetectionsState] = useState<DetectionsState>({ kind: "loading" });
@@ -64,7 +66,7 @@ export function LiveConsole({ watchedLines, incidents, regionNames }: LiveConsol
   }, [frameSource]);
 
   if (indexState.kind === "ready") {
-    return <LiveDay entries={indexState.entries} frameSource={frameSource} watchedLines={watchedLines} incidents={incidents} detectionsState={detectionsState} draftCasesState={draftCasesState} feedCheck={<FeedCheck state={feedCheckState} regionNames={regionNames} />} />;
+    return <LiveDay entries={indexState.entries} frameSource={frameSource} watchedLines={watchedLines} watchedRegions={watchedRegions} incidents={incidents} detectionsState={detectionsState} draftCasesState={draftCasesState} feedCheck={<FeedCheck state={feedCheckState} regionNames={regionNames} />} />;
   }
   const message =
     indexState.kind === "loading"
