@@ -47,6 +47,8 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
 
     async function startViewer(host: HTMLDivElement) {
       const [loaded, viewerModule] = await Promise.all([loadSeabedData(input.seabedArea), import("@/lib/seabed/scene/viewer")]);
+      // Load steps on the page's timeline (scripts/perf/measure-pages.ts --profile case-click reads every seabed:* mark).
+      performance.mark("seabed:data-and-code");
       if (isCancelled) return;
       if (!loaded.ok) {
         console.error(`[SeabedView] ${loaded.reason}`);

@@ -1,11 +1,14 @@
 // Measures load and runtime cost of the CableTrace pages in headless Chromium and checks them against the budgets below.
-// Usage: bun scripts/perf/measure-pages.ts <baseUrl> [--runs 5] [--chromium /path/to/chrome] [--profile desktop|3g-phone]
+// Usage: bun scripts/perf/measure-pages.ts <baseUrl> [--runs 5] [--chromium /path/to/chrome] [--profile desktop|3g-phone|case-click]
 // Every run opens a fresh browser context (cold HTTP cache). The desktop profile is 1440 x 900 with no throttling; the
-// 3g-phone profile is a 390 x 844 phone at device pixel ratio 3 on a throttled 3G link with the CPU slowed 4 times.
+// 3g-phone profile is a 390 x 844 phone at device pixel ratio 3 on a throttled 3G link with the CPU slowed 4 times; the
+// case-click profile opens /cases on the GPU (the lookdev harness's hardware tier) and times a click on a case until
+// the console is usable and the 3D view has drawn its first frame.
 // Exit codes: 0 every budget met, 1 a budget broken, 2 the pages could not be measured.
 // Headless Chromium draws WebGL with SwiftShader (on the CPU), so the 3D numbers are a slow-machine bound, not a GPU result.
 import { chromium, type Browser, type Page, type Request } from "playwright";
 import type { Result } from "../../src/lib/result";
+import { TIER_LAUNCH } from "../lookdev/tier-launch";
 import { resolveChromiumPath } from "./chromium-path";
 
 // Budgets (desktop, broadband). Sources: docs/PERFORMANCE.md, Budgets.
@@ -21,6 +24,13 @@ const PHONE_FIRST_SCREEN_BUDGET_BYTES = 250 * 1024;
 const PHONE_CONSOLE_SHELL_BUDGET_MS = 3000;
 const PHONE_FIRST_3D_FRAME_BUDGET_MS = 6000;
 const PHONE_FIRST_3D_FRAME_BUDGET_BYTES = 1024 * 1024;
+// Click on a case in /cases to a usable replay (the console drawn and the 3D view's first frame), on a desktop GPU
+// (plan/next-reset.md, "Case pages load in under 2 s"), median of the runs for each case.
+const CASE_CLICK_BUDGET_MS = 2000;
+// The cases the click is timed on: two Baltic areas and the Taiwan Strait, so a slow area cannot hide behind a fast one.
+const CASE_CLICK_SLUGS = ["eagle-s-2024", "yi-peng-3-2024", "hong-tai-58-2025"] as const;
+// /cases is left this long after it settles before the click, as a reader looks before choosing.
+const CASE_CLICK_DWELL_MS = 500;
 
 const DEFAULT_RUN_COUNT = 5;
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -33,7 +43,7 @@ const SETTLE_MS = 1000;
 // Prefix of the performance marks the init script writes when a [data-testid][data-state] element changes state.
 const STATE_MARK_PREFIX = "perf-state:";
 
-type ProfileName = "desktop" | "3g-phone";
+type ProfileName = "desktop" | "3g-phone" | "case-click";
 type CliOptions = { baseUrl: string; runCount: number; chromiumPath: string | null; profile: MeasureProfile };
 
 type PageKind = "home" | "diagnostics" | "console";
@@ -74,6 +84,16 @@ const PROFILES: Record<ProfileName, MeasureProfile> = {
       { kind: "home", route: "/" },
       { kind: "console", route: "/cases/eagle-s-2024" },
     ],
+  },
+  // A desktop on its GPU; what it times are the case clicks (CASE_CLICK_SLUGS), not page loads.
+  "case-click": {
+    name: "case-click",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    network: null,
+    cpuSlowdown: 1,
+    targets: [],
   },
 };
 const HEALTH_ROUTE = "/api/health";
@@ -123,7 +143,7 @@ function readFlagValue(argumentList: string[], flag: string): string | null {
 }
 
 function isProfileName(value: string): value is ProfileName {
-  return value === "desktop" || value === "3g-phone";
+  return value === "desktop" || value === "3g-phone" || value === "case-click";
 }
 
 function parseCliOptions(argumentList: string[]): Result<CliOptions> {
@@ -134,7 +154,7 @@ function parseCliOptions(argumentList: string[]): Result<CliOptions> {
   if (!Number.isInteger(runCount) || runCount < 1) return { ok: false, reason: `--runs must be a positive integer, got ${runFlag}` };
   const chromiumPath = readFlagValue(argumentList, "--chromium") ?? process.env.PERF_CHROMIUM_PATH ?? null;
   const profileFlag = readFlagValue(argumentList, "--profile") ?? "desktop";
-  if (!isProfileName(profileFlag)) return { ok: false, reason: `--profile must be desktop or 3g-phone, got ${profileFlag}` };
+  if (!isProfileName(profileFlag)) return { ok: false, reason: `--profile must be desktop, 3g-phone or case-click, got ${profileFlag}` };
   return { ok: true, value: { baseUrl: baseUrl.replace(/\/$/, ""), runCount, chromiumPath, profile: PROFILES[profileFlag] } };
 }
 
@@ -487,6 +507,119 @@ function describePageRow(report: PageReport): string[] {
   ];
 }
 
+/** One timed click on a case: from the click to the console drawn, to the 3D view's first frame, and to both. */
+type CaseClickSample = { consoleMs: number; firstFrameMs: number; usableMs: number; renderer: string; sceneMarks: { name: string; atMs: number }[] };
+
+// Runs in the page before its scripts: marks the click on a case, the console appearing and the 3D view's first drawn
+// frame (the canvas's data-frame-count, viewer.ts), each once, on the page's own clock. A client navigation keeps the
+// document, so the marks share one time origin with the click.
+function recordCaseClick() {
+  const markOnce = (name: string) => {
+    if (performance.getEntriesByName(name, "mark").length === 0) performance.mark(name);
+  };
+  document.addEventListener("click", () => markOnce("case-click:click"), { capture: true });
+  const markProgress = () => {
+    if (document.querySelector('[data-testid="replay-console"] [data-testid="replay-play"]')) markOnce("case-click:console");
+    if (document.querySelector('[data-testid="seabed-view"] canvas[data-frame-count]')) markOnce("case-click:first-frame");
+  };
+  new MutationObserver(markProgress).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-frame-count", "data-testid"] });
+}
+
+async function measureCaseClick(browser: Browser, baseUrl: string, slug: string, profile: MeasureProfile): Promise<Result<CaseClickSample>> {
+  const context = await browser.newContext({ viewport: profile.viewport, deviceScaleFactor: profile.deviceScaleFactor });
+  const page = await context.newPage();
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  try {
+    await page.addInitScript(recordCaseClick);
+    const response = await page.goto(`${baseUrl}/cases`, { waitUntil: "load", timeout: NAVIGATION_TIMEOUT_MS });
+    if (!response || !response.ok()) return { ok: false, reason: `${baseUrl}/cases answered ${response ? response.status() : "nothing"}` };
+    await page.waitForLoadState("networkidle", { timeout: NAVIGATION_TIMEOUT_MS });
+    await page.waitForTimeout(CASE_CLICK_DWELL_MS);
+    await page.click(`[data-testid="case-card-${slug}"]`);
+    await page.waitForSelector('[data-testid="seabed-view"] canvas[data-frame-count]', { timeout: PROBE_TIMEOUT_MS });
+    await page.waitForSelector('[data-testid="replay-console"] [data-testid="replay-play"]', { timeout: PROBE_TIMEOUT_MS });
+    const marks = await page.evaluate(() =>
+      performance
+        .getEntriesByType("mark")
+        .filter((markEntry) => markEntry.name.startsWith("case-click:") || markEntry.name.startsWith("seabed:"))
+        .map((markEntry) => ({ name: markEntry.name, atMs: markEntry.startTime })),
+    );
+    const readMark = (name: string) => marks.find((markEntry) => markEntry.name === name)?.atMs ?? null;
+    const clickAt = readMark("case-click:click");
+    const consoleAt = readMark("case-click:console");
+    const firstFrameAt = readMark("case-click:first-frame");
+    if (clickAt === null || consoleAt === null || firstFrameAt === null) return { ok: false, reason: `${slug}: a mark is missing (${marks.map((markEntry) => markEntry.name).join(", ")})` };
+    if (pageErrors.length > 0) return { ok: false, reason: `${slug}: page error ${pageErrors[0]}` };
+    const renderer = (await page.locator('[data-testid="seabed-view"] canvas').first().getAttribute("data-renderer")) ?? "unknown";
+    return {
+      ok: true,
+      value: {
+        consoleMs: consoleAt - clickAt,
+        firstFrameMs: firstFrameAt - clickAt,
+        usableMs: Math.max(consoleAt, firstFrameAt) - clickAt,
+        renderer,
+        // The viewer's own marks (seabed:*, viewer.ts) from the click: where the time goes.
+        sceneMarks: marks.filter((markEntry) => markEntry.name.startsWith("seabed:") && markEntry.atMs >= clickAt).map((markEntry) => ({ name: markEntry.name, atMs: markEntry.atMs - clickAt })),
+      },
+    };
+  } catch (error) {
+    return { ok: false, reason: `${slug}: ${describeError(error)}` };
+  } finally {
+    await context.close();
+  }
+}
+
+/** Times a click on each of CASE_CLICK_SLUGS on the GPU tier, cases alternating inside each run; prints the steps and the budget. */
+async function measureCaseClicks(options: CliOptions, chromiumPath: string): Promise<number> {
+  const launch = TIER_LAUNCH.hardware;
+  const browser = await chromium.launch({ executablePath: chromiumPath, args: launch.args, env: { ...process.env, ...launch.env } });
+  const samplesBySlug = new Map<string, CaseClickSample[]>(CASE_CLICK_SLUGS.map((slug) => [slug, []]));
+  try {
+    for (let runIndex = 0; runIndex < options.runCount; runIndex += 1) {
+      for (const slug of CASE_CLICK_SLUGS) {
+        const sample = await measureCaseClick(browser, options.baseUrl, slug, options.profile);
+        if (!sample.ok) {
+          console.error(`[measureCaseClicks] could not measure: ${sample.reason}`);
+          return 2;
+        }
+        samplesBySlug.get(slug)?.push(sample.value);
+      }
+      console.log(`[measureCaseClicks] run ${runIndex + 1} of ${options.runCount} done`);
+    }
+  } finally {
+    await browser.close();
+  }
+  const readSamples = (slug: string) => samplesBySlug.get(slug) ?? [];
+  printReportLine("\nClick on a case in /cases, median (min-max) in ms from the click.\n");
+  printTable(
+    ["Case", "Console drawn", "3D first frame", "Usable (both)", "Renderer"],
+    CASE_CLICK_SLUGS.map((slug) => {
+      const spreadOf = (readValue: (sample: CaseClickSample) => number) => formatSpread(summarizeSpread(readSamples(slug).map(readValue)), formatMs);
+      return [slug, spreadOf((sample) => sample.consoleMs), spreadOf((sample) => sample.firstFrameMs), spreadOf((sample) => sample.usableMs), [...new Set(readSamples(slug).map((sample) => sample.renderer))].join(", ")];
+    }),
+  );
+  const markNames = [...new Set(CASE_CLICK_SLUGS.flatMap((slug) => readSamples(slug).flatMap((sample) => sample.sceneMarks.map((sceneMark) => sceneMark.name))))];
+  if (markNames.length > 0) {
+    printReportLine("\nViewer steps (viewer.ts marks), median ms from the click.\n");
+    printTable(
+      ["Mark", ...CASE_CLICK_SLUGS],
+      markNames.map((markName) => [
+        markName,
+        ...CASE_CLICK_SLUGS.map((slug) => formatSpread(summarizeSpread(collectNumbers(readSamples(slug).map((sample) => sample.sceneMarks.find((sceneMark) => sceneMark.name === markName)?.atMs ?? null))), formatMs)),
+      ]),
+    );
+  }
+  const checks: BudgetCheck[] = CASE_CLICK_SLUGS.map((slug) => {
+    const spread = summarizeSpread(readSamples(slug).map((sample) => sample.usableMs));
+    const isOnGpu = readSamples(slug).every((sample) => sample.renderer === "hardware" || sample.renderer === "webgpu");
+    return { label: `${slug} click to usable < ${CASE_CLICK_BUDGET_MS} ms on the GPU`, isMet: isOnGpu && spread !== null && spread.median < CASE_CLICK_BUDGET_MS, measured: `${formatSpread(spread, formatMs)} ms` };
+  });
+  printReportLine("");
+  printTable(["Budget", "Result", "Measured (median, min-max)"], checks.map((check) => [check.label, check.isMet ? "pass" : "FAIL", check.measured]));
+  return checks.every((check) => check.isMet) ? 0 : 1;
+}
+
 async function runMeasurements(options: CliOptions, chromiumPath: string): Promise<Result<{ pages: PageReport[]; health: HealthSample[] }>> {
   const browser = await chromium.launch({ executablePath: chromiumPath });
   const pages: PageReport[] = options.profile.targets.map((target) => ({ target, samples: [] }));
@@ -514,7 +647,7 @@ async function measurePages(): Promise<number> {
   const options = parseCliOptions(process.argv.slice(2));
   if (!options.ok) {
     console.error(`[measurePages] ${options.reason}`);
-    console.error("[measurePages] usage: bun scripts/perf/measure-pages.ts <baseUrl> [--runs 5] [--chromium /path/to/chrome] [--profile desktop|3g-phone]");
+    console.error("[measurePages] usage: bun scripts/perf/measure-pages.ts <baseUrl> [--runs 5] [--chromium /path/to/chrome] [--profile desktop|3g-phone|case-click]");
     return 2;
   }
   const chromiumPath = resolveChromiumPath(options.value.chromiumPath);
@@ -523,6 +656,7 @@ async function measurePages(): Promise<number> {
     return 2;
   }
   console.log(`[measurePages] ${options.value.baseUrl}, profile ${options.value.profile.name}, ${options.value.runCount} runs per page, Chromium ${chromiumPath.value}`);
+  if (options.value.profile.name === "case-click") return measureCaseClicks(options.value, chromiumPath.value);
   const measured = await runMeasurements(options.value, chromiumPath.value);
   if (!measured.ok) {
     console.error(`[measurePages] could not measure: ${measured.reason}`);
