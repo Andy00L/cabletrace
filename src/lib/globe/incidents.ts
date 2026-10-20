@@ -22,6 +22,8 @@ export type GlobeIncident = {
   caseHref: string;
   /** Further cuts the same case records, for the card ("and 3 more cuts"). */
   otherCutCount: number;
+  /** The case's seabed area, warmed while the camera dives (src/lib/seabed/warm-area.ts). */
+  seabedArea: string;
 };
 
 /** One incident per case, newest cut first. */
@@ -45,6 +47,7 @@ export function toGlobeIncidents(cases: readonly CableCase[]): GlobeIncident[] {
         // A colon is legal in a query string (RFC 3986, section 3.4), as formatConsoleState keeps it.
         caseHref: `/cases/${cableCase.slug}?${query.toString().replaceAll("%3A", ":")}`,
         otherCutCount: otherCuts.length,
+        seabedArea: cableCase.seabedArea,
       };
     })
     .sort((first, second) => second.cutAtMs - first.cutAtMs);

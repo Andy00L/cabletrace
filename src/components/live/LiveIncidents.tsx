@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { WarmCaseLink } from "@/components/cases/WarmCaseLink";
 import { Icon } from "@/components/icons/Icon";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { formatUtcClock } from "@/lib/replay/format-utc";
@@ -65,13 +65,14 @@ export function IncidentCard({ incident, onDive, isDiving, onClose }: IncidentCa
           <Icon name="follow" />
           {isDiving ? "Flying to the seabed" : "Fly to the seabed"}
         </button>
-        <Link
+        <WarmCaseLink
           href={incident.caseHref}
+          area={incident.seabedArea}
           className="flex min-h-10 items-center text-label text-ink underline decoration-faint underline-offset-4 transition-colors duration-140 ease-standard hover:decoration-ink"
-          data-testid="live-incident-link"
+          testId="live-incident-link"
         >
           Open the case
-        </Link>
+        </WarmCaseLink>
       </div>
     </section>
   );

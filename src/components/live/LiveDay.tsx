@@ -24,6 +24,7 @@ import { daySpan, locateMoment } from "@/lib/globe/live-day";
 import { countShipsBySea, countShipsInBoxes, findSeaIndex, measureSeaShare, parseSeaAreas, rankSeasByShips, type SeaArea, type SeaAreas, type SeaCount } from "@/lib/globe/sea-areas";
 import { binShipDensity, type ShipDensity } from "@/lib/globe/ship-density";
 import { fetchStaticJson } from "@/lib/globe/static-file";
+import { warmCaseArea } from "@/lib/seabed/warm-area";
 import type { WatchedLine } from "@/lib/globe/watched-line";
 import type { GlobeLine } from "@/lib/globe/world-lines";
 import type { FrameIndexEntry } from "@/lib/live/frame-layout";
@@ -596,6 +597,8 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
     async (incident: GlobeIncident) => {
       setDivingSlug(incident.slug);
       clock.pause();
+      // The seabed loads while the camera flies down (1.6 s), so the case's first 3D frame does not wait for it.
+      warmCaseArea(incident.seabedArea);
       // The case page downloads while the camera flies, so the crossfade starts as soon as it lands.
       router.prefetch(incident.caseHref);
       await viewerRef.current?.flyTo({ longitude: incident.longitude, latitude: incident.latitude });
