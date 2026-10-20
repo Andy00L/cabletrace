@@ -1,10 +1,16 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import dynamic from "next/dynamic";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { useConsole } from "@/components/console/console-context";
 import { ReplayTimeline, ReplayTransport } from "@/components/replay/ReplayTimeline";
 import { findSeriesSample, type CaseSeries, type SeriesSample } from "@/lib/cases/case-series";
 import { progressToTimeMs, timeMsToProgress } from "@/lib/replay/replay-scene";
+
+// The AIS strip over the timeline loads on the first hover, outside the route's chunks (see VesselInspector in
+// ConsoleRail). It floats over the stage, so nothing waits for it.
+const TimelineSignal = dynamic(() => import("@/components/console/AisSignalStrip").then((module) => module.TimelineSignal), { ssr: false, loading: () => null });
+const MS_PER_MINUTE = 60_000;
 
 // Each chart draws into a 1000 by 64 unit box stretched to its width; lines keep their pixel width.
 const CHART_UNITS_WIDE = 1000;
@@ -177,14 +183,45 @@ export function CaseCharts({ series, isStacked }: { series: CaseSeries; isStacke
   );
 }
 
+/**
+ * The timeline with the AIS signal strip over it while the pointer hovers it, or while the scrubber has keyboard
+ * focus (then at the replay minute). Touch has no hover, so a finger on the scrubber only scrubs.
+ */
+function TimelineWithSignal() {
+  const { input, consoleCase, clock, openLayer } = useConsole();
+  const [hoverMs, setHoverMs] = useState<number | null>(null);
+  const [isScrubberFocused, setIsScrubberFocused] = useState(false);
+  const readFocusMs = () => (isScrubberFocused ? Math.floor(progressToTimeMs(input, clock.getSnapshot().progress) / MS_PER_MINUTE) * MS_PER_MINUTE : null);
+  const focusMs = useSyncExternalStore(clock.subscribe, readFocusMs, readFocusMs);
+  const shownMs = hoverMs ?? focusMs;
+  return (
+    <div
+      className="relative min-w-0 lg:flex-1"
+      onPointerMove={(event) => {
+        if (event.pointerType === "touch") return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        const share = rect.width > 0 ? Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) : 0;
+        // Whole minutes, so moving within a minute does not redraw the strip.
+        setHoverMs(Math.floor(progressToTimeMs(input, share) / MS_PER_MINUTE) * MS_PER_MINUTE);
+      }}
+      onPointerLeave={() => setHoverMs(null)}
+      onFocus={(event) => setIsScrubberFocused(event.target.matches("input[type='range']:focus-visible"))}
+      onBlur={() => setIsScrubberFocused(false)}
+    >
+      <ReplayTimeline input={input} events={consoleCase.events} clock={clock} onCutSelect={(cutIndex, opener) => openLayer({ kind: "cut", cutIndex }, opener)} />
+      {shownMs !== null && <TimelineSignal atMs={shownMs} />}
+    </div>
+  );
+}
+
 /** The dock under the stage: transport and timeline, and on wide screens the three charts. */
 export function ConsoleDock({ showCharts }: { showCharts: boolean }) {
-  const { input, consoleCase, clock, series, openLayer } = useConsole();
+  const { input, consoleCase, clock, series } = useConsole();
   return (
     <section aria-label="Replay controls" className="flex flex-none flex-col gap-3.5 rounded-card bg-card px-5 pt-4 pb-3.5 shadow-card" data-console-dock>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-6">
         <ReplayTransport input={input} clock={clock} localTime={consoleCase.localTime} />
-        <ReplayTimeline input={input} events={consoleCase.events} clock={clock} onCutSelect={(cutIndex, opener) => openLayer({ kind: "cut", cutIndex }, opener)} />
+        <TimelineWithSignal />
       </div>
       {showCharts && series && <CaseCharts series={series} isStacked={false} />}
     </section>
