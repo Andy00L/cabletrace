@@ -1,0 +1,57 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Run the WebGL check from the header and measure again (signed in)",
+  "description": "Validates /diagnostics, reached from the header's WebGL check link: the map probe renders, the 3D seabed probe names its renderer and times its frames, and Measure again runs a fresh measurement.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to the front page /"
+    },
+    {
+      "type": "action",
+      "description": "Click \"WebGL check\" (data-testid diagnostics-link) at the right of the header"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /diagnostics and the page heading reads \"Diagnostics\""
+    },
+    {
+      "type": "action",
+      "description": "Wait up to 60 seconds for the map probe (data-testid map-probe) to reach data-state \"rendered\" and the 3D seabed probe (data-testid scene-probe) to reach data-state \"measured\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the map status (data-testid map-status) reads \"Map rendered\" and its first render (data-testid map-first-render) is a number of ms"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the seabed status (data-testid scene-status) reads \"Measured\", the renderer (data-testid scene-renderer) is not empty, frames per second (data-testid scene-fps) is a number above 0, and frames timed (data-testid scene-frame-count) is a whole number above 0"
+    },
+    {
+      "type": "action",
+      "description": "Click \"Measure again\" (data-testid scene-measure-again) and wait up to 60 seconds for the scene probe to reach data-state \"measured\" again"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the seabed status reads \"Measured\" again and frames timed is a whole number above 0"
+    }
+  ]
+}

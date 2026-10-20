@@ -1,0 +1,53 @@
+{
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Fly from the live globe into the Eagle S case (signed in)",
+  "description": "Validates /live: the recorded day loads on the 3D globe with its frames, ship count and clock, the Eagle S incident opens its card, and Fly to the seabed lands on the case console at the cut's minute with the cut card open.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+    },
+    {
+      "type": "action",
+      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
+    },
+    {
+      "type": "action",
+      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+    },
+    {
+      "type": "action",
+      "description": "Navigate to /live and wait up to 60 seconds for the globe (data-testid live-globe-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the stage (data-testid live-globe) has a data-frame-count of at least 1 and shows the label \"A recorded day of ships, not real time\""
+    },
+    {
+      "type": "assertion",
+      "description": "Assert, within 60 seconds, the ship count (data-testid live-ship-count) shows a whole number above 0 and the clock (data-testid live-clock) reads a time in the form HH:MM UTC"
+    },
+    {
+      "type": "action",
+      "description": "In the card \"Cable cuts on file\" (data-testid live-incidents), click the Eagle S row (data-testid live-incident-eagle-s-2024)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the incident card (data-testid live-incident-card) opens with data-slug \"eagle-s-2024\", reads \"Eagle S anchor drag\", names the cut \"Estlink 2\" and the time \"10:26 UTC\", and the Eagle S row has aria-current=\"true\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Fly to the seabed\" (data-testid live-incident-dive) once, then wait without clicking anything else: the button reads \"Flying to the seabed\" while the camera flies down, and the case opens about 2 seconds later (allow up to 60 seconds on a slow browser)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /cases/eagle-s-2024 with t=2024-12-25T10:26Z and layer=cut-estlink-2 in the query, the replay console (data-testid replay-console) is shown, and a card (data-testid cut-card) titled \"Estlink 2 cut\" is open"
+    }
+  ]
+}
