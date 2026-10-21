@@ -38,8 +38,11 @@ const RELEASE_PATH = "/__lookdev/release";
 /** Where the proxy serves the WebGPU ship turntable (turntable-webgpu-page.ts) from. */
 export const TURNTABLE_PATH = "/__lookdev/turntable/";
 
-/** What the page shows when its screenshot is taken: the 3D view with its labels, or the bare canvas. */
-export type CaptureMode = "look" | "canvas" | "timing" | "turntable";
+/**
+ * What the page shows when its screenshot is taken: the 3D view with its labels, or the bare canvas. `case-click`
+ * opens /cases and times clicks on cases instead (scripts/perf/windows-case-click.ts); its screenshot is not judged.
+ */
+export type CaptureMode = "look" | "canvas" | "timing" | "turntable" | "case-click";
 
 export type AgentConfig = {
   mode: CaptureMode;
@@ -53,7 +56,12 @@ export type AgentConfig = {
   /** The viewport the screenshot is taken at (Chrome's --window-size). */
   viewportWidth: number;
   viewportHeight: number;
+  /** The `case-click` mode's cases, clicked in this order from /cases, back to /cases between two. */
+  clickSlugs: string[];
 };
+
+/** One timed click in the `case-click` mode, in ms from the click. */
+export type CaseClickTiming = { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; isRoutedByAgent: boolean; steps: string };
 
 type BoxRect = { left: number; top: number; width: number; height: number };
 
@@ -69,6 +77,8 @@ export type AgentReport = {
   colorProbes: unknown;
   seabedProbes: unknown;
   scrubFrameMs: number | null;
+  /** The `case-click` mode's timings, in click order; empty in the other modes. */
+  clickTimings: CaseClickTiming[];
   /** The viewport when the agent reported: the screenshot's, or the report does not describe the screenshot. */
   viewportWidth: number;
   viewportHeight: number;
@@ -171,8 +181,61 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
     const readyMs = performance.now();
     await releaseThenReport(() => ({ error: null, renderer: canvas?.dataset.renderer ?? "unknown", adapterName, devicePixelRatio: window.devicePixelRatio, readyMs, viewRect: readBox(document.body), canvasRect: readBox(canvas), colorProbes: [], seabedProbes: [], scrubFrameMs: null }), false);
   };
+  // From /cases: waits until the page is idle, clicks a case card and times until that case's 3D view (the visible
+  // one: Next keeps a page it left mounted and hidden) says ready, and its canvas's first frame; then back to /cases
+  // for the next case. The times come from a MutationObserver, so they do not wait for a polling tick.
+  const runCaseClicks = async () => {
+    const isShown = (element: Element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
+    const findShownView = () => [...document.querySelectorAll('[data-testid="seabed-view"]')].find(isShown) ?? null;
+    const timings: { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; isRoutedByAgent: boolean; steps: string }[] = [];
+    for (const slug of config.clickSlugs) {
+      const findCard = () => [...document.querySelectorAll(`a[href="/cases/${slug}"]`)].find(isShown) ?? null;
+      // Clicked before React has hydrated it, a card is a plain link and the browser loads the case as a new page: wait
+      // for the props React attaches to a hydrated element.
+      const isHydrated = (element: Element) => Object.keys(element).some((key) => key.startsWith("__reactProps"));
+      await waitUntil(() => location.pathname === "/cases" && findCard() !== null && isHydrated(findCard() ?? document.body), `the ${slug} card`);
+      await pause(1500);
+      const card = findCard();
+      if (!(card instanceof HTMLElement)) throw new Error(`the ${slug} card went away`);
+      let readyAt: number | null = null;
+      let firstFrameAt: number | null = null;
+      const clickAt = performance.now();
+      const watcher = new MutationObserver(() => {
+        if (location.pathname !== `/cases/${slug}`) return;
+        const view = findShownView();
+        if (!view) return;
+        if (readyAt === null && view.getAttribute("data-state") === "ready") readyAt = performance.now();
+        if (firstFrameAt === null && view.querySelector("canvas[data-frame-count]")) firstFrameAt = performance.now();
+      });
+      watcher.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-state", "data-frame-count"] });
+      // In this Chrome a script's click on a card has reached the browser's default action (a new page load) instead of
+      // Next's router, though React had hydrated the card; when nothing took the click, the agent hands the URL to the
+      // router itself, as the card's link would have. Checked on window, after React's own listener at the root.
+      let isRoutedByAgent = false;
+      const routeIfUnhandled = (event: Event) => {
+        const router: unknown = Reflect.get(Reflect.get(window, "next") ?? {}, "router");
+        const push: unknown = typeof router === "object" && router !== null ? Reflect.get(router, "push") : null;
+        if (event.defaultPrevented || typeof push !== "function") return;
+        event.preventDefault();
+        isRoutedByAgent = true;
+        Reflect.apply(push, router, [`/cases/${slug}`]);
+      };
+      window.addEventListener("click", routeIfUnhandled, { once: true });
+      card.click();
+      await waitUntil(() => readyAt !== null && firstFrameAt !== null, `${slug} to be ready`);
+      watcher.disconnect();
+      timings.push({ slug, readyMs: (readyAt ?? clickAt) - clickAt, firstFrameMs: firstFrameAt === null ? null : firstFrameAt - clickAt, renderer: findShownView()?.querySelector("canvas[data-renderer]")?.getAttribute("data-renderer") ?? "unknown", isRoutedByAgent, steps: performance.getEntriesByType("mark").filter((mark) => mark.name.startsWith("seabed:") && mark.startTime >= clickAt).map((mark) => `${mark.name.slice("seabed:".length)} ${Math.round(mark.startTime - clickAt)}`).join(", ") });
+      await pause(2500);
+      history.back();
+    }
+    await waitUntil(() => location.pathname === "/cases", "the way back to /cases");
+    await releaseThenReport(() => ({ error: null, renderer: timings[0]?.renderer ?? "unknown", adapterName: "", devicePixelRatio: window.devicePixelRatio, readyMs: 0, viewRect: null, canvasRect: null, colorProbes: [], seabedProbes: [], scrubFrameMs: null, clickTimings: timings }), false);
+  };
   const run = async () => {
     if (config.mode === "turntable") return runTurntable();
+    // Only the page the run opened: Chrome may prerender a case the /cases page links to, and that document gets an
+    // agent too, which would report a run that never happened.
+    if (config.mode === "case-click") return location.pathname === "/cases" ? runCaseClicks() : undefined;
     await waitUntil(() => document.querySelector('[data-testid="seabed-view"][data-state="ready"]') !== null, "the 3D view");
     await waitUntil(() => {
       const canvas = readCanvas();
@@ -273,8 +336,15 @@ export function startLookdevProxy(
       }
       const sessionToken = await readSessionToken();
       if (!sessionToken.ok) console.error(`[startLookdevProxy] no session token, the page will ask to sign in: ${sessionToken.reason}`);
-      const upstreamHeaders: Record<string, string> = { "accept-encoding": "identity", ...(sessionToken.ok ? { authorization: `Bearer ${sessionToken.value}` } : {}) };
-      const upstreamResponse = await fetch(`${upstreamUrl}${url.pathname}${url.search}`, { headers: upstreamHeaders, redirect: "manual" });
+      // The browser's own headers go along (Next's router sends RSC, Next-Router-State-Tree and Next-Url with a client
+      // navigation; without them the app answers HTML and the router falls back to loading a new page), but not its
+      // host, and nothing compressed, so the agent can be written into the HTML.
+      const upstreamHeaders = new Headers(request.headers);
+      upstreamHeaders.delete("host");
+      upstreamHeaders.set("accept-encoding", "identity");
+      if (sessionToken.ok) upstreamHeaders.set("authorization", `Bearer ${sessionToken.value}`);
+      const hasBody = request.method !== "GET" && request.method !== "HEAD";
+      const upstreamResponse = await fetch(`${upstreamUrl}${url.pathname}${url.search}`, { method: request.method, headers: upstreamHeaders, body: hasBody ? await request.arrayBuffer() : undefined, redirect: "manual" });
       const contentType = upstreamResponse.headers.get("content-type") ?? "";
       if (!contentType.includes("text/html") || agentConfig === null) return new Response(upstreamResponse.body, { status: upstreamResponse.status, headers: upstreamResponse.headers });
       const html = injectAgent(await upstreamResponse.text());
@@ -336,6 +406,20 @@ function isBoxRect(value: unknown): value is BoxRect {
   return typeof value === "object" && value !== null && ["left", "top", "width", "height"].every((key) => typeof Reflect.get(value, key) === "number");
 }
 
+/** The `case-click` timings in a parsed report, keeping only well-formed entries. */
+function readClickTimings(value: unknown): CaseClickTiming[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const slug: unknown = Reflect.get(entry, "slug");
+    const readyMs: unknown = Reflect.get(entry, "readyMs");
+    const firstFrameMs: unknown = Reflect.get(entry, "firstFrameMs");
+    const renderer: unknown = Reflect.get(entry, "renderer");
+    if (typeof slug !== "string" || typeof readyMs !== "number" || typeof renderer !== "string") return [];
+    return [{ slug, readyMs, firstFrameMs: typeof firstFrameMs === "number" ? firstFrameMs : null, renderer, isRoutedByAgent: Reflect.get(entry, "isRoutedByAgent") === true, steps: String(Reflect.get(entry, "steps") ?? "") }];
+  });
+}
+
 /** Reads the agent's line from Chrome's stderr into a report, or the reason there is none. */
 export function parseAgentReport(stderr: string): Result<AgentReport> {
   const line = stderr.split("\n").find((candidate) => candidate.includes(RESULT_PREFIX));
@@ -374,6 +458,7 @@ export function parseAgentReport(stderr: string): Result<AgentReport> {
       colorProbes: Reflect.get(parsed, "colorProbes"),
       seabedProbes: Reflect.get(parsed, "seabedProbes"),
       scrubFrameMs: readNumber("scrubFrameMs"),
+      clickTimings: readClickTimings(Reflect.get(parsed, "clickTimings")),
       viewportWidth: readNumber("viewportWidth") ?? 0,
       viewportHeight: readNumber("viewportHeight") ?? 0,
     },
@@ -395,11 +480,36 @@ export async function captureWithWindowsChrome(input: CaptureInput): Promise<Res
 
 const CONNECTION_REFUSED = "ERR_CONNECTION_REFUSED";
 
-type CaptureInput = { chromePath: string; pageUrl: string; screenshotPath: string; releaseAll: () => void; viewport: { width: number; height: number } };
+/** `isColdCache` empties the profile's HTTP, code and GPU caches before the run, so nothing of an earlier run is reused. */
+type CaptureInput = { chromePath: string; pageUrl: string; screenshotPath: string; releaseAll: () => void; viewport: { width: number; height: number }; isColdCache?: boolean };
+
+// The profile parts that hold what a first visit does not have: the HTTP cache, V8's code cache, the GPU's compiled
+// shaders and pipelines (ANGLE's GPUCache, Dawn's DawnGraphiteCache and DawnWebGPUCache), and the earlier runs'
+// cookies, storage and tabs (with them, a run on /cases came back on the case an earlier run had opened).
+const CACHE_FOLDERS = [
+  "Default/Cache",
+  "Default/Code Cache",
+  "GPUCache",
+  "Default/GPUCache",
+  "DawnGraphiteCache",
+  "DawnWebGPUCache",
+  "Default/DawnGraphiteCache",
+  "Default/DawnWebGPUCache",
+  "GrShaderCache",
+  "ShaderCache",
+  "Default/Cookies",
+  "Default/Network/Cookies",
+  "Default/Local Storage",
+  "Default/Session Storage",
+  "Default/Sessions",
+  "Default/Sessions_Encrypted",
+  "Default/IndexedDB",
+];
 
 async function captureOnce(input: CaptureInput): Promise<Result<WindowsCapture>> {
   const { chromePath, pageUrl, screenshotPath, releaseAll, viewport } = input;
   mkdirSync(PROFILE_DIRECTORY, { recursive: true });
+  if (input.isColdCache) for (const folder of CACHE_FOLDERS) rmSync(path.join(PROFILE_DIRECTORY, folder), { recursive: true, force: true });
   rmSync(TEMP_DIRECTORY, { recursive: true, force: true });
   mkdirSync(TEMP_DIRECTORY, { recursive: true });
   mkdirSync(path.dirname(screenshotPath), { recursive: true });
