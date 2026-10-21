@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AnchorFigure } from "@/components/landing/AnchorFigure";
 import { ArtPicture } from "@/components/landing/ArtPicture";
 import { EvidenceNote } from "@/components/landing/EvidenceNote";
 import { describeLandingRecord, LandingFooter } from "@/components/landing/LandingFooter";
@@ -95,6 +96,11 @@ export default async function LandingPage() {
               <LiveWatch live={live} />
             </div>
           </div>
+        </section>
+
+        {/* The figure: how a dragged anchor parts a cable, drawn from the replay's own numbers (AnchorFigure.tsx). */}
+        <section aria-label="How a dragged anchor parts a cable" className={`${CONTENT_CLASS} pt-10`}>
+          <AnchorFigure />
         </section>
 
         <section aria-label="On file" className={`${CONTENT_CLASS} pt-14 pb-10`}>

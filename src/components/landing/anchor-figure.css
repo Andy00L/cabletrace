@@ -1,0 +1,164 @@
+/*
+ * The anchor figure on the landing's paper: Anatomy's light tone hierarchy (src/components/iso/iso.css) redrawn in the
+ * engravings' blue ink. Every colour is mixed from the design tokens in src/app/globals.css (paper, cable, ink, card,
+ * muted, faint, alarm), never typed: the ink is the cable blue deepened toward ink, the shades are paper with a little
+ * ink, and the one accent, the parted cable, is `alarm`. Scoped to `.af`, so nothing here reaches the rest of the page.
+ */
+.iso.af {
+  --af-ink: color-mix(in oklab, var(--color-cable) 46%, var(--color-ink));
+  --af-silt: color-mix(in oklab, var(--color-paper), var(--af-ink) 34%);
+  --anatomy-page: var(--color-paper);
+  --anatomy-card: var(--color-paper);
+  --anatomy-paper: var(--color-paper);
+  --anatomy-text: var(--color-muted);
+  --anatomy-strong: var(--color-ink);
+  --anatomy-muted: var(--color-muted);
+  --anatomy-face: color-mix(in oklab, var(--color-paper), var(--color-card) 55%);
+  --anatomy-top: color-mix(in oklab, var(--color-paper), var(--color-card) 22%);
+  --anatomy-shade-0: color-mix(in oklab, var(--color-paper), var(--af-ink) 27%);
+  --anatomy-shade-1: color-mix(in oklab, var(--color-paper), var(--af-ink) 18%);
+  --anatomy-shade-2: color-mix(in oklab, var(--color-paper), var(--af-ink) 11%);
+  --anatomy-shade-3: color-mix(in oklab, var(--color-paper), var(--af-ink) 5%);
+  --anatomy-lit-top: color-mix(in oklab, var(--color-paper), var(--color-card) 70%);
+  --anatomy-lit-shade: color-mix(in oklab, var(--color-paper), var(--af-ink) 13%);
+  --anatomy-hi: var(--af-ink);
+  --anatomy-mid: color-mix(in oklab, var(--af-ink) 74%, var(--color-paper));
+  --anatomy-lo: color-mix(in oklab, var(--af-ink) 50%, var(--color-paper));
+  --anatomy-faint: color-mix(in oklab, var(--af-ink) 28%, var(--color-paper));
+  --anatomy-lit: color-mix(in oklab, var(--af-ink) 72%, var(--color-ink));
+  --anatomy-halo: var(--af-ink);
+  --anatomy-halo-opacity: 0.18;
+  --anatomy-dot: var(--af-ink);
+  --anatomy-red: var(--color-alarm);
+}
+
+/* The card is the print's plate mark: the page's own paper inside one ink rule, no fill and no shadow of its own. */
+.af .iso-figure {
+  margin: 0;
+}
+.af .iso-plate {
+  padding: 56px 28px 60px;
+  background: var(--color-paper);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--af-ink) 34%, var(--color-paper));
+}
+.af .iso-plate-corners {
+  inset: 20px 24px;
+}
+.af .iso-plate-corner {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 18px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-muted);
+}
+.af .iso-plate-corner[data-corner="fig"] {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.af .iso-plate-corner[data-corner="title"] {
+  color: var(--color-ink);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.af .iso-plate-corner[data-corner="hint"] {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.af .iso-plate-corner[data-corner="readout"] {
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+.af .iso-legend {
+  margin-top: 14px;
+  max-width: 880px;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* The stage: the back SVG, the silt canvas and the front SVG stacked on one view box. */
+.af-stage {
+  position: relative;
+  cursor: grab;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.af-stage[data-held] {
+  cursor: grabbing;
+}
+.af-stage > svg,
+.af-stage > canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.af-stage > .af-layer {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  pointer-events: none;
+}
+.af-stage[data-gl] .af-plume-fallback {
+  display: none;
+}
+.af-silt-probe {
+  fill: var(--af-silt);
+  stroke: none;
+  visibility: hidden;
+}
+
+.af-furrow {
+  fill: var(--anatomy-shade-2);
+  stroke: none;
+}
+.af-cable-body {
+  fill: var(--anatomy-top);
+  stroke: none;
+}
+.af-cable-shade {
+  fill: var(--anatomy-shade-1);
+  stroke: none;
+}
+.af .af-cable-armour {
+  stroke-width: 0.45;
+}
+.af .af-cut {
+  stroke: var(--color-alarm);
+  stroke-width: 1.4;
+}
+.af .af-chain {
+  fill: var(--anatomy-paper);
+  stroke-width: 0.55;
+}
+.af .af-chain-stud {
+  stroke-width: 0.45;
+}
+.af .af-shackle {
+  stroke-width: 0.9;
+}
+.af .af-surface-hatch {
+  stroke-width: 0.45;
+}
+
+/* On a phone the whole block stays in view (the anchor sits at its aft end), and the hint and the readout stack under
+   it, each free to wrap. */
+@media (max-width: 640px) {
+  .af .iso-plate {
+    padding: 48px 12px 116px;
+  }
+  .af .iso-plate-corners {
+    inset: 16px 14px;
+  }
+  .af .iso-plate-corner[data-corner="hint"] {
+    right: 0;
+    bottom: 44px;
+    white-space: normal;
+  }
+  .af .iso-plate-corner[data-corner="readout"] {
+    left: 0;
+    white-space: normal;
+  }
+}
