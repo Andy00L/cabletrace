@@ -22,7 +22,12 @@ const nextConfig: NextConfig = {
     "/cases/[slug]": ["./public/seabed/**"],
   },
   async headers() {
-    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+    return [
+      { source: "/:path*", headers: SECURITY_HEADERS },
+      // The seabed area files and the terrain worker are fetched with a content version in their URL
+      // (src/lib/seabed/seabed-urls.ts), so a browser may keep each for a year without asking again.
+      { source: "/seabed/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+    ];
   },
   turbopack: {
     rules: {

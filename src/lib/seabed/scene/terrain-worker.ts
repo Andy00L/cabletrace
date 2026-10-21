@@ -2,7 +2,7 @@
 import type { Result } from "@/lib/result";
 import { buildSeabedScene, type SeabedScene } from "@/lib/seabed/scene/seabed-scene";
 import { listTerrainGridBuffers } from "@/lib/seabed/scene/terrain-grid";
-import { loadSeabedData, type SeabedData } from "@/lib/seabed/seabed-data";
+import { loadSeabedData, type SeabedData, type SeabedFileUrls } from "@/lib/seabed/seabed-data";
 
 // The terrain worker: fetches and decodes a seabed area's files, then builds the overview terrain's arrays
 // (seabed-scene.ts) off the main thread, so the page renders the console and opens its WebGL context meanwhile, and
@@ -20,13 +20,15 @@ declare const self: DedicatedWorkerGlobalScope;
  * Start fetching the area's files (and build `likelyStep` once they are in, unless a step is asked for first), or
  * build the area's terrain at the grid step a renderer tier draws (fetching first if needed).
  */
-export type TerrainWorkerRequest = { kind: "fetch"; area: string; likelyStep: number } | { kind: "build"; area: string; step: number };
+export type TerrainWorkerRequest = { kind: "fetch"; area: string; urls: SeabedFileUrls; likelyStep: number } | { kind: "build"; area: string; step: number };
 
 /** The answer to a build, tagged with its step so the page matches it to its request. */
 export type TerrainWorkerAnswer = { step: number; answer: Result<{ scene: SeabedScene }> };
 
 // Each area's decoded files (one area per worker in practice); a failed fetch is dropped so the next build retries.
 const decodedAreas = new Map<string, Promise<Result<SeabedData>>>();
+// Where each area's files are, from the page's fetch request (the URLs carry content versions this bundle cannot hold).
+const areaUrls = new Map<string, SeabedFileUrls>();
 // Each area and step's build, started by a request or ahead of one; dropped once sent (its arrays move to the page).
 const builds = new Map<string, Promise<Result<SeabedScene>>>();
 // Areas whose page has asked for a step: no build ahead of a request for those.
@@ -35,7 +37,9 @@ const askedAreas = new Set<string>();
 function readArea(area: string): Promise<Result<SeabedData>> {
   const known = decodedAreas.get(area);
   if (known) return known;
-  const loading = loadSeabedData(area).then((loaded) => {
+  const urls = areaUrls.get(area);
+  if (!urls) return Promise.resolve({ ok: false, reason: `the worker was asked for ${area} before its files` });
+  const loading = loadSeabedData(urls).then((loaded) => {
     if (!loaded.ok) decodedAreas.delete(area);
     return loaded;
   });
@@ -55,6 +59,7 @@ function startBuild(area: string, step: number): Promise<Result<SeabedScene>> {
 self.onmessage = async (event: MessageEvent<TerrainWorkerRequest>) => {
   const request = event.data;
   if (request.kind === "fetch") {
+    areaUrls.set(request.area, request.urls);
     const loaded = await readArea(request.area);
     if (loaded.ok && !askedAreas.has(request.area)) void startBuild(request.area, request.likelyStep);
     return;

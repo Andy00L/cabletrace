@@ -1,13 +1,14 @@
 import type { Result } from "@/lib/result";
 import { buildSeabedScene, TERRAIN_STEPS, type SeabedScene } from "@/lib/seabed/scene/seabed-scene";
 import type { TerrainGrid } from "@/lib/seabed/scene/terrain-grid";
-import { TERRAIN_WORKER_PATH } from "@/lib/seabed/scene/terrain-worker-bundle";
+import { TERRAIN_WORKER_FILE } from "@/lib/seabed/scene/terrain-worker-bundle";
 import { loadSeabedData, parseSeabedFeatures, type SeabedData } from "@/lib/seabed/seabed-data";
+import { readSeabedFileUrl, readSeabedFileUrls } from "@/lib/seabed/seabed-urls";
 import type { TerrainWorkerRequest } from "@/lib/seabed/scene/terrain-worker";
 
-// Loads a seabed area for the 3D replay: the area's terrain worker (terrain-worker.ts, served as the bundle at
-// TERRAIN_WORKER_PATH) fetches the files, decodes them and builds the terrain's arrays while the main thread renders the
-// console and opens the WebGL context; where workers are unavailable or fail, the main thread does it. The fetch starts
+// Loads a seabed area for the 3D replay: the area's terrain worker (terrain-worker.ts, served as the bundle
+// TERRAIN_WORKER_FILE at its versioned URL) fetches the files, decodes them and builds the terrain's arrays while the
+// main thread renders the console and opens the WebGL context; where workers are unavailable or fail, the main thread does it. The fetch starts
 // while the console renders (warmSeabedArea), before the renderer tier says which grid step to build, so no step is
 // built for nothing. Each area and step is loaded once per page and kept, and the area's worker stays, so opening
 // another case on the same seabed area (or coming back after a client navigation) neither fetches nor builds again,
@@ -74,7 +75,7 @@ function readAreaWorker(area: string): AreaWorker | null {
   if (typeof Worker === "undefined") return null;
   let worker: Worker;
   try {
-    worker = new Worker(TERRAIN_WORKER_PATH);
+    worker = new Worker(readSeabedFileUrl(TERRAIN_WORKER_FILE));
   } catch (error) {
     console.warn(`[readAreaWorker] no worker for ${area}: ${error instanceof Error ? error.message : String(error)}`);
     return null;
@@ -89,7 +90,7 @@ function readAreaWorker(area: string): AreaWorker | null {
   worker.onerror = (event) => dropAreaWorker(area, `the worker failed: ${event.message}`);
   areaWorkers.set(area, areaWorker);
   // Most pages draw on a GPU: the worker builds that grid step as soon as the files are in, unless asked for another.
-  worker.postMessage({ kind: "fetch", area, likelyStep: TERRAIN_STEPS.gpu } satisfies TerrainWorkerRequest);
+  worker.postMessage({ kind: "fetch", area, urls: readSeabedFileUrls(area), likelyStep: TERRAIN_STEPS.gpu } satisfies TerrainWorkerRequest);
   return areaWorker;
 }
 
@@ -101,7 +102,7 @@ function buildInWorker(areaWorker: AreaWorker, area: string, step: number): Prom
 }
 
 async function loadOnMainThread(area: string, step: number): Promise<Result<SeabedScene>> {
-  const loading = mainThreadAreas.get(area) ?? loadSeabedData(area);
+  const loading = mainThreadAreas.get(area) ?? loadSeabedData(readSeabedFileUrls(area));
   mainThreadAreas.set(area, loading);
   const loaded = await loading;
   if (!loaded.ok) {
