@@ -7,9 +7,12 @@ import type { Result } from "@/lib/result";
 // keep the WebGL tiers. The adapter is checked here, before any WebGPU code loads, and the device made from it is the
 // one the renderer draws with, so the tier the canvas reports is the adapter that was checked.
 
-// requestAdapter has hung on this machine under some flags (docs/LOOKDEV.md, WebGPU); past this many ms the page
-// keeps the WebGL tiers instead of waiting.
-const ADAPTER_TIMEOUT_MS = 3000;
+// requestAdapter has hung on this machine under some flags (docs/LOOKDEV.md, WebGPU); past this budget the page keeps
+// the WebGL tiers instead of waiting. The budget is counted in ticks of an idle page, 30 of 100 ms (3 s), not in wall
+// time: on Windows Chrome the main thread stays blocked 2.8 to 3.3 s in one go while the GPU process starts WebGPU, and
+// a wall-clock timer then fired in the same moment the adapter arrived and won, so the page drew on WebGL.
+const ADAPTER_TICK_MS = 100;
+const ADAPTER_TICK_COUNT = 30;
 
 /** What the browser says about an adapter: whether it is a fallback (null when it does not say) and its name. */
 export type GpuAdapterFacts = { isFallback: boolean | null; description: string };
@@ -44,8 +47,31 @@ function isOfferedFeature(adapter: GPUAdapter, name: string): name is GPUFeature
   return adapter.features.has(name);
 }
 
-function waitForTimeout(timeoutMs: number): Promise<null> {
-  return new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
+function waitForTask(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+/**
+ * Resolves after `tickCount` timer ticks of `tickMs`, each started once the previous one has run: a main thread
+ * blocked for seconds delays one tick, so the budget measures time the page was free to hear back.
+ */
+export async function waitForIdleTicks(tickCount: number, tickMs: number): Promise<void> {
+  for (let tick = 0; tick < tickCount; tick += 1) await waitForTask(tickMs);
+}
+
+/** The adapter, or null when the browser gives none or the idle budget runs out first (with one task's grace). */
+async function requestAdapterWithinBudget(gpu: GPU): Promise<GPUAdapter | null> {
+  let answer: { adapter: GPUAdapter | null } | null = null;
+  const request = gpu.requestAdapter({ powerPreference: "high-performance" }).then((adapter) => {
+    answer = { adapter };
+    return adapter;
+  });
+  const budget = waitForIdleTicks(ADAPTER_TICK_COUNT, ADAPTER_TICK_MS).then(async () => {
+    // The adapter's answer may be queued behind the last tick: one more task lets it in.
+    await waitForTask(0);
+    return answer?.adapter ?? null;
+  });
+  return Promise.race([request, budget]);
 }
 
 /**
@@ -55,7 +81,7 @@ function waitForTimeout(timeoutMs: number): Promise<null> {
 export async function requestWebGpuDevice(): Promise<Result<WebGpuDevice>> {
   if (typeof navigator === "undefined" || !("gpu" in navigator)) return { ok: false, reason: "this browser has no WebGPU" };
   try {
-    const adapter = await Promise.race([navigator.gpu.requestAdapter({ powerPreference: "high-performance" }), waitForTimeout(ADAPTER_TIMEOUT_MS)]);
+    const adapter = await requestAdapterWithinBudget(navigator.gpu);
     const verdict = judgeGpuAdapter(adapter ? readAdapterFacts(adapter) : null);
     if (!adapter || !verdict.ok) return { ok: false, reason: verdict.ok ? "no WebGPU adapter" : verdict.reason };
     const device = await adapter.requestDevice({ requiredFeatures: [...adapter.features].filter((feature) => isOfferedFeature(adapter, feature)) });

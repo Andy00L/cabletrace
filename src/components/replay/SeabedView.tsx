@@ -30,28 +30,10 @@ type SeabedViewProps = {
   still: ReactNode;
 };
 
-// The WebGPU adapter check, started while the console renders and taken by the effect that builds the viewer: on the
-// GPU test tier it answered 30 to 360 ms after it was asked, time the effect used to spend waiting. Null when none is
-// waiting.
-let earlyWebGpuDevice: Promise<Result<WebGpuDevice>> | null = null;
-
-/** Starts the adapter check once, unless a parked renderer will draw the next replay (renderer-pool.ts). */
-function warmWebGpuDevice() {
-  if (earlyWebGpuDevice || typeof navigator === "undefined" || readParkedRendererTier() !== null) return;
-  earlyWebGpuDevice = requestWebGpuDevice();
-}
-
 // The viewer's code (three.js and the scene, the page's largest script): its download and parse start while the console
 // renders, not when the effect runs. import() keeps one module per page, so asking again is free.
 function loadViewerCode() {
   return import("@/lib/seabed/scene/viewer");
-}
-
-/** The adapter check started early, or a new one. */
-function takeWebGpuDevice(): Promise<Result<WebGpuDevice>> {
-  const taken = earlyWebGpuDevice ?? requestWebGpuDevice();
-  earlyWebGpuDevice = null;
-  return taken;
 }
 
 /** Frees the device an adapter check made, when nothing will draw with it. */
@@ -70,7 +52,6 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
   // below knows the grid step to build: warmSeabedArea starts one worker per area, so calling it while rendering only
   // warms what the effect awaits.
   warmSeabedArea(input.seabedArea);
-  warmWebGpuDevice();
   if (typeof window !== "undefined") void loadViewerCode();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SeabedViewer | null>(null);
@@ -100,7 +81,9 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
       // of 2.1 s, and the page fell back to WebGL (docs/LOOKDEV.md, WebGPU).
       // A replay opened after another one draws on its parked renderer (renderer-pool.ts): no adapter check, no context.
       const parkedTier = readParkedRendererTier();
-      const webGpuDevice: Promise<Result<WebGpuDevice>> = parkedTier === null ? takeWebGpuDevice() : Promise.resolve({ ok: false, reason: "a renderer is parked" });
+      // The adapter check starts here, not while the console renders: its 3 s timeout (webgpu-adapter.ts) runs in page
+      // time, and on Windows Chrome with a cold cache the console's own work let it expire, so the page drew on WebGL.
+      const webGpuDevice: Promise<Result<WebGpuDevice>> = parkedTier === null ? requestWebGpuDevice() : Promise.resolve({ ok: false, reason: "a renderer is parked" });
       // Opening the context blocks the page for as long as it takes: let the console paint first.
       if (parkedTier === null) await waitForPaint();
       const hasWebGpuDevice = (await webGpuDevice).ok;
