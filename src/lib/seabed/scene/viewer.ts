@@ -1136,12 +1136,24 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     return new Promise((resolve) => quietFrameWaiters.push(resolve));
   }
   const warmUpQueue: WarmUpBatch[] = [];
-  function listRenderables(root: THREE.Object3D, shouldInclude: (object: THREE.Object3D) => boolean): THREE.Object3D[] {
+  type Renderable = THREE.Mesh | THREE.Line | THREE.Points | THREE.Sprite;
+  function listRenderables(root: THREE.Object3D, shouldInclude: (object: Renderable) => boolean): THREE.Object3D[] {
     const renderables: THREE.Object3D[] = [];
     root.traverse((object) => {
       if ((object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points || object instanceof THREE.Sprite) && shouldInclude(object)) renderables.push(object);
     });
     return renderables;
+  }
+  /**
+   * Whether the object's geometry holds anything yet. The close-up keeps spare cable pieces with empty geometry until
+   * it needs them; three's WebGPU draw throws on their tracer (a fat line with no instances draws an infinite count),
+   * and the throw leaves the renderer drawing into its own pass, so no later frame reached the screen (lookdev, 21 Oct
+   * 2026). WebGL draws nothing for them.
+   */
+  function hasGeometryToDraw(object: Renderable): boolean {
+    const { geometry } = object;
+    if ((geometry.getAttribute("position")?.count ?? 0) === 0) return false;
+    return !(geometry instanceof THREE.InstancedBufferGeometry) || Number.isFinite(geometry.instanceCount);
   }
   /** Whether a frame would draw the object as things stand (it and every parent visible). */
   function isDrawn(object: THREE.Object3D): boolean {
@@ -1156,8 +1168,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   }
   /** Queues the overview's objects not drawn yet (WebGPU only) and the close-up, all of whose objects are new. */
   function queueWarmUp(closeUpScene: CloseUpScene) {
-    if (renderer.tier === "webgpu") warmUpQueue.push(...splitIntoBatches(listRenderables(overview.scene, (object) => !isDrawn(object)), overview.scene, overview.camera, false));
-    warmUpQueue.push(...splitIntoBatches(listRenderables(closeUpScene.scene, () => true), closeUpScene.scene, closeUpScene.camera, true));
+    if (renderer.tier === "webgpu") warmUpQueue.push(...splitIntoBatches(listRenderables(overview.scene, (object) => !isDrawn(object) && hasGeometryToDraw(object)), overview.scene, overview.camera, false));
+    warmUpQueue.push(...splitIntoBatches(listRenderables(closeUpScene.scene, hasGeometryToDraw), closeUpScene.scene, closeUpScene.camera, true));
   }
   /**
    * Draws one batch where nobody sees it: its objects (and their hidden parents) shown, and in an isolated batch every

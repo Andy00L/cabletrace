@@ -358,22 +358,32 @@ it: on WebGPU the overview's later objects (the cut pieces, markers, the underwa
 close-up; on WebGL the close-up in one draw (`warmUpBatch`, `src/lib/seabed/scene/viewer.ts`). The director's camera
 fit bisects 30 times instead of 60 (5 mm on 5,000 km).
 
+**The anchor cam in the main view (WebGPU).** three.js runs a render pipeline's passes (the pre-pass, GTAO, the
+denoise and the scene pass) once per browser frame. The anchor cam draws before the main view, so on every frame it
+drew (each 125 ms) the main view reused its pictures and showed the anchor cam instead; the lookdev's WebGPU vessel
+shots caught it. Each draw now gives the passes new update references (`onReference`, `buildScenePipeline` in
+`src/lib/render/webgpu/webgpu-scene-renderer.ts`), so they run once per draw. The warm-up also skips objects with
+empty geometry: the close-up's spare cable pieces made three's WebGPU draw throw (a fat line with no instances draws
+an infinite count), and from then on no frame reached the screen (the blank WebGPU overviews).
+
 Windows Chrome, Eagle S, 1,440 x 900 at DPR 1, local production builds, fps of the page's animation frames and the
-longest frame (ms); two runs each, except main on WebGL (one run; main's second WebGPU run had Chrome's frame-rate
-limit off):
+longest frame (ms). Main: two runs on WebGPU (the second with Chrome's frame-rate limit off), one on WebGL. Branch,
+with the anchor cam fix: three runs on WebGPU, one on WebGL.
 
 | Scene | Main, WebGPU | Branch, WebGPU | Main, WebGL | Branch, WebGL |
 | --- | --- | --- | --- | --- |
-| Idle 3 s | 0 to 5.5 fps | 14 fps, max 717 to 750 (the warm-up) | 59.7 fps, max 18 | 59.4 to 60 fps, max 17 |
-| Playing 8 s | 1.9 to 3.6 fps, max 2,950 | **51.5 to 56.2 fps**, max 117 to 533 | 56.1 fps, max 267 | 56.2 fps, max 267 |
-| View changes 6 s | 3.1 to 4.6 fps, max 2,650 | **51.5 to 52.3 fps**, max 283 to 400 | 35.4 fps, max 2,717 | **57.7 fps**, max 167 to 184 |
-| Scrub 2 s | 5.9 to 12.8 fps, max 540 | **59.8 fps**, max 17 | 47.4 fps, max 683 | 47 to 59 fps, max 33 to 767 |
+| Idle 3 s | 0 to 5.5 fps | 11.6 to 12.9 fps, max 84 to 500 (the warm-up) | 59.7 fps, max 18 | 59.8 fps, max 17 |
+| Playing 8 s | 1.9 to 3.6 fps, max 2,950 | **55.1 to 58.6 fps**, max 67 to 350 | 56.1 fps, max 267 | **58.6 fps**, max 117 |
+| View changes 6 s | 3.1 to 4.6 fps, max 2,650 | **36.9 to 43.5 fps**, max 967 to 1,450 | 35.4 fps, max 2,717 | **58 fps**, max 133 |
+| Scrub 2 s | 5.9 to 12.8 fps, max 540 | **59.7 to 59.8 fps**, max 17 | 47.4 fps, max 683 | **59.4 fps**, max 17 |
 
 Outside the WebGPU warm-up, the branch's p50 and p95 frames are 16.7 and 16.8 to 17.2 ms in every scene. Left: the warm-up holds a few
-frames for 0.1 to 1 s on a paused, untouched replay (on purpose, instead of on the first close-up or while playing);
-the room's reflections (0.1 to 1.5 s) and the close-up's build (0.4 to 0.6 s) run in one go each, on quiet frames
-too; one WebGL program still links on its first use during some scrubs (main shows the same 683 ms frame); and the
-console's React updates take about 2 ms a frame while playing.
+frames for 0.1 to 0.5 s on a paused, untouched replay (on purpose, instead of while playing); it warms the playback's
+objects before the close-up, so a reader who opens "At the cut" before it got there waits 1 to 1.5 s on WebGPU (the
+view changes' longest frame, mostly GPU work: 0.25 s of script); each WebGPU anchor cam frame (every 125 ms) is a
+second full pass of the pipeline; the room's reflections (0.1 to 1.5 s) and the close-up's build (0.2 to 0.6 s) run
+in one go each, on quiet frames too; an earlier WebGL run saw one program link on its first use during a scrub (main
+shows the same 683 ms frame); and the console's React updates take about 2 ms a frame while playing.
 
 ## Not measured
 

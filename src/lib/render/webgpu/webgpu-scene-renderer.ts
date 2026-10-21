@@ -65,7 +65,7 @@ function createDenoiseNoise(): DataTexture {
   return noiseTexture;
 }
 
-type ScenePipeline = { pipeline: RenderPipeline; setAoRadius: (radius: number) => void; dispose: () => void };
+type ScenePipeline = { render: () => void; setAoRadius: (radius: number) => void; dispose: () => void };
 
 type GetAoContext = { material: Material };
 
@@ -108,8 +108,18 @@ function buildScenePipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera
   const pipeline = new RenderPipeline(renderer, scenePass);
   // The scene pass already holds encoded colours (createSceneContext).
   pipeline.outputColorTransform = false;
+  // three runs these passes once per browser frame, keyed on each node's update reference, so a second draw in the
+  // same frame (the anchor cam's, then the main view) reused the first one's pictures: the main view showed the anchor
+  // cam (lookdev, 21 Oct 2026). Each draw hands them new references (onReference), so they run once per draw; once,
+  // because the pre-pass draws materials that read the AO it feeds.
+  const passNodes = [prePass, aoPass, denoised, aoTexture, scenePass];
+  let drawReferences = passNodes.map(() => ({}));
+  passNodes.forEach((passNode, index) => passNode.onReference(() => drawReferences[index]));
   return {
-    pipeline,
+    render() {
+      drawReferences = passNodes.map(() => ({}));
+      pipeline.render();
+    },
     setAoRadius(radius) {
       aoPass.radius.value = radius;
     },
@@ -175,7 +185,7 @@ export async function createWebGpuSceneRenderer(options: { device: GPUDevice; bu
         // A colour background is a clear, which no material encodes: it is cleared with its encoded value instead.
         const background = scene.background;
         if (background instanceof Color) scene.background = encodedBackground.copy(background).convertLinearToSRGB();
-        scenePipeline.pipeline.render();
+        scenePipeline.render();
         scene.background = background;
       },
       compile: async (objects, camera, scene) => {
