@@ -16,7 +16,7 @@ import { progressToTimeMs } from "@/lib/replay/replay-scene";
  * status or the latest event changes, not on every frame.
  */
 export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
-  const { input, consoleCase, clock } = useConsole();
+  const { input, consoleCase, clock, isAnchorCamExpanded } = useConsole();
   const [isOpen, setIsOpen] = useState(false);
   const eventTimesMs = useMemo(() => consoleCase.events.map((event) => event.atMs), [consoleCase.events]);
   const readKey = () => {
@@ -39,7 +39,9 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
   const minutesToNext = minutesToNextText ? Number(minutesToNextText) : null;
 
   return (
-    <div className={`pointer-events-none absolute left-4 z-(--layer-stage-controls) flex justify-center xl:top-4 xl:left-1/2 xl:-translate-x-1/2 ${isCloseUp ? "top-28" : "top-16"}`}>
+    // From 1280 px it sits centred in the top band, between the view switcher and the right column; the grown anchor
+    // cam (640 px) leaves no room there, so it keeps the row under the view switcher, as on narrower stages.
+    <div className={`pointer-events-none absolute left-4 z-(--layer-stage-controls) flex justify-center ${isAnchorCamExpanded ? "" : "xl:top-4 xl:left-1/2 xl:-translate-x-1/2"} ${isCloseUp ? "top-28" : "top-16"}`}>
       {/* One shape grows from pill to card: width and height transition between their auto sizes where the
           browser can (interpolate-size), and snap where it cannot; the corner radius follows. */}
       <div

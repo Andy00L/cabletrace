@@ -13,9 +13,19 @@ import type { DirectorViewerPort } from "@/lib/seabed/scene/director/viewer-port
 // nothing is drawn for it until it is opened. Sizes in CSS px; the picture keeps board 22's 16:10.
 export const ANCHOR_CAM_WIDTH_PX = 360;
 const PICTURE_ASPECT = 16 / 10;
-const EXPANDED_WIDTH_PX = 640;
-/** The window's whole height at rest (picture plus the figures row), so the rail can start under it. */
-export const ANCHOR_CAM_HEIGHT_PX = Math.round(ANCHOR_CAM_WIDTH_PX / PICTURE_ASPECT) + 68;
+export const ANCHOR_CAM_EXPANDED_WIDTH_PX = 640;
+// The figures row under the picture (CSS px).
+const FIGURES_ROW_HEIGHT_PX = 68;
+
+/** The window's whole height (picture plus the figures row) at a width, so the rail can start under it. */
+export function readAnchorCamHeightPx(widthPx: number): number {
+  return Math.round(widthPx / PICTURE_ASPECT) + FIGURES_ROW_HEIGHT_PX;
+}
+
+/** The widest window whose whole height fits `heightPx`. */
+export function readAnchorCamWidthForHeightPx(heightPx: number): number {
+  return Math.floor(Math.max(0, heightPx - FIGURES_ROW_HEIGHT_PX) * PICTURE_ASPECT);
+}
 const MS_PER_MINUTE = 60_000;
 
 type AnchorCamWindowProps = {
@@ -23,6 +33,8 @@ type AnchorCamWindowProps = {
   port: DirectorViewerPort;
   /** `phone`: folded to a pill until pressed, then as wide as the stage. */
   presentation: "desktop" | "phone";
+  /** The grown window's width (CSS px): up to ANCHOR_CAM_EXPANDED_WIDTH_PX, less on a stage too short for it. */
+  expandedWidthPx: number;
 };
 
 function WindowButton({ icon, label, isPressed, onClick, testId }: { icon: IconName; label: string; isPressed: boolean; onClick: () => void; testId: string }) {
@@ -41,9 +53,10 @@ function WindowButton({ icon, label, isPressed, onClick, testId }: { icon: IconN
   );
 }
 
-export function AnchorCamWindow({ driver, port, presentation }: AnchorCamWindowProps) {
-  const { input, clock, shipCamera, setShipCamera, view, isDirectorOn } = useConsole();
-  const [isExpanded, setIsExpanded] = useState(false);
+export function AnchorCamWindow({ driver, port, presentation, expandedWidthPx }: AnchorCamWindowProps) {
+  const { input, clock, shipCamera, setShipCamera, view, isDirectorOn, isAnchorCamExpanded, setAnchorCamExpanded } = useConsole();
+  // The console holds the size: the status pill and the rail lay out around the grown window.
+  const isExpanded = presentation === "desktop" && isAnchorCamExpanded;
   const [isFolded, setIsFolded] = useState(presentation === "phone");
   const pictureRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -90,7 +103,7 @@ export function AnchorCamWindow({ driver, port, presentation }: AnchorCamWindowP
     );
   }
 
-  const width = presentation === "phone" ? undefined : isExpanded ? EXPANDED_WIDTH_PX : ANCHOR_CAM_WIDTH_PX;
+  const width = presentation === "phone" ? undefined : isExpanded ? expandedWidthPx : ANCHOR_CAM_WIDTH_PX;
   return (
     <section
       aria-label="Anchor cam"
@@ -115,7 +128,7 @@ export function AnchorCamWindow({ driver, port, presentation }: AnchorCamWindowP
           {presentation === "phone" ? (
             <WindowButton icon="collapse" label="Fold the anchor cam" isPressed={false} onClick={() => setIsFolded(true)} testId="anchor-cam-fold" />
           ) : (
-            <WindowButton icon={isExpanded ? "collapse" : "expand"} label={isExpanded ? "Shrink the anchor cam" : "Expand the anchor cam"} isPressed={isExpanded} onClick={() => setIsExpanded((wasExpanded) => !wasExpanded)} testId="anchor-cam-expand" />
+            <WindowButton icon={isExpanded ? "collapse" : "expand"} label={isExpanded ? "Shrink the anchor cam" : "Expand the anchor cam"} isPressed={isExpanded} onClick={() => setAnchorCamExpanded(!isExpanded)} testId="anchor-cam-expand" />
           )}
         </div>
       </div>

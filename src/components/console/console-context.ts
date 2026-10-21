@@ -27,6 +27,9 @@ export type ConsoleController = {
   shipCamera: ShipCamera;
   /** Picks a ship camera and moves to the Vessel view; null until the 3D view can draw them. */
   setShipCamera: ((camera: ShipCamera) => void) | null;
+  /** True while the anchor cam is on screen at its large size (AnchorCamWindow): the status pill and rail make room. */
+  isAnchorCamExpanded: boolean;
+  setAnchorCamExpanded: (isExpanded: boolean) => void;
   /** The 3D view's port, for the readouts drawn from it (hover, the anchor cam's figures); null until it draws. */
   directorPort: DirectorViewerPort | null;
   mode: ConsoleMode;
