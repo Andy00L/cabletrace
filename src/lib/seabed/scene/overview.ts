@@ -8,7 +8,7 @@ import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { createChainLinks, createFurrowTrench, createUnderwaterLook, makeIllustratedChip, type FurrowTrench } from "@/lib/seabed/scene/anchor-rig";
 import { buildAnchorModel, createAnchorSteelMaterial } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
-import { createDataColorMaterial, drawAfterWater } from "@/lib/render/data-colors";
+import { drawAfterWater } from "@/lib/render/data-colors";
 import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import type { ScenePalette, SceneSky } from "@/lib/seabed/scene/scene-look";
@@ -876,11 +876,13 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     const point = toScene(cut.longitude, cut.latitude);
     const seabedY = sampleSeabedHeight(point.x, point.z) + 0.2;
     const marker = new THREE.Group();
-    const ring = drawAfterWater(new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_PX, CUT_RING_TUBE_RADIUS_PX, 10, 48), createDataColorMaterial(WEBGL_COLORS.alarm)));
+    // The tubes' material with a radius of 0, which thins nothing: the marker draws with the tubes' shader program, so
+    // the first frame links one program fewer (about 75 ms on a GPU without parallel shader compile).
+    const ring = drawAfterWater(new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_PX, CUT_RING_TUBE_RADIUS_PX, 10, 48), kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.alarm, radiusKm: 0, fullWidthDistanceKm: FULL_WIDTH_DISTANCE_KM })));
     ring.rotation.x = Math.PI / 2;
     const beamGeometry = new THREE.CylinderGeometry(CUT_BEAM_RADIUS_PX, CUT_BEAM_RADIUS_PX, CUT_BEAM_HEIGHT_PX, 8);
     beamGeometry.translate(0, CUT_BEAM_HEIGHT_PX / 2, 0);
-    const beam = drawAfterWater(new THREE.Mesh(beamGeometry, createDataColorMaterial(WEBGL_COLORS.alarm, { opacity: 0.7, depthWrite: false })));
+    const beam = drawAfterWater(new THREE.Mesh(beamGeometry, kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.alarm, radiusKm: 0, fullWidthDistanceKm: FULL_WIDTH_DISTANCE_KM, opacity: 0.7, depthWrite: false })));
     marker.add(ring, beam);
     marker.position.set(point.x, seabedY, point.z);
     marker.visible = false;

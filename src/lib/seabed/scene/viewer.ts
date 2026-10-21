@@ -3,6 +3,7 @@ import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import type { RendererKind } from "@/lib/diagnostics/webgl-renderer";
 import { closeWebGl, openWebGl, type OpenedWebGl } from "@/lib/render/webgl-canvas";
 import { requestWebGpuDevice, type WebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
+import { claimParkedRenderer, parkRenderer, type ParkedRenderer } from "@/lib/render/renderer-pool";
 import type { RenderTierName, SceneRenderer } from "@/lib/render/scene-renderer";
 import { createWebGlSceneRenderer, type DrawingBudget } from "@/lib/render/webgl-scene-renderer";
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
@@ -191,14 +192,19 @@ type CameraMove = {
   durationMs: number;
 };
 
-function disposeObjectTree(root: THREE.Object3D) {
+/**
+ * Frees a tree's geometries, textures and materials. With `heldMaterials`, the materials go there instead of being
+ * freed: a parked renderer keeps them, so their shader programs stay linked for the next viewer (renderer-pool.ts).
+ */
+function disposeObjectTree(root: THREE.Object3D, heldMaterials: THREE.Material[] | null = null) {
   root.traverse((child) => {
     if (!(child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.Line || child instanceof THREE.Sprite)) return;
     child.geometry.dispose();
     const materials: THREE.Material[] = Array.isArray(child.material) ? child.material : [child.material];
     materials.forEach((material) => {
       if ("map" in material && material.map instanceof THREE.Texture) material.map.dispose();
-      material.dispose();
+      if (heldMaterials) heldMaterials.push(material);
+      else material.dispose();
     });
   });
 }
@@ -208,8 +214,14 @@ function disposeObjectTree(root: THREE.Object3D) {
  * then), else WebGL on the GPU or on the CPU, as before. A WebGPU tier that fails to start falls back to WebGL, so the
  * canvas never reports `webgpu` for anything but a WebGPU backend.
  */
-async function createSceneRenderer(webGpuDeviceRequest: Promise<Result<WebGpuDevice>>, kind: RendererKind, openedWebGl: OpenedWebGl): Promise<Result<SceneRenderer>> {
+async function createSceneRenderer(webGpuDeviceRequest: Promise<Result<WebGpuDevice>>, kind: RendererKind, openedWebGl: OpenedWebGl, parked: ParkedRenderer | null): Promise<Result<SceneRenderer>> {
   const webGpuDevice = await webGpuDeviceRequest;
+  if (parked) {
+    // The previous replay's renderer, its context open and its programs linked: nothing new to start.
+    if (webGpuDevice.ok) webGpuDevice.value.device.destroy();
+    closeWebGl(openedWebGl);
+    return { ok: true, value: parked.renderer };
+  }
   if (webGpuDevice.ok) {
     try {
       const webGpuModule = await import("@/lib/render/webgpu/webgpu-scene-renderer");
@@ -268,9 +280,11 @@ function startTextureLoad(url: string, onSettled: () => void): THREE.Texture {
  */
 export async function createSeabedViewer(options: ViewerOptions): Promise<Result<SeabedViewer>> {
   const { container, scene: seabedScene, input, readTimeMs, prefersReducedMotion, onTargetPick } = options;
-  // Software or GPU is known from a throwaway WebGL context at once; WebGPU (a GPU tier too) after its adapter check.
-  const openedWebGl = options.openedWebGl ?? openWebGl();
-  const rendererKind: RendererKind = openedWebGl.kind === "software" ? "software" : "hardware";
+  // The previous replay's renderer when one is parked (renderer-pool.ts); else software or GPU is known from the WebGL
+  // context at once, and WebGPU (a GPU tier too) after its adapter check.
+  const parked = claimParkedRenderer();
+  const openedWebGl: OpenedWebGl = parked ? { kind: "none" } : (options.openedWebGl ?? openWebGl());
+  const rendererKind: RendererKind = (parked ? parked.renderer.tier === "software" : openedWebGl.kind === "software") ? "software" : "hardware";
   const isGpuTier = rendererKind !== "software";
   const isCalm = prefersReducedMotion || !isGpuTier;
   // Set whenever the picture must be redrawn even though the replay moment did not change. Declared first: a texture
@@ -318,7 +332,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   const { features, terrain: terrainGrid } = seabedScene;
   const palette = chooseScenePalette(features.region);
   const projection = createProjection(features.region);
-  const createdRenderer = await createSceneRenderer(options.webGpuDevice ?? requestWebGpuDevice(), rendererKind, openedWebGl);
+  const webGpuDeviceRequest: Promise<Result<WebGpuDevice>> = parked ? Promise.resolve({ ok: false, reason: "a renderer is parked" }) : (options.webGpuDevice ?? requestWebGpuDevice());
+  const createdRenderer = await createSceneRenderer(webGpuDeviceRequest, rendererKind, openedWebGl, parked);
   performance.mark("seabed:renderer");
   if (!createdRenderer.ok) return createdRenderer;
   const renderer = createdRenderer.value;
@@ -1009,6 +1024,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     await compiled;
     if (isDisposed) return;
     performance.mark("seabed:complete");
+    // This scene's materials now hold every program it uses: the previous replay's can go.
+    parked?.releaseHeldMaterials();
     overview.revealRefinement();
     settleAsset();
   }
@@ -1069,20 +1086,30 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         overview.controls.removeEventListener("start", stopCameraMove);
         overview.controls.removeEventListener("change", markDirty);
         overview.controls.dispose();
-        disposeObjectTree(overview.scene);
+        // The materials are held, not freed, so a parked renderer keeps their programs linked for the next replay.
+        const heldMaterials: THREE.Material[] = [];
+        disposeObjectTree(overview.scene, heldMaterials);
         if (closeUp) {
           closeUp.controls.removeEventListener("change", markDirty);
           closeUp.controls.dispose();
-          disposeObjectTree(closeUp.scene);
+          disposeObjectTree(closeUp.scene, heldMaterials);
         }
         environment?.dispose();
         softDot.dispose();
         rippleNormalMap?.dispose();
         skyMap?.dispose();
-        renderer.dispose();
+        // Closed before this scene finished compiling: the previous replay's materials go now.
+        parked?.releaseHeldMaterials();
         canvas.remove();
+        // The test hooks (data-frame-count, data-renderer...) belong to this replay, not to the next one's canvas.
+        Object.keys(canvas.dataset).forEach((key) => delete canvas.dataset[key]);
         overviewLabels.domElement.remove();
         closeUpLabels.domElement.remove();
+        const releaseHeldMaterials = () => heldMaterials.splice(0).forEach((material) => material.dispose());
+        if (!parkRenderer({ renderer, releaseHeldMaterials })) {
+          releaseHeldMaterials();
+          renderer.dispose();
+        }
       },
     },
   };
