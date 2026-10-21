@@ -6,9 +6,9 @@ import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplayScen
 import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { createChainLinks, createFurrowTrench, createUnderwaterLook, makeIllustratedChip, type FurrowTrench } from "@/lib/seabed/scene/anchor-rig";
-import { buildAnchorModel, createAnchorSteelMaterial } from "@/lib/seabed/scene/models";
+import { buildAnchorModel, createAnchorSteelMaterial, readAnchorShackleLocal } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
-import { createDataColorMaterial, drawAfterWater } from "@/lib/render/data-colors";
+import { drawAfterWater } from "@/lib/render/data-colors";
 import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import type { ScenePalette, SceneSky } from "@/lib/seabed/scene/scene-look";
@@ -16,6 +16,8 @@ import type { TerrainGrid } from "@/lib/seabed/scene/terrain-grid";
 import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
 import { createPhysicalLine, createSeabedLineMaterials, type PhysicalLine } from "@/lib/seabed/scene/seabed-lines";
 import { buildWaterBody, createWaterDepthMap, WATER_ABSORPTION, WATER_LOOK } from "@/lib/seabed/scene/water-surface";
+import { buildPolylineTube } from "@/lib/seabed/scene/polyline-tube";
+import { yieldToPage } from "@/lib/render/yield-to-page";
 import { FULL_WIDTH_DISTANCE_KM, MIN_WIDTH_SHARE, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
@@ -29,6 +31,10 @@ import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, ty
 const BLOCK_BASE_THICKNESS_KM = 2.6;
 // Lines are resampled every 300 m so they follow the seabed.
 const LINE_STEP_KM = 0.3;
+// Faces around each map tube (and its casing and the signal's halo).
+const TUBE_RADIAL_SEGMENTS = 8;
+// Physical lines built in one task after the first frame (prepareRefinement), so the page answers between batches.
+const PHYSICAL_LINES_PER_TASK = 6;
 // Points on each side used to even out a line's height along the seabed.
 const LINE_HEIGHT_SMOOTHING_POINTS = 4;
 const POWER_CABLE_RADIUS_KM = 0.13;
@@ -219,12 +225,18 @@ export type OverviewScene = {
   readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
   /** Points of level open seabed in sight of `cameraPosition`, nearer than the haze starts, and their palette colours, for the lookdev seabed check. */
   readSeabedProbes: (cameraPosition: THREE.Vector3) => SeabedProbe[];
-  /** Builds the refinement's deferred parts; they stay hidden until revealRefinement (see buildOverview). */
+  /** Builds the refinement's deferred parts (the ship's hull, the physical lines); hidden until revealRefinement. */
   prepareRefinement: (environment: THREE.Texture | null) => Promise<void>;
   /** Shows the vessel, its wakes, the anchor rig, the water and the signal, once their shaders are compiled. */
   revealRefinement: () => void;
   /** Keeps the sky around the camera and the haze measured from the camera's target. */
   followCamera: (cameraPosition: THREE.Vector3, targetDistanceKm: number) => void;
+  /**
+   * Runs `run` with the scene dressed as the anchor cam sees it under the surface (the water column's fog and
+   * background, the light shafts and caustics, no water surface), then dresses it back for the overview's camera:
+   * for compiling and drawing what that look needs before the anchor cam first opens.
+   */
+  withUnderwaterLook: <Value>(run: () => Value) => Value;
   /** Gives the screen-sized markers (the cut markers) their size for this camera and view height (CSS px); call before each draw. */
   fitScreenSizes: (viewCamera: THREE.PerspectiveCamera, viewportHeightPx: number) => void;
   /** Lookdev (explore/natural-look): named subjects at the last updated moment. */
@@ -406,12 +418,11 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
   });
   // Where the line rests on the seabed (for its physical twin, seabed-lines.ts).
   const restingPoints = vectors.map((vector) => new THREE.Vector3(vector.x, vector.y - radius - 0.04, vector.z));
+  // The spline, for what follows the line later (the signal, the probes, the physical twin); its samples are taken
+  // only when asked for.
   const curve = new THREE.CatmullRomCurve3(vectors, false, "centripetal");
-  // One ring per resampled point (every 300 m): the map draws these tubes a few pixels wide, so finer rings add build
-  // time on the way to the first frame and nothing on screen.
-  const tubularSegments = Math.max(12, vectors.length);
   // Data tubes are drawn unlit and after the water (src/lib/render/data-colors.ts), so they show their exact colour.
-  const mesh = drawAfterWater(new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSegments, radius, 8, false), materials.line));
+  const mesh = drawAfterWater(new THREE.Mesh(createPolylineTubeGeometry(vectors, radius), materials.line));
   mesh.castShadow = true;
   // The casing's underside rests on the seabed with the line's, so its centreline sits higher by the extra radius. It
   // is the line's tube widened in place (same rings, same normals), which costs a pass over its vertices instead of a
@@ -419,7 +430,22 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
   const casing = new THREE.Mesh(widenTube(mesh.geometry, radius, radius * CASING_RADIUS_SHARE), materials.casing);
   casing.renderOrder = CASING_RENDER_ORDER;
   mesh.add(casing);
-  return { mesh, curve, restingPoints };
+  return { mesh, curve, restingPoints, centreline: vectors };
+}
+
+/**
+ * A tube with one ring per point of the line (polyline-tube.ts): the points are already resampled every 300 m, and
+ * the map draws the tubes a few pixels wide, so sampling the spline for each ring (TubeGeometry) only cost time on the
+ * way to the first frame (about 650 ms on a phone).
+ */
+function createPolylineTubeGeometry(points: readonly THREE.Vector3[], radius: number): THREE.BufferGeometry {
+  const tube = buildPolylineTube(points, radius, TUBE_RADIAL_SEGMENTS);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(tube.positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(tube.normals, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(tube.uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(tube.indices, 1));
+  return geometry;
 }
 
 /**
@@ -650,7 +676,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (cut === primaryCut) {
         // The signature "signal": a faint halo and a light that runs along the cable under watch.
         halo = new THREE.Mesh(
-          new THREE.TubeGeometry(intact.curve, Math.max(12, run.length * 2), tubeRadii.signalHalo, 8, false),
+          createPolylineTubeGeometry(intact.centreline, tubeRadii.signalHalo),
           kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.cable, radiusKm: tubeRadii.signalHalo, fullWidthDistanceKm, opacity: 0.12, depthWrite: false }),
         );
         drawAfterWater(halo);
@@ -775,7 +801,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const dragWindow = input.dragWindow;
 
   // Built at the case ship's real length, then drawn at the scale the disclosure under the view states.
-  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail, sky: options.skyMap });
+  // Its hull is built after the first frame (prepareRefinement): the ship is part of the refinement, hidden till then.
+  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail, sky: options.skyMap, isHullDeferred: true });
   const ship = shipModel.group;
   ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
   const shipDrawnLengthKm = input.vessel.lengthMetres * SHIP_DRAWN_SCALE * METRES_TO_KM;
@@ -786,10 +813,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   ship.add(shipLabel.object);
   ship.visible = false;
   refinement.add(ship);
-  // The detail level streams in after the first frame: its code loads with a dynamic import (ship-detail.ts).
-  const shipDetail = import("@/lib/ships/ship-detail")
-    .then(({ addShipDetail }) => addShipDetail(shipModel, input.vessel.name))
-    .catch((error: unknown) => console.error(`[buildOverview] the ship's detail level did not load: ${error instanceof Error ? error.message : String(error)}`));
+  // The detail level's code downloads now (a dynamic import, ship-detail.ts); it dresses the hull after the first
+  // frame, in prepareRefinement.
+  const shipDetailCode = import("@/lib/ships/ship-detail");
   // A soft contact shadow on the water around the hull (ambient occlusion where hull meets sea), so the ship sits in
   // the water instead of hovering over a sea that is mostly transparent from above.
   const contactShadow = new THREE.Mesh(
@@ -806,8 +832,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const wake = createWake();
   refinement.add(wake.mesh);
   const anchorMaterial = createAnchorSteelMaterial(SCENE_COLORS.anchor, options.skyMap, ANCHOR_GALVANISED_SHARE);
-  const anchorModel = buildAnchorModel(anchorMaterial);
-  const anchor = anchorModel.group;
+  // The anchor's mesh is built after the first frame (prepareRefinement), into this group.
+  const anchor = new THREE.Group();
+  const anchorShackleLocal = readAnchorShackleLocal();
   anchor.scale.setScalar(ANCHOR_DRAWN_SCALE * METRES_TO_KM);
   anchor.visible = false;
   refinement.add(anchor);
@@ -876,11 +903,13 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     const point = toScene(cut.longitude, cut.latitude);
     const seabedY = sampleSeabedHeight(point.x, point.z) + 0.2;
     const marker = new THREE.Group();
-    const ring = drawAfterWater(new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_PX, CUT_RING_TUBE_RADIUS_PX, 10, 48), createDataColorMaterial(WEBGL_COLORS.alarm)));
+    // The tubes' material with a radius of 0, which thins nothing: the marker draws with the tubes' shader program, so
+    // the first frame links one program fewer (about 75 ms on a GPU without parallel shader compile).
+    const ring = drawAfterWater(new THREE.Mesh(new THREE.TorusGeometry(CUT_RING_RADIUS_PX, CUT_RING_TUBE_RADIUS_PX, 10, 48), kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.alarm, radiusKm: 0, fullWidthDistanceKm: FULL_WIDTH_DISTANCE_KM })));
     ring.rotation.x = Math.PI / 2;
     const beamGeometry = new THREE.CylinderGeometry(CUT_BEAM_RADIUS_PX, CUT_BEAM_RADIUS_PX, CUT_BEAM_HEIGHT_PX, 8);
     beamGeometry.translate(0, CUT_BEAM_HEIGHT_PX / 2, 0);
-    const beam = drawAfterWater(new THREE.Mesh(beamGeometry, createDataColorMaterial(WEBGL_COLORS.alarm, { opacity: 0.7, depthWrite: false })));
+    const beam = drawAfterWater(new THREE.Mesh(beamGeometry, kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.alarm, radiusKm: 0, fullWidthDistanceKm: FULL_WIDTH_DISTANCE_KM, opacity: 0.7, depthWrite: false })));
     marker.add(ring, beam);
     marker.position.set(point.x, seabedY, point.z);
     marker.visible = false;
@@ -921,7 +950,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const haze = new THREE.Fog(palette.sky.hazeHex, 1, 1 + HAZE_FAR_SHARE);
   scene.add(skyDome);
   scene.fog = haze;
-  const underwaterLook = createUnderwaterLook(WATER_LOOK, sampleSeabedHeight, haze);
+  const underwaterLook = createUnderwaterLook(WATER_LOOK, sampleSeabedHeight, haze, kit);
   refinement.add(underwaterLook.group);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
@@ -1023,7 +1052,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       // Rolled onto one side, as a dragged anchor lies: one fluke dug in, the other's blade turned up (as in the close-up).
       anchor.rotation.set(-0.12, Math.atan2(towardHawse.x, towardHawse.z), ANCHOR_ROLL_RADIANS, "YXZ");
       anchor.updateMatrixWorld();
-      shackleWorld.copy(anchorModel.shackleLocal).applyMatrix4(anchor.matrixWorld);
+      shackleWorld.copy(anchorShackleLocal).applyMatrix4(anchor.matrixWorld);
       writeChain(located.span);
       // Links where the camera is close enough to see them; the hairline otherwise.
       const isChainClose = camera.position.distanceTo(anchor.position) < CHAIN_LINK_VIEW_KM;
@@ -1111,15 +1140,27 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
    * shaders in the background, then calls revealRefinement.
    */
   async function prepareRefinement(environment: THREE.Texture | null): Promise<void> {
+    // One piece per task, so the page answers between them (on a phone the whole refinement was one 1.4 s task).
+    shipModel.addHull();
+    await yieldToPage();
+    anchor.add(buildAnchorModel(anchorMaterial).group);
+    try {
+      const { addShipDetail } = await shipDetailCode;
+      await yieldToPage();
+      addShipDetail(shipModel, input.vessel.name);
+    } catch (error) {
+      console.error(`[prepareRefinement] the ship's detail level did not load: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    await yieldToPage();
     const lineMaterials = createSeabedLineMaterials();
-    for (const dataLine of dataTubes) {
+    for (const [lineIndex, dataLine] of dataTubes.entries()) {
+      if (lineIndex % PHYSICAL_LINES_PER_TASK === 0) await yieldToPage();
       const { tone, radius, tube } = dataLine;
       const physical = createPhysicalLine({ restingPoints: tube.restingPoints, radiusKm: radius * MIN_WIDTH_SHARE, kind: tone === "pipeline" ? "pipeline" : "cable", hex: tone === "pipeline" ? WEBGL_COLORS.pipeline : WEBGL_COLORS.cable, materials: lineMaterials, kit, sampleSeabedHeight });
       physical.group.visible = false;
       refinement.add(physical.group);
       dataLine.physical = physical;
     }
-    await shipDetail;
     if (environment) {
       refinement.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
@@ -1414,6 +1455,15 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       });
     },
     followCamera,
+    withUnderwaterLook(run) {
+      underwaterLook.prepare();
+      underwaterLook.apply(scene, camera, true);
+      water.group.visible = false;
+      const value = run();
+      underwaterLook.apply(scene, camera, camera.position.y < 0);
+      water.group.visible = camera.position.y >= 0;
+      return value;
+    },
     fitScreenSizes,
     readSubjects,
     isBehindRelief,

@@ -10,6 +10,7 @@ import { createCaustics } from "@/lib/seabed/scene/caustics";
 import { createTerrainMaterial } from "@/lib/seabed/scene/terrain-material";
 import { thinTubeWithDistance } from "@/lib/seabed/scene/tube-thinning";
 import { createWaterSurfaceGlslMaterial } from "@/lib/seabed/scene/water-surface";
+import { yieldToPage } from "@/lib/render/yield-to-page";
 import { createKelvinWakeGlslMaterial } from "@/lib/ships/kelvin-wake";
 
 // The WebGL tiers of the 3D replay: three.js's WebGLRenderer and the GLSL versions of the scene's custom materials.
@@ -33,11 +34,6 @@ function createSoftPointCloud(count: number, { map, color, size, opacity }: Soft
       positionAttribute.needsUpdate = true;
     },
   };
-}
-
-/** Lets the page run (input, a frame) before the next piece of work. */
-function yieldToPage(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /**
@@ -73,6 +69,11 @@ export function createWebGlKit(renderer: THREE.WebGLRenderer): SceneMaterialKit 
     createKelvinWakeMaterial: createKelvinWakeGlslMaterial,
     createCaustics,
     createSoftPoints: createSoftPointCloud,
+    createFogSwitch: (scene, aboveWater, underwater) => ({
+      setUnderwater(isUnderwater) {
+        scene.fog = isUnderwater ? underwater : aboveWater;
+      },
+    }),
   };
 }
 

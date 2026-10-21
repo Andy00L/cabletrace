@@ -109,10 +109,13 @@ export function toSeabedData(featuresPayload: unknown, terrain: ArrayBuffer): Re
   return { ok: true, value: { features: features.value, elevations: decodeElevations(terrain) } };
 }
 
-/** Fetches public/seabed/<area>-seabed.json and <area>-terrain.bin and checks they belong together. */
-export async function loadSeabedData(area: string): Promise<Result<SeabedData>> {
+/** Where an area's two files are fetched from: its features (lines, places, credits) and its depth grid (seabed-urls.ts). */
+export type SeabedFileUrls = { features: string; terrain: string };
+
+/** Fetches an area's public/seabed/<area>-seabed.json and <area>-terrain.bin from `urls` and checks they belong together. */
+export async function loadSeabedData(urls: SeabedFileUrls): Promise<Result<SeabedData>> {
   try {
-    const [featuresResponse, terrainResponse] = await Promise.all([fetch(`/seabed/${area}-seabed.json`), fetch(`/seabed/${area}-terrain.bin`)]);
+    const [featuresResponse, terrainResponse] = await Promise.all([fetch(urls.features), fetch(urls.terrain)]);
     if (!featuresResponse.ok || !terrainResponse.ok) {
       return { ok: false, reason: `The seabed files answered ${featuresResponse.status} and ${terrainResponse.status}.` };
     }

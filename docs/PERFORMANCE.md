@@ -315,11 +315,81 @@ With a cold cache both builds miss the shell (3,000 ms), first 3D frame (6,000 m
 2.4 to 4.6 s faster to the first 3D frame and loads 17 KB more before it (the worker bundle, 12.9 KB raw). With the old
 warm sign-in tab the branch measured 1,188 ms to the shell and 6,819 ms to the first 3D frame at load 8.
 
+### Second round: under 1.5 s on desktop (21 Oct 2026)
+
+`.scratch/case-load/click-to-ready.ts` clicks a case card on `/cases` and times until the 3D view says ready (its
+first frame), GPU tier on Mesa d3d12, cache cleared before each click; local production builds of main (5c0148a) and
+this branch, median (min-max) in ms, load 0.5 to 1.4:
+
+| Case | Main, desktop | Branch, desktop | Main, phone | Branch, phone |
+| --- | --- | --- | --- | --- |
+| Eagle S | 2,511 (2,417-3,654) | **1,445** (1,362-1,468) | 4,169 (4,165-4,220) | **2,554** (2,494-2,578) |
+| Yi Peng 3 | 2,554 (2,109-4,420) | **1,503** (1,433-1,541) | 4,488 (4,379-4,550) | **2,510** (2,493-2,620) |
+
+Desktop is 1,440 x 900, 5 runs; phone is 390 x 844 at DPR 3 with the CPU slowed 4 times, 3 runs. What changed: the
+renderer is kept across replays (`src/lib/render/renderer-pool.ts`), the viewer's code starts downloading while the
+console renders, the WebGPU adapter's budget counts idle page time, the seabed files load at content-versioned URLs
+cached a year (`src/lib/seabed/seabed-urls.ts`), the terrain worker builds the likely grid step as soon as the files
+are in, the map's tubes are polyline tubes (`polyline-tube.ts`), the ship's hull, house and anchor are built after the
+first frame, and a phone (`src/lib/render/compact-screen.ts`) draws the half grid on WebGL at a pixel ratio of at most
+1.5, with the plain hulls and no sand ripples.
+
+## Replay frame pacing (21 Oct 2026)
+
+Andy noticed the replays did not animate smoothly. `scripts/perf/windows-frame-pacing.ts` measures it on Windows
+Chrome and the machine's own GPU (the lookdev harness's agent, mode `frame-pacing`, motion allowed): on a case page
+with its 3D view ready, it records every animation frame's interval while the replay idles 3 s, plays 8 s, moves
+through four views and is scrubbed, with Chrome's long animation frames and the JS sampling profiler (`--profile`).
+The GPU tier inside WSL cannot judge this: Mesa's d3d12 holds about 20 fps there even when idle.
+
+**WebGPU rebuilt every shader every frame.** The anchor cam draws the same scene from under the surface, and the
+underwater look swapped `scene.fog` between the haze (linear) and the water column (exponential). On WebGPU a different
+fog changes every material's cache key, so three.js disposed every render object and built every node material again,
+twice per anchor-cam frame; each rebuilt scene material also re-ran the setup of the AO nodes it reads, which reset the
+GTAO and render-to-texture quads every frame. Counted in 4 s of playback: 468 render objects recreated. The WebGPU kit
+now keeps one fog node blended by an "underwater" uniform (`createFogSwitch`, `src/lib/render/webgpu/webgpu-kit.ts`);
+WebGL still swaps `scene.fog`, whose programs stay cached.
+
+**First draws.** A compile does not pay for everything a first draw does (shadow maps, texture uploads, and on WebGPU
+every pipeline of its render passes, which `compileAsync` does not reach). So the close-up is built and compiled after
+the refinement, the anchor cam's underwater programs are compiled with the scene on WebGL, and on a quiet replay
+(no new moment, no input, the camera at rest for 1.5 s) a warm-up draws what has not been seen yet where nobody sees
+it: on WebGPU the overview's later objects (the cut pieces, markers, the underwater dressing) two a frame, then the
+close-up; on WebGL the close-up in one draw (`warmUpBatch`, `src/lib/seabed/scene/viewer.ts`). The director's camera
+fit bisects 30 times instead of 60 (5 mm on 5,000 km).
+
+**The anchor cam in the main view (WebGPU).** three.js runs a render pipeline's passes (the pre-pass, GTAO, the
+denoise and the scene pass) once per browser frame. The anchor cam draws before the main view, so on every frame it
+drew (each 125 ms) the main view reused its pictures and showed the anchor cam instead; the lookdev's WebGPU vessel
+shots caught it. Each draw now gives the passes new update references (`onReference`, `buildScenePipeline` in
+`src/lib/render/webgpu/webgpu-scene-renderer.ts`), so they run once per draw. The warm-up also skips objects with
+empty geometry: the close-up's spare cable pieces made three's WebGPU draw throw (a fat line with no instances draws
+an infinite count), and from then on no frame reached the screen (the blank WebGPU overviews).
+
+Windows Chrome, Eagle S, 1,440 x 900 at DPR 1, local production builds, fps of the page's animation frames and the
+longest frame (ms). Main: two runs on WebGPU (the second with Chrome's frame-rate limit off), one on WebGL. Branch,
+with the anchor cam fix: three runs on WebGPU, one on WebGL.
+
+| Scene | Main, WebGPU | Branch, WebGPU | Main, WebGL | Branch, WebGL |
+| --- | --- | --- | --- | --- |
+| Idle 3 s | 0 to 5.5 fps | 11.6 to 12.9 fps, max 84 to 500 (the warm-up) | 59.7 fps, max 18 | 59.8 fps, max 17 |
+| Playing 8 s | 1.9 to 3.6 fps, max 2,950 | **55.1 to 58.6 fps**, max 67 to 350 | 56.1 fps, max 267 | **58.6 fps**, max 117 |
+| View changes 6 s | 3.1 to 4.6 fps, max 2,650 | **36.9 to 43.5 fps**, max 967 to 1,450 | 35.4 fps, max 2,717 | **58 fps**, max 133 |
+| Scrub 2 s | 5.9 to 12.8 fps, max 540 | **59.7 to 59.8 fps**, max 17 | 47.4 fps, max 683 | **59.4 fps**, max 17 |
+
+Outside the WebGPU warm-up, the branch's p50 and p95 frames are 16.7 and 16.8 to 17.2 ms in every scene. Left: the warm-up holds a few
+frames for 0.1 to 0.5 s on a paused, untouched replay (on purpose, instead of while playing); it warms the playback's
+objects before the close-up, so a reader who opens "At the cut" before it got there waits 1 to 1.5 s on WebGPU (the
+view changes' longest frame, mostly GPU work: 0.25 s of script); each WebGPU anchor cam frame (every 125 ms) is a
+second full pass of the pipeline; the room's reflections (0.1 to 1.5 s) and the close-up's build (0.2 to 0.6 s) run
+in one go each, on quiet frames too; an earlier WebGL run saw one program link on its first use during a scrub (main
+shows the same 683 ms frame); and the console's React updates take about 2 ms a frame while playing.
+
 ## Not measured
 
 - Mobile devices and GPUs other than one: the 3D figures above are SwiftShader, the lookdev's hardware tier ran on
-  Mesa d3d12 over an RTX 3050, and the WebGPU tier on one AMD GCN 5 adapter through Windows Chrome (WebGPU tier
-  section). No phone was measured.
+  Mesa d3d12 over an RTX 3050, the WebGPU tier and the frame pacing on this laptop through Windows Chrome (WebGPU tier
+  section). Phones are emulated in Chromium (CPU slowed 4 times); no real phone was measured.
 - Throttled networks beyond `/` and one case page: the 3g-phone profile covers those two (section "Phones on 3G").
 - Interaction latency (INP): the tool loads pages and does not click; long tasks are the proxy.
 - The live site after these changes: not deployed from here.

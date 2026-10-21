@@ -184,7 +184,8 @@ GPU tiers (hardware and webgpu) load it.
 ### The tier
 
 The replay draws on WebGPU only when `navigator.gpu.requestAdapter()` returns an adapter that says it is not a fallback
-and whose name is not a CPU renderer's (`src/lib/diagnostics/webgpu-adapter.ts`, `judgeGpuAdapter`; a 3 s timeout).
+and whose name is not a CPU renderer's (`src/lib/diagnostics/webgpu-adapter.ts`, `judgeGpuAdapter`), within a budget
+of 3 s of idle page time (below).
 The viewer makes the GPU device from that adapter itself and hands it to `WebGPURenderer`, then checks the backend is
 WebGPU: `WebGPURenderer` would otherwise fall back to WebGL 2 silently. Anything that fails sends the page to the WebGL
 tiers as before, so `data-renderer="webgpu"` always means a WebGPU backend on a real GPU. Headless test browsers,
@@ -223,7 +224,9 @@ Headless Chromium inside WSL gets only SwiftShader's fallback adapter under ever
 started from WSL, gets the machine's GPU (here `amd gcn-5`, not a fallback), but its DevTools port is not reachable
 from WSL, so Playwright cannot drive it. `scripts/lookdev/webgpu-capture.ts` drives it through the command line:
 
-- A proxy in front of the app (port 3329) injects a page agent first in every HTML page. The agent waits for the frame
+- A proxy in front of the app (port 3329) passes the browser's headers on (Next's router sends its own with a client
+  navigation; without them the app answered HTML and the router loaded a new page) and injects a page agent first in
+  every HTML page. The agent waits for the frame
   exactly as the Playwright tiers wait (the canvas hooks, then 0.8 s without a new frame), hides what the shot hides,
   and prints the probes and boxes on the console; `--enable-logging=stderr` writes the console to Chrome's stderr.
 - The proxy also injects an async script whose response it holds until the agent releases it. Headless Chrome takes
@@ -234,9 +237,23 @@ from WSL, so Playwright cannot drive it. `scripts/lookdev/webgpu-capture.ts` dri
   then reports, so the probes and boxes it reports are the screenshot's; the harness refuses a report made at any
   other size. 5 s was too short on two runs in three once the case page drew on WebGPU from its first frame.
 - The case page asks for the WebGPU adapter before it opens a WebGL context, not alongside it
-  (`src/components/replay/SeabedView.tsx`). Asked together, Windows Chrome answered the adapter request in 3.3 and
-  3.5 s, past the 3 s timeout, on two loads in three (2.1 s on the third), and the page drew on WebGL; asked first, every
-  run drew on WebGPU. A browser with a WebGPU device no longer opens a WebGL context it would close unused.
+  (`src/components/replay/SeabedView.tsx`), and a browser with a WebGPU device opens no WebGL context it would close
+  unused. Even so, a direct load in Windows Chrome blocks the page's main thread for 2.8 to 3.3 s in one go just after
+  the adapter is asked for (the gap between two 20 ms timer ticks); the adapter answers at the end of it, 2.98 to 3.43 s
+  after the request. A wall-clock 3 s timeout then fired in the same moment and won, and 4 loads in 5 drew on WebGL.
+  The budget is now 30 ticks of 100 ms of idle page time, so a block counts as one tick, plus one task's grace
+  (`webgpu-adapter.ts`, `waitForIdleTicks`); every load since drew on WebGPU. A case opened by a click from `/cases`
+  did not show the block (`scripts/perf/windows-case-click.ts`, docs/PERFORMANCE.md).
+- `scripts/perf/windows-frame-pacing.ts` uses the same Chrome and proxy with a `frame-pacing` agent and motion allowed
+  (no forced reduced motion, frames at the display's pace, no lookdev hooks): on a case page it records the frame
+  intervals while the replay idles, plays, changes view and is scrubbed, with the long animation frames, the JS
+  sampling profiler (the proxy sends `Document-Policy: js-profiling`) and the viewer's slow `seabed:*` steps
+  (docs/PERFORMANCE.md, Replay frame pacing). `--webgl` hands the page Chrome's CPU WebGPU adapter, which the app
+  refuses, so it draws on WebGL on the GPU.
+- `scripts/perf/windows-case-click.ts` uses the same Chrome and proxy with a `case-click` agent: it opens `/cases` from
+  a profile whose caches, cookies and storage are emptied, waits for React to hydrate a card, clicks it, times the case
+  until its 3D view says ready, goes back and clicks another (warm). It acts only in the page the run opened: Chrome
+  may prerender a linked case, and that page gets an agent too.
 - Each shot is two Chrome runs, the look with its labels and the bare canvas with its probes; overview shots get a
   third that times the scrub (one-minute steps on the scrubber, input event to the next drawn frame, real time).
 - Chrome always runs with `--headless=new` and a profile in `.scratch/lookdev-webgpu-profile`; a run that hangs is

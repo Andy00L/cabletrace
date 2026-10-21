@@ -38,8 +38,13 @@ const RELEASE_PATH = "/__lookdev/release";
 /** Where the proxy serves the WebGPU ship turntable (turntable-webgpu-page.ts) from. */
 export const TURNTABLE_PATH = "/__lookdev/turntable/";
 
-/** What the page shows when its screenshot is taken: the 3D view with its labels, or the bare canvas. */
-export type CaptureMode = "look" | "canvas" | "timing" | "turntable";
+/**
+ * What the page shows when its screenshot is taken: the 3D view with its labels, or the bare canvas. `case-click`
+ * opens /cases and times clicks on cases instead (scripts/perf/windows-case-click.ts), and `frame-pacing` records the
+ * replay's frame intervals while it idles, plays, changes view and scrubs (scripts/perf/windows-frame-pacing.ts);
+ * neither screenshot is judged.
+ */
+export type CaptureMode = "look" | "canvas" | "timing" | "turntable" | "case-click" | "frame-pacing";
 
 export type AgentConfig = {
   mode: CaptureMode;
@@ -53,7 +58,21 @@ export type AgentConfig = {
   /** The viewport the screenshot is taken at (Chrome's --window-size). */
   viewportWidth: number;
   viewportHeight: number;
+  /** The `case-click` mode's cases, clicked in this order from /cases, back to /cases between two. */
+  clickSlugs: string[];
 };
+
+/**
+ * One scene of the `frame-pacing` mode: the page's animation frames per second, the 3D view's drawn frames per second,
+ * the frame interval's percentiles (ms), how many intervals passed 25 ms (a dropped frame at 60 Hz) and 50 ms, and the
+ * scripts that ran longest inside long animation frames (ms summed per script). `topSelf` and `topTotal` are the
+ * functions the JS sampling profiler (JS Self-Profiling API, allowed by the proxy's Document-Policy header) found
+ * running themselves and on the stack, as "ms name file:line:column"; empty where the browser offers no profiler.
+ */
+export type FrameScene = { name: string; startedAtMs: number; fps: number; drawnFps: number; p50Ms: number; p95Ms: number; p99Ms: number; maxMs: number; over25: number; over50: number; topScripts: string[]; topSelf: string[]; topTotal: string[] };
+
+/** One timed click in the `case-click` mode, in ms from the click. */
+export type CaseClickTiming = { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; steps: string };
 
 type BoxRect = { left: number; top: number; width: number; height: number };
 
@@ -69,6 +88,12 @@ export type AgentReport = {
   colorProbes: unknown;
   seabedProbes: unknown;
   scrubFrameMs: number | null;
+  /** The `case-click` mode's timings, in click order; empty in the other modes. */
+  clickTimings: CaseClickTiming[];
+  /** The `frame-pacing` mode's scenes, as the agent summarised them; empty in the other modes. */
+  frameScenes: FrameScene[];
+  /** The `frame-pacing` mode's scene start times and the viewer's slow one-off steps, as lines to print. */
+  slowSteps: string[];
   /** The viewport when the agent reported: the screenshot's, or the report does not describe the screenshot. */
   viewportWidth: number;
   viewportHeight: number;
@@ -85,7 +110,8 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
       if (canvas instanceof HTMLCanvasElement && canvas.dataset.lookdev !== "on") canvas.dataset.lookdev = "on";
     }
   };
-  new MutationObserver(markCanvas).observe(document, { subtree: true, childList: true });
+  // The frame-pacing mode times the page as a reader has it: the lookdev hooks (probes, raycasts each frame) stay off.
+  if (config.mode !== "frame-pacing") new MutationObserver(markCanvas).observe(document, { subtree: true, childList: true });
   const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   const readCanvas = () => {
@@ -171,8 +197,198 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
     const readyMs = performance.now();
     await releaseThenReport(() => ({ error: null, renderer: canvas?.dataset.renderer ?? "unknown", adapterName, devicePixelRatio: window.devicePixelRatio, readyMs, viewRect: readBox(document.body), canvasRect: readBox(canvas), colorProbes: [], seabedProbes: [], scrubFrameMs: null }), false);
   };
+  // From /cases: waits until the page is idle, clicks a case card and times until that case's 3D view (the visible
+  // one: Next keeps a page it left mounted and hidden) says ready, and its canvas's first frame; then back to /cases
+  // for the next case. The times come from a MutationObserver, so they do not wait for a polling tick.
+  const runCaseClicks = async () => {
+    const isShown = (element: Element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
+    const findShownView = () => [...document.querySelectorAll('[data-testid="seabed-view"]')].find(isShown) ?? null;
+    const timings: { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; steps: string }[] = [];
+    for (const slug of config.clickSlugs) {
+      const findCard = () => [...document.querySelectorAll(`a[href="/cases/${slug}"]`)].find(isShown) ?? null;
+      // Clicked before React has hydrated it, a card is a plain link and the browser loads the case as a new page: wait
+      // for the props React attaches to a hydrated element.
+      const isHydrated = (element: Element) => Object.keys(element).some((key) => key.startsWith("__reactProps"));
+      await waitUntil(() => location.pathname === "/cases" && findCard() !== null && isHydrated(findCard() ?? document.body), `the ${slug} card`);
+      await pause(1500);
+      const card = findCard();
+      if (!(card instanceof HTMLElement)) throw new Error(`the ${slug} card went away`);
+      let readyAt: number | null = null;
+      let firstFrameAt: number | null = null;
+      const clickAt = performance.now();
+      const watcher = new MutationObserver(() => {
+        if (location.pathname !== `/cases/${slug}`) return;
+        const view = findShownView();
+        if (!view) return;
+        if (readyAt === null && view.getAttribute("data-state") === "ready") readyAt = performance.now();
+        if (firstFrameAt === null && view.querySelector("canvas[data-frame-count]")) firstFrameAt = performance.now();
+      });
+      watcher.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-state", "data-frame-count"] });
+      card.click();
+      await waitUntil(() => readyAt !== null && firstFrameAt !== null, `${slug} to be ready`);
+      watcher.disconnect();
+      timings.push({ slug, readyMs: (readyAt ?? clickAt) - clickAt, firstFrameMs: firstFrameAt === null ? null : firstFrameAt - clickAt, renderer: findShownView()?.querySelector("canvas[data-renderer]")?.getAttribute("data-renderer") ?? "unknown", steps: performance.getEntriesByType("mark").filter((mark) => mark.name.startsWith("seabed:") && mark.startTime >= clickAt).map((mark) => `${mark.name.slice("seabed:".length)} ${Math.round(mark.startTime - clickAt)}`).join(", ") });
+      await pause(2500);
+      history.back();
+    }
+    await waitUntil(() => location.pathname === "/cases", "the way back to /cases");
+    await releaseThenReport(() => ({ error: null, renderer: timings[0]?.renderer ?? "unknown", adapterName: "", devicePixelRatio: window.devicePixelRatio, readyMs: 0, viewRect: null, canvasRect: null, colorProbes: [], seabedProbes: [], scrubFrameMs: null, clickTimings: timings }), false);
+  };
+  // Records one scene: every animation frame's interval, the canvas's drawn frames, and the long animation frames with
+  // their scripts, while `act` runs; then summarises it, so the report line stays short.
+  const recordScene = async (name: string, act: () => Promise<void>) => {
+    const intervals: number[] = [];
+    const scriptTotals = new Map<string, number>();
+    let isRecording = true;
+    let lastAt = 0;
+    const onFrame = (now: number) => {
+      if (!isRecording) return;
+      if (lastAt > 0) intervals.push(now - lastAt);
+      lastAt = now;
+      requestAnimationFrame(onFrame);
+    };
+    requestAnimationFrame(onFrame);
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const scripts: unknown = Reflect.get(entry, "scripts");
+        if (!Array.isArray(scripts)) continue;
+        for (const script of scripts) {
+          const label = [Reflect.get(script, "invoker"), Reflect.get(script, "sourceFunctionName"), String(Reflect.get(script, "sourceURL") ?? "").split("/").pop()].filter((part) => part).join(" ");
+          scriptTotals.set(label, (scriptTotals.get(label) ?? 0) + Number(Reflect.get(script, "duration") ?? 0));
+        }
+      }
+    });
+    observer.observe({ type: "long-animation-frame", buffered: false });
+    // The JS Self-Profiling API: a sample of the stack every PROFILE_SAMPLE_MS.
+    const PROFILE_SAMPLE_MS = 2;
+    const ProfilerClass: unknown = Reflect.get(window, "Profiler");
+    let profiler: unknown = null;
+    try {
+      profiler = typeof ProfilerClass === "function" ? Reflect.construct(ProfilerClass, [{ sampleInterval: PROFILE_SAMPLE_MS, maxBufferSize: 200000 }]) : null;
+    } catch {
+      profiler = null;
+    }
+    const framesBefore = Number(readCanvas()?.dataset.frameCount ?? 0);
+    const sceneStartedAt = performance.now();
+    await act();
+    const seconds = (performance.now() - sceneStartedAt) / 1000;
+    isRecording = false;
+    observer.disconnect();
+    const selfTotals = new Map<string, number>();
+    const inclusiveTotals = new Map<string, number>();
+    const stopProfiler: unknown = typeof profiler === "object" && profiler !== null ? Reflect.get(profiler, "stop") : null;
+    if (typeof profiler === "object" && profiler !== null && typeof stopProfiler === "function") {
+      // The trace is plain data (frames, stacks, samples, resources), read field by field.
+      const readField = (value: unknown, key: string): unknown => (typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined);
+      const readList = (value: unknown, key: string): unknown[] => {
+        const list = readField(value, key);
+        return Array.isArray(list) ? list : [];
+      };
+      const trace: unknown = await Reflect.apply(stopProfiler, profiler, []);
+      const frames = readList(trace, "frames");
+      const stacks = readList(trace, "stacks");
+      const resources = readList(trace, "resources");
+      const labelFrame = (frameId: number) => {
+        const frame = frames[frameId];
+        const resourceId = readField(frame, "resourceId");
+        const resource = typeof resourceId === "number" ? String(resources[resourceId] ?? "").split("/").pop() : "";
+        return `${String(readField(frame, "name") || "(anonymous)")} ${resource}:${String(readField(frame, "line") ?? "")}:${String(readField(frame, "column") ?? "")}`;
+      };
+      for (const sample of readList(trace, "samples")) {
+        let stackId = readField(sample, "stackId");
+        if (typeof stackId !== "number") continue;
+        const topFrameId = readField(stacks[stackId], "frameId");
+        if (typeof topFrameId === "number") selfTotals.set(labelFrame(topFrameId), (selfTotals.get(labelFrame(topFrameId)) ?? 0) + PROFILE_SAMPLE_MS);
+        const seen = new Set<string>();
+        while (typeof stackId === "number") {
+          const frameId = readField(stacks[stackId], "frameId");
+          if (typeof frameId === "number") seen.add(labelFrame(frameId));
+          stackId = readField(stacks[stackId], "parentId");
+        }
+        seen.forEach((label) => inclusiveTotals.set(label, (inclusiveTotals.get(label) ?? 0) + PROFILE_SAMPLE_MS));
+      }
+    }
+    const topOf = (totals: Map<string, number>, count: number) => [...totals].sort((first, second) => second[1] - first[1]).slice(0, count).map(([label, total]) => `${Math.round(total)} ms ${label}`);
+    const drawnFrames = Number(readCanvas()?.dataset.frameCount ?? 0) - framesBefore;
+    const sorted = [...intervals].sort((first, second) => first - second);
+    const pick = (share: number) => Math.round((sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))] ?? 0) * 10) / 10;
+    return {
+      name,
+      fps: Math.round((intervals.length / seconds) * 10) / 10,
+      drawnFps: Math.round((drawnFrames / seconds) * 10) / 10,
+      p50Ms: pick(0.5),
+      p95Ms: pick(0.95),
+      p99Ms: pick(0.99),
+      maxMs: Math.round(sorted[sorted.length - 1] ?? 0),
+      over25: intervals.filter((interval) => interval > 25).length,
+      over50: intervals.filter((interval) => interval > 50).length,
+      topScripts: [...scriptTotals].sort((first, second) => second[1] - first[1]).slice(0, 4).map(([label, total]) => `${Math.round(total)} ms ${label}`),
+      startedAtMs: sceneStartedAt,
+      topSelf: topOf(selfTotals, 14),
+      topTotal: topOf(inclusiveTotals, 30),
+    };
+  };
+  // On a case page, once the 3D view is ready and its refinement shown: the replay idling, playing, moving between
+  // views, and scrubbed, as a reader does; each scene's frame pacing goes into the report.
+  const runFramePacing = async () => {
+    await waitUntil(() => document.querySelector('[data-testid="seabed-view"][data-state="ready"]') !== null, "the 3D view");
+    await waitUntil(() => readCanvas()?.dataset.pendingAssets === "0", "the refinement");
+    await pause(1500);
+    const clickButton = (selector: string) => {
+      const button = document.querySelector(selector);
+      if (button instanceof HTMLElement) button.click();
+    };
+    const clickView = (label: string) => {
+      const button = [...document.querySelectorAll('[data-testid="view-switch"] button')].find((candidate) => candidate.textContent?.trim() === label);
+      if (button instanceof HTMLElement) button.click();
+    };
+    const scenes: Awaited<ReturnType<typeof recordScene>>[] = [];
+    scenes.push(await recordScene("idle 3 s", () => pause(3000)));
+    scenes.push(
+      await recordScene("playing 8 s", async () => {
+        clickButton('[data-testid="replay-play"]');
+        await pause(8000);
+        clickButton('[data-testid="replay-play"]');
+      }),
+    );
+    await pause(500);
+    scenes.push(
+      await recordScene("view changes 6 s", async () => {
+        for (const label of ["From above", "Vessel", "At the cut", "Overview"]) {
+          clickView(label);
+          await pause(1500);
+        }
+      }),
+    );
+    scenes.push(
+      await recordScene("scrub 2 s", async () => {
+        const scrubber = document.querySelector('[data-testid="replay-scrubber"]');
+        if (!(scrubber instanceof HTMLInputElement)) return;
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        const low = Number(scrubber.min || 0);
+        const high = Number(scrubber.max || 100);
+        for (let step = 0; step <= 60; step += 1) {
+          setValue?.call(scrubber, String(low + ((high - low) * (0.2 + (0.6 * step) / 60))));
+          scrubber.dispatchEvent(new Event("input", { bubbles: true }));
+          await pause(33);
+        }
+      }),
+    );
+    // The viewer's one-off steps after its first frame that held the page over 50 ms (its seabed:* measures), and when.
+    const slowSteps = performance
+      .getEntriesByType("measure")
+      .filter((entry) => entry.name.startsWith("seabed:") && entry.duration > 50)
+      .map((entry) => `${entry.name} at ${Math.round(entry.startTime)} ms: ${Math.round(entry.duration)} ms${entry instanceof PerformanceMeasure && entry.detail ? ` (${String(entry.detail)})` : ""}`);
+    const sceneTimes = scenes.map((scene) => `${scene.name} from ${Math.round(scene.startedAtMs)} ms`);
+    const canvas = readCanvas();
+    await releaseThenReport(() => ({ error: null, renderer: canvas?.dataset.renderer ?? "unknown", adapterName: "", devicePixelRatio: window.devicePixelRatio, readyMs: 0, viewRect: null, canvasRect: null, colorProbes: [], seabedProbes: [], scrubFrameMs: null, frameScenes: scenes, slowSteps: [...sceneTimes, ...slowSteps] }), false);
+  };
   const run = async () => {
     if (config.mode === "turntable") return runTurntable();
+    // Only the page the run opened: Chrome may prerender a case the /cases page links to, and that document gets an
+    // agent too, which would report a run that never happened.
+    if (config.mode === "case-click") return location.pathname === "/cases" ? runCaseClicks() : undefined;
+    if (config.mode === "frame-pacing") return runFramePacing();
     await waitUntil(() => document.querySelector('[data-testid="seabed-view"][data-state="ready"]') !== null, "the 3D view");
     await waitUntil(() => {
       const canvas = readCanvas();
@@ -273,14 +489,23 @@ export function startLookdevProxy(
       }
       const sessionToken = await readSessionToken();
       if (!sessionToken.ok) console.error(`[startLookdevProxy] no session token, the page will ask to sign in: ${sessionToken.reason}`);
-      const upstreamHeaders: Record<string, string> = { "accept-encoding": "identity", ...(sessionToken.ok ? { authorization: `Bearer ${sessionToken.value}` } : {}) };
-      const upstreamResponse = await fetch(`${upstreamUrl}${url.pathname}${url.search}`, { headers: upstreamHeaders, redirect: "manual" });
+      // The browser's own headers go along (Next's router sends RSC, Next-Router-State-Tree and Next-Url with a client
+      // navigation; without them the app answers HTML and the router falls back to loading a new page), but not its
+      // host, and nothing compressed, so the agent can be written into the HTML.
+      const upstreamHeaders = new Headers(request.headers);
+      upstreamHeaders.delete("host");
+      upstreamHeaders.set("accept-encoding", "identity");
+      if (sessionToken.ok) upstreamHeaders.set("authorization", `Bearer ${sessionToken.value}`);
+      const hasBody = request.method !== "GET" && request.method !== "HEAD";
+      const upstreamResponse = await fetch(`${upstreamUrl}${url.pathname}${url.search}`, { method: request.method, headers: upstreamHeaders, body: hasBody ? await request.arrayBuffer() : undefined, redirect: "manual" });
       const contentType = upstreamResponse.headers.get("content-type") ?? "";
       if (!contentType.includes("text/html") || agentConfig === null) return new Response(upstreamResponse.body, { status: upstreamResponse.status, headers: upstreamResponse.headers });
       const html = injectAgent(await upstreamResponse.text());
       const headers = new Headers(upstreamResponse.headers);
       headers.delete("content-length");
       headers.delete("content-encoding");
+      // The frame-pacing agent samples the page's JavaScript; Chrome offers the profiler only to a document that asks.
+      if (agentConfig.mode === "frame-pacing") headers.set("Document-Policy", "js-profiling");
       return new Response(html, { status: upstreamResponse.status, headers });
     },
   });
@@ -336,6 +561,54 @@ function isBoxRect(value: unknown): value is BoxRect {
   return typeof value === "object" && value !== null && ["left", "top", "width", "height"].every((key) => typeof Reflect.get(value, key) === "number");
 }
 
+function readStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+/** The `frame-pacing` scenes in a parsed report, keeping only well-formed entries. */
+function readFrameScenes(value: unknown): FrameScene[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const readNumber = (key: string) => {
+      const field: unknown = Reflect.get(entry, key);
+      return typeof field === "number" ? field : 0;
+    };
+    const topScripts: unknown = Reflect.get(entry, "topScripts");
+    return [
+      {
+        name: String(Reflect.get(entry, "name") ?? ""),
+        startedAtMs: readNumber("startedAtMs"),
+        fps: readNumber("fps"),
+        drawnFps: readNumber("drawnFps"),
+        p50Ms: readNumber("p50Ms"),
+        p95Ms: readNumber("p95Ms"),
+        p99Ms: readNumber("p99Ms"),
+        maxMs: readNumber("maxMs"),
+        over25: readNumber("over25"),
+        over50: readNumber("over50"),
+        topScripts: Array.isArray(topScripts) ? topScripts.map(String) : [],
+        topSelf: readStrings(Reflect.get(entry, "topSelf")),
+        topTotal: readStrings(Reflect.get(entry, "topTotal")),
+      },
+    ];
+  });
+}
+
+/** The `case-click` timings in a parsed report, keeping only well-formed entries. */
+function readClickTimings(value: unknown): CaseClickTiming[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const slug: unknown = Reflect.get(entry, "slug");
+    const readyMs: unknown = Reflect.get(entry, "readyMs");
+    const firstFrameMs: unknown = Reflect.get(entry, "firstFrameMs");
+    const renderer: unknown = Reflect.get(entry, "renderer");
+    if (typeof slug !== "string" || typeof readyMs !== "number" || typeof renderer !== "string") return [];
+    return [{ slug, readyMs, firstFrameMs: typeof firstFrameMs === "number" ? firstFrameMs : null, renderer, steps: String(Reflect.get(entry, "steps") ?? "") }];
+  });
+}
+
 /** Reads the agent's line from Chrome's stderr into a report, or the reason there is none. */
 export function parseAgentReport(stderr: string): Result<AgentReport> {
   const line = stderr.split("\n").find((candidate) => candidate.includes(RESULT_PREFIX));
@@ -374,6 +647,9 @@ export function parseAgentReport(stderr: string): Result<AgentReport> {
       colorProbes: Reflect.get(parsed, "colorProbes"),
       seabedProbes: Reflect.get(parsed, "seabedProbes"),
       scrubFrameMs: readNumber("scrubFrameMs"),
+      clickTimings: readClickTimings(Reflect.get(parsed, "clickTimings")),
+      frameScenes: readFrameScenes(Reflect.get(parsed, "frameScenes")),
+      slowSteps: readStrings(Reflect.get(parsed, "slowSteps")),
       viewportWidth: readNumber("viewportWidth") ?? 0,
       viewportHeight: readNumber("viewportHeight") ?? 0,
     },
@@ -395,11 +671,42 @@ export async function captureWithWindowsChrome(input: CaptureInput): Promise<Res
 
 const CONNECTION_REFUSED = "ERR_CONNECTION_REFUSED";
 
-type CaptureInput = { chromePath: string; pageUrl: string; screenshotPath: string; releaseAll: () => void; viewport: { width: number; height: number } };
+/**
+ * `isColdCache` empties the profile's HTTP, code and GPU caches before the run, so nothing of an earlier run is reused.
+ * `isMotionAllowed` lets the page animate as a reader's does (no forced reduced motion, frames drawn at the display's
+ * pace), for timing frames; the screenshots of the other modes need the still page. `deviceScaleFactor` draws at that
+ * many device pixels per CSS pixel (a laptop at 125% or a phone at 3). `extraArgs` go to Chrome as they are (for
+ * example --disable-blink-features=WebGPU, which leaves the page on WebGL).
+ */
+type CaptureInput = { chromePath: string; pageUrl: string; screenshotPath: string; releaseAll: () => void; viewport: { width: number; height: number }; isColdCache?: boolean; isMotionAllowed?: boolean; deviceScaleFactor?: number; extraArgs?: string[] };
+
+// The profile parts that hold what a first visit does not have: the HTTP cache, V8's code cache, the GPU's compiled
+// shaders and pipelines (ANGLE's GPUCache, Dawn's DawnGraphiteCache and DawnWebGPUCache), and the earlier runs'
+// cookies, storage and tabs (with them, a run on /cases came back on the case an earlier run had opened).
+const CACHE_FOLDERS = [
+  "Default/Cache",
+  "Default/Code Cache",
+  "GPUCache",
+  "Default/GPUCache",
+  "DawnGraphiteCache",
+  "DawnWebGPUCache",
+  "Default/DawnGraphiteCache",
+  "Default/DawnWebGPUCache",
+  "GrShaderCache",
+  "ShaderCache",
+  "Default/Cookies",
+  "Default/Network/Cookies",
+  "Default/Local Storage",
+  "Default/Session Storage",
+  "Default/Sessions",
+  "Default/Sessions_Encrypted",
+  "Default/IndexedDB",
+];
 
 async function captureOnce(input: CaptureInput): Promise<Result<WindowsCapture>> {
   const { chromePath, pageUrl, screenshotPath, releaseAll, viewport } = input;
   mkdirSync(PROFILE_DIRECTORY, { recursive: true });
+  if (input.isColdCache) for (const folder of CACHE_FOLDERS) rmSync(path.join(PROFILE_DIRECTORY, folder), { recursive: true, force: true });
   rmSync(TEMP_DIRECTORY, { recursive: true, force: true });
   mkdirSync(TEMP_DIRECTORY, { recursive: true });
   mkdirSync(path.dirname(screenshotPath), { recursive: true });
@@ -412,8 +719,9 @@ async function captureOnce(input: CaptureInput): Promise<Result<WindowsCapture>>
     "--enable-unsafe-webgpu",
     `--window-size=${viewport.width},${viewport.height}`,
     "--hide-scrollbars",
-    "--force-prefers-reduced-motion",
-    "--run-all-compositor-stages-before-draw",
+    ...(input.isMotionAllowed ? [] : ["--force-prefers-reduced-motion", "--run-all-compositor-stages-before-draw"]),
+    ...(input.deviceScaleFactor ? [`--force-device-scale-factor=${input.deviceScaleFactor}`] : []),
+    ...(input.extraArgs ?? []),
     "--enable-logging=stderr",
     "--v=0",
     `--screenshot=${toWindowsPath(path.resolve(screenshotPath))}`,

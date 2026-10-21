@@ -6,8 +6,11 @@ import type { ReplayClock } from "@/lib/replay/replay-clock";
 import { progressToTimeMs, type ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewer, SeabedViewName } from "@/lib/seabed/scene/viewer";
-import { requestWebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
+import { requestWebGpuDevice, type WebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
+import { isCompactScreen } from "@/lib/render/compact-screen";
+import { readParkedRendererTier } from "@/lib/render/renderer-pool";
 import { closeWebGl, openWebGl, type OpenedWebGl } from "@/lib/render/webgl-canvas";
+import type { Result } from "@/lib/result";
 import { TERRAIN_STEPS } from "@/lib/seabed/scene/seabed-scene";
 import { loadSeabedScene, warmSeabedArea } from "@/lib/seabed/scene/seabed-scene-load";
 
@@ -28,6 +31,17 @@ type SeabedViewProps = {
   still: ReactNode;
 };
 
+// The viewer's code (three.js and the scene, the page's largest script): its download and parse start while the console
+// renders, not when the effect runs. import() keeps one module per page, so asking again is free.
+function loadViewerCode() {
+  return import("@/lib/seabed/scene/viewer");
+}
+
+/** Frees the device an adapter check made, when nothing will draw with it. */
+function destroyUnusedDevice(webGpuDevice: Promise<Result<WebGpuDevice>>) {
+  void webGpuDevice.then((device) => device.ok && device.value.device.destroy());
+}
+
 /** Resolves after the browser has painted the current DOM: the next animation frame, then a task after it. */
 function waitForPaint(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
@@ -39,6 +53,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
   // below knows the grid step to build: warmSeabedArea starts one worker per area, so calling it while rendering only
   // warms what the effect awaits.
   warmSeabedArea(input.seabedArea);
+  if (typeof window !== "undefined") void loadViewerCode();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SeabedViewer | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading", step: "seabed" });
@@ -59,29 +74,38 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
     let viewer: SeabedViewer | null = null;
 
     async function startViewer(host: HTMLDivElement) {
-      const viewerCode = import("@/lib/seabed/scene/viewer");
+      const viewerCode = loadViewerCode();
       // While the seabed area and the viewer's code download: the WebGPU adapter check, then, when it finds no adapter,
       // the WebGL context the GPU tiers draw on, which also tells a CPU renderer from a GPU (the page's first context
       // takes up to a second on some machines: better spent now, webgl-canvas.ts). Not both at once: on Windows Chrome
       // an adapter request made while a WebGL context opens answered in 3.3 to 3.5 s, past the adapter timeout, instead
       // of 2.1 s, and the page fell back to WebGL (docs/LOOKDEV.md, WebGPU).
-      const webGpuDevice = requestWebGpuDevice();
+      // A replay opened after another one draws on its parked renderer (renderer-pool.ts): no adapter check, no context.
+      const parkedTier = readParkedRendererTier();
+      // A phone draws on WebGL with the compact budget (compact-screen.ts): no adapter check there either.
+      const isCompact = isCompactScreen();
+      // The adapter check starts here, not while the console renders: its 3 s timeout (webgpu-adapter.ts) runs in page
+      // time, and on Windows Chrome with a cold cache the console's own work let it expire, so the page drew on WebGL.
+      const webGpuDevice: Promise<Result<WebGpuDevice>> =
+        parkedTier === null && !isCompact ? requestWebGpuDevice() : Promise.resolve({ ok: false, reason: parkedTier === null ? "a phone draws on WebGL" : "a renderer is parked" });
       // Opening the context blocks the page for as long as it takes: let the console paint first.
-      await waitForPaint();
+      if (parkedTier === null) await waitForPaint();
       const hasWebGpuDevice = (await webGpuDevice).ok;
       if (isCancelled) {
-        void webGpuDevice.then((device) => device.ok && device.value.device.destroy());
+        destroyUnusedDevice(webGpuDevice);
         return;
       }
-      // With a WebGPU device no context is opened here; should that tier fail to start, the viewer opens its own.
-      const openedWebGl: OpenedWebGl = hasWebGpuDevice ? { kind: "none" } : openWebGl();
-      const step = openedWebGl.kind === "software" ? TERRAIN_STEPS.software : TERRAIN_STEPS.gpu;
+      // With a WebGPU device (or a parked renderer) no context is opened here; should the WebGPU tier fail to start,
+      // the viewer opens its own.
+      const openedWebGl: OpenedWebGl = hasWebGpuDevice || parkedTier !== null ? { kind: "none" } : openWebGl();
+      const isSoftwareTier = parkedTier === null ? openedWebGl.kind === "software" : parkedTier === "software";
+      const step = isSoftwareTier ? TERRAIN_STEPS.software : isCompact ? TERRAIN_STEPS.compact : TERRAIN_STEPS.gpu;
       const [loaded, viewerModule] = await Promise.all([loadSeabedScene(input.seabedArea, step), viewerCode]);
       // Load steps on the page's timeline (scripts/perf/measure-pages.ts --profile case-click reads every seabed:* mark).
       performance.mark("seabed:data-and-code");
       if (isCancelled || !loaded.ok) {
         // Nobody will draw with the device or the context: free them now.
-        void webGpuDevice.then((device) => device.ok && device.value.device.destroy());
+        destroyUnusedDevice(webGpuDevice);
         closeWebGl(openedWebGl);
       }
       if (isCancelled) return;
@@ -100,6 +124,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
         onTargetPick: (target) => onTargetPickRef.current(target),
         webGpuDevice,
         openedWebGl,
+        isCompact,
       });
       // The viewer picks its renderer tier asynchronously; an unmount meanwhile frees what it built.
       if (isCancelled) {

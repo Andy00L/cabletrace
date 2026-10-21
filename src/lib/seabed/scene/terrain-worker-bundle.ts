@@ -3,8 +3,8 @@
 // bundled by Bun instead (scripts/seabed/build-terrain-worker.ts) into public/, and the bundle is committed;
 // terrain-worker-bundle.test.ts fails when it no longer matches its source. No three.js, no browser API here.
 
-/** The bundle's URL on the site (public/seabed/terrain-worker.js). */
-export const TERRAIN_WORKER_PATH = "/seabed/terrain-worker.js";
+/** The bundle's file name in public/seabed; seabed-urls.ts gives its versioned URL. */
+export const TERRAIN_WORKER_FILE = "terrain-worker.js";
 
 /** The worker's entry point, relative to the repository root. */
 export const TERRAIN_WORKER_ENTRY = "src/lib/seabed/scene/terrain-worker.ts";

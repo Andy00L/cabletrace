@@ -469,7 +469,7 @@ type WebGpuSession = { chromePath: string; proxyOrigin: string; setAgentConfig: 
 
 /** One Windows Chrome run of a shot in a mode, its renderer checked: the agent's report and the screenshot. */
 async function runWebGpuCapture(session: WebGpuSession, shot: LookdevShot, mode: CaptureMode, options: CliOptions): Promise<Result<WindowsCapture>> {
-  session.setAgentConfig({ mode, view: shot.view, atMs: shot.atMs, settleMs: SETTLE_MS, timeoutMs: FRAME_TIMEOUT_MS, scrubSteps: SCRUB_STEPS, lookCss: LOOK_ONLY_CSS, canvasCss: CANVAS_ONLY_CSS, viewportWidth: VIEWPORT.width, viewportHeight: VIEWPORT.height });
+  session.setAgentConfig({ mode, view: shot.view, atMs: shot.atMs, settleMs: SETTLE_MS, timeoutMs: FRAME_TIMEOUT_MS, scrubSteps: SCRUB_STEPS, lookCss: LOOK_ONLY_CSS, canvasCss: CANVAS_ONLY_CSS, viewportWidth: VIEWPORT.width, viewportHeight: VIEWPORT.height, clickSlugs: [] });
   const captured = await captureWithWindowsChrome({
     chromePath: session.chromePath,
     pageUrl: buildShotUrl(session.proxyOrigin, shot),
@@ -627,7 +627,7 @@ async function runWebGpuTier(shots: readonly LookdevShot[], isTurntableIncluded:
 
 /** The ship turntable on the WebGPU tier (turntable-webgpu-page.ts), judged on its look only. */
 async function captureWebGpuTurntable(session: WebGpuSession, options: CliOptions): Promise<Result<ShotOutcome>> {
-  session.setAgentConfig({ mode: "turntable", view: "", atMs: 0, settleMs: SETTLE_MS, timeoutMs: FRAME_TIMEOUT_MS, scrubSteps: 0, lookCss: "", canvasCss: "", viewportWidth: VIEWPORT.width, viewportHeight: VIEWPORT.height });
+  session.setAgentConfig({ mode: "turntable", view: "", atMs: 0, settleMs: SETTLE_MS, timeoutMs: FRAME_TIMEOUT_MS, scrubSteps: 0, lookCss: "", canvasCss: "", viewportWidth: VIEWPORT.width, viewportHeight: VIEWPORT.height, clickSlugs: [] });
   const captured = await captureWithWindowsChrome({
     chromePath: session.chromePath,
     pageUrl: `${session.proxyOrigin}${TURNTABLE_PATH}index.html`,
