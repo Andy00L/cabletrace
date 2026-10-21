@@ -222,7 +222,7 @@ export type OverviewScene = {
   readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
   /** Points of level open seabed in sight of `cameraPosition`, nearer than the haze starts, and their palette colours, for the lookdev seabed check. */
   readSeabedProbes: (cameraPosition: THREE.Vector3) => SeabedProbe[];
-  /** Builds the refinement's deferred parts; they stay hidden until revealRefinement (see buildOverview). */
+  /** Builds the refinement's deferred parts (the ship's hull, the physical lines); hidden until revealRefinement. */
   prepareRefinement: (environment: THREE.Texture | null) => Promise<void>;
   /** Shows the vessel, its wakes, the anchor rig, the water and the signal, once their shaders are compiled. */
   revealRefinement: () => void;
@@ -792,7 +792,8 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const dragWindow = input.dragWindow;
 
   // Built at the case ship's real length, then drawn at the scale the disclosure under the view states.
-  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail, sky: options.skyMap });
+  // Its hull is built after the first frame (prepareRefinement): the ship is part of the refinement, hidden till then.
+  const shipModel = buildShip({ kind: input.vessel.kind, lengthMetres: input.vessel.lengthMetres, tone: "suspect", isDetailed: options.isHighDetail, sky: options.skyMap, isHullDeferred: true });
   const ship = shipModel.group;
   ship.scale.setScalar(SHIP_DRAWN_SCALE * METRES_TO_KM);
   const shipDrawnLengthKm = input.vessel.lengthMetres * SHIP_DRAWN_SCALE * METRES_TO_KM;
@@ -1130,6 +1131,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
    * shaders in the background, then calls revealRefinement.
    */
   async function prepareRefinement(environment: THREE.Texture | null): Promise<void> {
+    shipModel.addHull();
     const lineMaterials = createSeabedLineMaterials();
     for (const dataLine of dataTubes) {
       const { tone, radius, tube } = dataLine;

@@ -44,6 +44,8 @@ export type ShipModel = {
   /** The house the detail level dresses, or null for a ship without one. */
   house: HouseLayout | null;
   materials: ShipMaterials;
+  /** Builds the hull and everything on it into `group`, once; buildShip calls it unless asked to defer it. */
+  addHull: () => void;
 };
 
 // From this length up a merchant hull carries its type's full count of accommodation tiers.
@@ -143,9 +145,12 @@ function addHouseGlazing(parts: ShipParts, house: HouseLayout) {
 
 /**
  * Builds one ship at its silhouette level. `isDetailed` adds the plating relief and the paint's roughness (GPU tiers).
- * The viewer frees its GPU memory with the rest of the scene.
+ * The viewer frees its GPU memory with the rest of the scene. With `isHullDeferred`, the group starts empty and the
+ * model's `addHull` builds the hull, deck, house and gear into it later: the 3D replay draws its first frame without
+ * the ship and builds it next (20 ms on a desktop, several times that on a phone). Its form and its stern, bow and
+ * hawse points are known at once either way.
  */
-export function buildShip(options: BuildShipOptions): ShipModel {
+export function buildShip(options: BuildShipOptions & { isHullDeferred?: boolean }): ShipModel {
   const { kind, lengthMetres, tone, isDetailed } = options;
   const form = createHullForm(SHIP_SPECS[kind], lengthMetres, options.draughtMetres);
   const toneColors = TONE_TOPSIDES[tone];
@@ -158,6 +163,33 @@ export function buildShip(options: BuildShipOptions): ShipModel {
   const materials = createShipMaterials(tone, isDetailed, options.sky ?? null, kind === "tanker");
   const parts = createShipParts();
   const cargo = addSuperstructure(kind, form, parts);
+  const group = new THREE.Group();
+  let isHullAdded = false;
+  const addHull = () => {
+    if (isHullAdded) return;
+    isHullAdded = true;
+    buildHullMeshes(kind, form, palette, materials, parts, cargo).forEach((mesh) => {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    });
+  };
+  if (!options.isHullDeferred) addHull();
+  return {
+    group,
+    sternLocal: new THREE.Vector3(-form.halfLength, 0, 0),
+    bowLocal: new THREE.Vector3(form.halfLength, 0, 0),
+    hawseLocal: readHawsePoint(form),
+    form,
+    kind,
+    house: cargo.house,
+    materials,
+    addHull,
+  };
+}
+
+/** The ship's meshes: hull, transom, deck, bulwark, then the merged house, gear, funnel, pipes and paint. */
+function buildHullMeshes(kind: ShipKind, form: HullForm, palette: HullPalette, materials: ShipMaterials, parts: ShipParts, cargo: ReturnType<typeof addSuperstructure>): THREE.Mesh[] {
   addHouseGlazing(parts, cargo.house);
   DECK_BUILDERS[kind](createDeckFrame(form, cargo.cargoStartX, cargo.cargoEndX), parts);
   addForecastleGear(form, parts);
@@ -169,7 +201,7 @@ export function buildShip(options: BuildShipOptions): ShipModel {
     bakeContactShade(merged, readFloorBelow);
     return merged;
   };
-  const meshes = [
+  return [
     new THREE.Mesh(buildHullShell(form, palette), materials.hull),
     new THREE.Mesh(buildTransom(form), materials.transom),
     new THREE.Mesh(buildDeck(form), materials.deck),
@@ -183,20 +215,4 @@ export function buildShip(options: BuildShipOptions): ShipModel {
     new THREE.Mesh(mergeShaded(parts.pipes), materials.pipes),
     new THREE.Mesh(mergeParts(parts.painted), materials.painted),
   ];
-  const group = new THREE.Group();
-  meshes.forEach((mesh) => {
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-  });
-  return {
-    group,
-    sternLocal: new THREE.Vector3(-form.halfLength, 0, 0),
-    bowLocal: new THREE.Vector3(form.halfLength, 0, 0),
-    hawseLocal: readHawsePoint(form),
-    form,
-    kind,
-    house: cargo.house,
-    materials,
-  };
 }

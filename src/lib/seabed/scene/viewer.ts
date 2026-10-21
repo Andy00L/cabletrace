@@ -162,6 +162,12 @@ export type SeabedViewer = {
   /** The camera director's hold on the cameras, the anchor cam and the hover readout (src/lib/seabed/scene/director). */
   director: DirectorViewerPort;
   dispose: () => void;
+  /**
+   * Resolves once the refinement is shown: the vessel (its hull is built after the first frame), its wakes, the anchor
+   * rig, the water and the signal. Until then a camera director should treat the ship and the anchor as absent. Never
+   * resolves for a viewer disposed before.
+   */
+  refinementReady: Promise<void>;
 };
 
 type ViewerOptions = {
@@ -1035,6 +1041,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     // This scene's materials now hold every program it uses: the previous replay's can go.
     parked?.releaseHeldMaterials();
     overview.revealRefinement();
+    markRefinementReady();
     settleAsset();
   }
 
@@ -1045,6 +1052,10 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     });
   }
 
+  let markRefinementReady = () => {};
+  const refinementReady = new Promise<void>((resolve) => {
+    markRefinementReady = resolve;
+  });
   // The first frame is drawn as soon as the overview is built (three.js compiles what it shows, nothing more); the rest
   // follows one frame later, once that frame has reached the screen. It counts as a pending asset from now, so a reader
   // of data-pending-assets (the lookdev harness) never takes the frames before the refinement for the finished scene.
@@ -1060,6 +1071,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     ok: true,
     value: {
       setView,
+      refinementReady,
       setIllustrated(nextIsIllustrated) {
         isIllustrated = nextIsIllustrated;
         closeUp?.setIllustrated(nextIsIllustrated);
@@ -1114,7 +1126,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         overviewLabels.domElement.remove();
         closeUpLabels.domElement.remove();
         const releaseHeldMaterials = () => heldMaterials.splice(0).forEach((material) => material.dispose());
-        if (!parkRenderer({ renderer, releaseHeldMaterials })) {
+        if (renderer.tier === "webgpu" || !parkRenderer({ renderer, releaseHeldMaterials })) {
           releaseHeldMaterials();
           renderer.dispose();
         }
