@@ -3,6 +3,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useState } from "react";
 import { useConsole } from "@/components/console/console-context";
+import { StageHoverReadout } from "@/components/console/StageHoverReadout";
 import { StatusIsland } from "@/components/console/StatusIsland";
 import { Icon, type IconName } from "@/components/icons/Icon";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
@@ -62,6 +63,8 @@ type StageOverlaysProps = {
   onResetView: () => void;
   /** Shows the folded rail again; null when the rail is open or not floating. */
   onShowRail: (() => void) | null;
+  /** Where the Show panel button sits from the stage's top (CSS px): under the anchor cam while it is on screen. */
+  showRailTopPx: number;
   sceneSummary: SceneSummary | null;
 };
 
@@ -79,7 +82,7 @@ function CameraButton({ icon, label, onClick }: { icon: IconName; label: string;
 }
 
 /** The controls that belong to the picture, inset 16 px inside the stage (board 6). */
-export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, sceneSummary }: StageOverlaysProps) {
+export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, showRailTopPx, sceneSummary }: StageOverlaysProps) {
   const { view, setView, detail, setDetail, isDirectorOn, setDirectorOn } = useConsole();
   const [isFullScreen, setIsFullScreen] = useState(false);
   const isCloseUp = view === "closeup";
@@ -107,7 +110,9 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
 
   return (
     <>
-      <div className="pointer-events-none absolute top-4 left-4 z-(--layer-stage-controls) flex flex-col items-start gap-2">
+      <StageHoverReadout stageElement={stageElement} />
+
+      <div className="pointer-events-none absolute top-4 left-4 z-(--layer-stage-controls) flex flex-col items-start gap-2" data-label-blocker="true">
         <div className="pointer-events-auto rounded-full shadow-row">
           <SegmentedControl label="View" options={isCompact ? COMPACT_VIEW_OPTIONS : VIEW_OPTIONS} value={view} onChange={setView} testId="view-switch" />
         </div>
@@ -124,14 +129,16 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
         <button
           type="button"
           onClick={onShowRail}
-          className="absolute top-4 right-4 z-(--layer-stage-controls) flex h-10 items-center gap-2 rounded-full bg-card px-3.5 text-label text-ink shadow-row transition-shadow duration-140 ease-standard hover:shadow-raised active:scale-[0.97]"
+          className="absolute right-4 z-(--layer-stage-controls) flex h-10 items-center gap-2 rounded-full bg-card px-3.5 text-label text-ink shadow-row transition-shadow duration-140 ease-standard hover:shadow-raised active:scale-[0.97]"
+          style={{ top: showRailTopPx }}
+          data-label-blocker="true"
         >
           <Icon name="panel" />
           Show panel
         </button>
       )}
 
-      <div className="absolute bottom-4 left-4 z-(--layer-stage-controls) flex items-center gap-2">
+      <div className="absolute bottom-4 left-4 z-(--layer-stage-controls) flex items-center gap-2" data-label-blocker="true">
         <div className={`hidden flex-wrap gap-x-4 gap-y-1.5 rounded-field bg-card px-3.5 py-2.5 text-micro shadow-row ${isCloseUp ? "" : "md:flex"}`}>
           {LEGEND_ITEMS.map((item) => (
             <span key={item.label} className="inline-flex items-center gap-1.5">
@@ -180,7 +187,7 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
         </Popover.Root>
       </div>
 
-      <div role="group" aria-label="Camera" className="absolute bottom-4 z-(--layer-stage-controls) flex items-center gap-0.5 rounded-full bg-card p-1 shadow-row" style={{ right: clearRight }}>
+      <div role="group" aria-label="Camera" className="absolute bottom-4 z-(--layer-stage-controls) flex items-center gap-0.5 rounded-full bg-card p-1 shadow-row" style={{ right: clearRight }} data-label-blocker="true">
         {/* The one ink control of the stage while it directs (board 22); dragging the view turns it off. */}
         <button
           type="button"

@@ -5,6 +5,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
+import { ShipCameraSwitch } from "@/components/console/ShipCameraSwitch";
 import { describeCourse, describeNearestLine, describeSpeed, NumberGrid, useMomentSample } from "@/components/console/MomentNumbers";
 import { Icon } from "@/components/icons/Icon";
 import { CloseButton, LayerCard, type LayerAnchor, type LayerCardPlacement } from "@/components/ui/LayerCard";
@@ -164,7 +165,7 @@ type ConsoleLayersProps = {
 
 /** Every card, sheet and dialog the console can open, driven by the `layer` state (one at a time). */
 export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx, isStageNarrow, cardPresentation }: ConsoleLayersProps) {
-  const { consoleCase, layer, closeLayer, seekTo, view, setView, setMode } = useConsole();
+  const { consoleCase, layer, closeLayer, seekTo, setView, setMode } = useConsole();
   const [sourceFilter, setSourceFilter] = useState("");
   const anchor = useMemo(() => createAnchor(opener, stageElement), [opener, stageElement]);
   // A card opened from the dock opens above it; anything else opens beside its control, toward the stage.
@@ -332,11 +333,8 @@ export function ConsoleLayers({ stageElement, opener, viewer, stageRightInsetPx,
         <VesselMoment />
         <p className="text-caption font-normal text-muted">{vessel.evidenceBrief}.</p>
         <CitationButtons citations={vessel.citations} />
+        <ShipCameraSwitch />
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setView(view === "vessel" ? "overview" : "vessel")} aria-pressed={view === "vessel"} className={ACTION_BUTTON_CLASS} data-testid="vessel-card-follow">
-            <Icon name="follow" />
-            {view === "vessel" ? "Stop following" : "Follow"}
-          </button>
           <button
             type="button"
             onClick={() => {

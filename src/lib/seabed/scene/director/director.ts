@@ -32,7 +32,8 @@ export type DirectorFrame = {
  * What to draw: the shot's view and either the overview camera's pose, or (`pose` null) the view's own camera; in the
  * close-up, the orbit angle about its target.
  */
-export type DirectorCommand = { shot: Shot; view: DirectorView; pose: CameraPose | null; closeUpOrbitDegrees: number };
+/** `isMoving` is true while the camera flies or orbits: the next frame needs a new command even if nothing else changed. */
+export type DirectorCommand = { shot: Shot; view: DirectorView; pose: CameraPose | null; closeUpOrbitDegrees: number; isMoving: boolean };
 
 export type ShotDirector = {
   update: (frame: DirectorFrame) => DirectorCommand;
@@ -65,10 +66,10 @@ export function createShotDirector({ shots, prefersReducedMotion }: { shots: Sho
     const view = readShotView(shot);
     if (shot.kind === "cut") {
       const orbitDegrees = prefersReducedMotion ? CLOSE_UP_STILL_DEGREES : ((frame.nowMs - state.startedAtNowMs) / 1000) * CLOSE_UP_ORBIT_DEGREES_PER_SECOND;
-      return { shot, view, pose: null, closeUpOrbitDegrees: orbitDegrees };
+      return { shot, view, pose: null, closeUpOrbitDegrees: orbitDegrees, isMoving: !prefersReducedMotion };
     }
     const framing = planShotFraming(shot, frame.subjects);
-    if (!framing) return { shot, view, pose: null, closeUpOrbitDegrees: 0 };
+    if (!framing) return { shot, view, pose: null, closeUpOrbitDegrees: 0, isMoving: false };
     const fitFrom = (directionIndex: number) => {
       const direction = framing.directions[directionIndex] ?? framing.directions[0];
       return direction ? fitCameraToPoints({ points: framing.points, direction, fovDegrees: frame.fovDegrees, canvas: frame.canvas, safeArea: frame.safeArea }) : null;
@@ -81,12 +82,12 @@ export function createShotDirector({ shots, prefersReducedMotion }: { shots: Sho
       state = { ...state, directionIndex: chooseDirection(shot, frame), lastChosenAtNowMs: frame.nowMs };
       goal = fitFrom(state.directionIndex);
     }
-    if (!goal) return { shot, view, pose: null, closeUpOrbitDegrees: 0 };
+    if (!goal) return { shot, view, pose: null, closeUpOrbitDegrees: 0, isMoving: false };
     if (state.transition.kind === "flight") {
       const amount = (frame.nowMs - state.startedAtNowMs) / state.transition.durationMs;
-      if (amount < 1) return { shot, view, pose: interpolatePose(state.fromPose, goal, easeStandard(amount)), closeUpOrbitDegrees: 0 };
+      if (amount < 1) return { shot, view, pose: interpolatePose(state.fromPose, goal, easeStandard(amount)), closeUpOrbitDegrees: 0, isMoving: true };
     }
-    return { shot, view, pose: goal, closeUpOrbitDegrees: 0 };
+    return { shot, view, pose: goal, closeUpOrbitDegrees: 0, isMoving: false };
   }
 
   return {

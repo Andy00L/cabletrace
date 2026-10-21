@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
 import { CaseCharts } from "@/components/console/ConsoleDock";
+import { ShipCameraSwitch } from "@/components/console/ShipCameraSwitch";
 import { Icon } from "@/components/icons/Icon";
 import { CaseEventList } from "@/components/replay/CaseEventList";
 import { formatUtcClock } from "@/lib/replay/format-utc";
@@ -86,6 +87,7 @@ function ReplayRail({ onHide }: { onHide: (() => void) | null }) {
         <p className="text-small">
           {vessel.type}, {vessel.flag} flag
         </p>
+        <ShipCameraSwitch />
         <p className="text-caption font-normal text-muted">
           {vessel.evidenceBrief}.{" "}
           <button type="button" onClick={() => setMode("ship")} className="font-medium text-ink underline decoration-faint underline-offset-4 hover:decoration-ink">

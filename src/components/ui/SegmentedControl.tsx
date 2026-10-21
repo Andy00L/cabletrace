@@ -7,7 +7,8 @@ type SegmentedControlProps<TValue extends string> = {
   /** Read by screen readers as the group's name. */
   label: string;
   options: readonly SegmentOption<TValue>[];
-  value: TValue;
+  /** The pressed segment; null presses none (the ship cameras while the camera is elsewhere). */
+  value: TValue | null;
   onChange: (value: TValue) => void;
   testId?: string;
 };

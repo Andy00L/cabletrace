@@ -94,6 +94,13 @@ describe("planShotFraming", () => {
     expect(framing?.points.some((point) => point.equals(anchor.position))).toBe(true);
   });
 
+  test("frames a story that never left one spot with its surroundings, not a close-up of the seabed", () => {
+    const spot = new THREE.Vector3(5, 0, 5);
+    const framing = planShotFraming({ kind: "establishing", startMs: 0, endMs: 1 }, { vessel: null, anchor: null, cutPoints: [spot.clone()], trackPoints: [spot.clone(), spot.clone()] });
+    const xs = (framing?.points ?? []).map((point) => point.x);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(6, 6);
+  });
+
   test("leaves the close-up its own camera, and falls back to the whole story before the ship is drawn", () => {
     expect(planShotFraming({ kind: "cut", cutIndex: 0, startMs: 0, endMs: 1 }, subjects)).toBeNull();
     const framing = planShotFraming({ kind: "follow", startMs: 0, endMs: 1 }, { ...subjects, vessel: null, anchor: null });

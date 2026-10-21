@@ -72,6 +72,10 @@ const ICON_PATHS = {
       <path d="m13.2 8.6 4-2.2v7.2l-4-2.2" />
     </>
   ),
+  // The anchor cam window's controls (board 22): swap it with the main view, grow it, shrink it back.
+  swap: <path d="M5 7h10l-3-3M15 13H5l3 3" />,
+  expand: <path d="M12 4h4v4M8 16H4v-4M16 4l-5 5M4 16l5-5" />,
+  collapse: <path d="M16 4l-4.6 4.6M11.4 5v3.6H15M4 16l4.6-4.6M8.6 15v-3.6H5" />,
   bookmark: <path d="M6.2 3.4h7.6a1.2 1.2 0 0 1 1.2 1.2v12l-5-3.3-5 3.3v-12a1.2 1.2 0 0 1 1.2-1.2Z" />,
 } satisfies Record<string, ReactNode>;
 

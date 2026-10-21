@@ -70,26 +70,62 @@ export function makeStackedLabel(title: string, note: string, placement: LabelPl
   };
 }
 
-function isOverlapping(first: DOMRect, second: DOMRect): boolean {
+/** A screen box in client px (a DOMRect, or any box with these sides). */
+export type ScreenBox = { left: number; top: number; right: number; bottom: number };
+
+function isOverlapping(first: ScreenBox, second: ScreenBox): boolean {
   return first.left < second.right + LABEL_GAP_PX && second.left < first.right + LABEL_GAP_PX && first.top < second.bottom + LABEL_GAP_PX && second.top < first.bottom + LABEL_GAP_PX;
 }
 
 /**
- * Hides each label whose text would overlap a label that outranks it, and shows it again once it is clear. Called
- * after every render of a label layer. The renderer hides labels behind the camera or switched off with
- * `display: none`; those are skipped, and this toggles `visibility` only, so the two never fight.
+ * The shift (client px) that brings a label's text box inside `bounds`, or null when most of the text is outside them
+ * (its point has left the view: the label hides rather than being dragged away from it). A box wider than the bounds
+ * keeps its left edge in.
  */
-export function hideOverlappingLabels(layer: HTMLElement) {
+export function fitLabelInside(box: ScreenBox, bounds: ScreenBox): { shiftX: number; shiftY: number } | null {
+  const width = box.right - box.left;
+  const height = box.bottom - box.top;
+  const visibleWidth = Math.min(box.right, bounds.right) - Math.max(box.left, bounds.left);
+  const visibleHeight = Math.min(box.bottom, bounds.bottom) - Math.max(box.top, bounds.top);
+  if (visibleWidth < width / 2 || visibleHeight < height / 2) return null;
+  const shiftX = box.left < bounds.left ? bounds.left - box.left : box.right > bounds.right ? Math.max(bounds.left - box.left, bounds.right - box.right) : 0;
+  const shiftY = box.top < bounds.top ? bounds.top - box.top : box.bottom > bounds.bottom ? bounds.bottom - box.bottom : 0;
+  return { shiftX, shiftY };
+}
+
+/** What the label placer keeps clear of: the stage's edges (`bounds`) and the controls and cards over it (`blockers`). */
+export type LabelRoom = { bounds: ScreenBox | null; blockers: readonly ScreenBox[] };
+
+/**
+ * Hides each label whose text would overlap a label that outranks it, or a control or card over the stage, and shows it
+ * again once it is clear; a label cut by the stage's edge slides back inside it (CSS `translate`, which the renderer's
+ * own transform leaves alone). Called after every render of a label layer. The renderer hides labels behind the camera
+ * or switched off with `display: none`; those are skipped, and this toggles `visibility` only, so the two never fight.
+ */
+export function hideOverlappingLabels(layer: HTMLElement, room: LabelRoom = { bounds: null, blockers: [] }) {
   const rankedLabels = [...layer.querySelectorAll<HTMLElement>("[data-label-rank]")]
     .filter((element) => element.style.display !== "none")
     .sort((first, second) => Number(first.dataset.labelRank) - Number(second.dataset.labelRank));
   const textRange = document.createRange();
-  const shownRects: DOMRect[] = [];
+  const shownRects: ScreenBox[] = [];
   for (const element of rankedLabels) {
     // The text alone: a label's padding lifts it off its point and must not count as covering anything.
     textRange.selectNodeContents(element);
-    const textRect = textRange.getBoundingClientRect();
-    const isCovered = shownRects.some((shownRect) => isOverlapping(shownRect, textRect));
+    const measured = textRange.getBoundingClientRect();
+    // Measured with last frame's slide: take it off to find where the renderer put the label this frame.
+    const lastShiftX = Number(element.dataset.shiftX ?? "0");
+    const lastShiftY = Number(element.dataset.shiftY ?? "0");
+    const placed = { left: measured.left - lastShiftX, top: measured.top - lastShiftY, right: measured.right - lastShiftX, bottom: measured.bottom - lastShiftY };
+    const fit = room.bounds ? fitLabelInside(placed, room.bounds) : { shiftX: 0, shiftY: 0 };
+    const shiftX = fit?.shiftX ?? 0;
+    const shiftY = fit?.shiftY ?? 0;
+    if (shiftX !== lastShiftX || shiftY !== lastShiftY) {
+      element.style.translate = shiftX === 0 && shiftY === 0 ? "" : `${shiftX}px ${shiftY}px`;
+      element.dataset.shiftX = String(shiftX);
+      element.dataset.shiftY = String(shiftY);
+    }
+    const textRect = { left: placed.left + shiftX, top: placed.top + shiftY, right: placed.right + shiftX, bottom: placed.bottom + shiftY };
+    const isCovered = fit === null || shownRects.some((shownRect) => isOverlapping(shownRect, textRect)) || room.blockers.some((blocker) => isOverlapping(blocker, textRect));
     element.style.visibility = isCovered ? "hidden" : "";
     if (!isCovered) shownRects.push(textRect);
   }
