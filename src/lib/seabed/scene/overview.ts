@@ -6,7 +6,7 @@ import { describeVesselPosition, positionAtTime, type ReplayCut, type ReplayScen
 import { makeLabel, makePointMarker, makeStackedLabel } from "@/lib/seabed/scene/labels";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { createChainLinks, createFurrowTrench, createUnderwaterLook, makeIllustratedChip, type FurrowTrench } from "@/lib/seabed/scene/anchor-rig";
-import { buildAnchorModel, createAnchorSteelMaterial } from "@/lib/seabed/scene/models";
+import { buildAnchorModel, createAnchorSteelMaterial, readAnchorShackleLocal } from "@/lib/seabed/scene/models";
 import { createProgressLine, type ProgressLine } from "@/lib/seabed/scene/progress-line";
 import { drawAfterWater } from "@/lib/render/data-colors";
 import type { SceneMaterialKit } from "@/lib/render/scene-renderer";
@@ -804,10 +804,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   ship.add(shipLabel.object);
   ship.visible = false;
   refinement.add(ship);
-  // The detail level streams in after the first frame: its code loads with a dynamic import (ship-detail.ts).
-  const shipDetail = import("@/lib/ships/ship-detail")
-    .then(({ addShipDetail }) => addShipDetail(shipModel, input.vessel.name))
-    .catch((error: unknown) => console.error(`[buildOverview] the ship's detail level did not load: ${error instanceof Error ? error.message : String(error)}`));
+  // The detail level's code downloads now (a dynamic import, ship-detail.ts); it dresses the hull after the first
+  // frame, in prepareRefinement.
+  const shipDetailCode = import("@/lib/ships/ship-detail");
   // A soft contact shadow on the water around the hull (ambient occlusion where hull meets sea), so the ship sits in
   // the water instead of hovering over a sea that is mostly transparent from above.
   const contactShadow = new THREE.Mesh(
@@ -824,8 +823,9 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const wake = createWake();
   refinement.add(wake.mesh);
   const anchorMaterial = createAnchorSteelMaterial(SCENE_COLORS.anchor, options.skyMap, ANCHOR_GALVANISED_SHARE);
-  const anchorModel = buildAnchorModel(anchorMaterial);
-  const anchor = anchorModel.group;
+  // The anchor's mesh is built after the first frame (prepareRefinement), into this group.
+  const anchor = new THREE.Group();
+  const anchorShackleLocal = readAnchorShackleLocal();
   anchor.scale.setScalar(ANCHOR_DRAWN_SCALE * METRES_TO_KM);
   anchor.visible = false;
   refinement.add(anchor);
@@ -1043,7 +1043,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       // Rolled onto one side, as a dragged anchor lies: one fluke dug in, the other's blade turned up (as in the close-up).
       anchor.rotation.set(-0.12, Math.atan2(towardHawse.x, towardHawse.z), ANCHOR_ROLL_RADIANS, "YXZ");
       anchor.updateMatrixWorld();
-      shackleWorld.copy(anchorModel.shackleLocal).applyMatrix4(anchor.matrixWorld);
+      shackleWorld.copy(anchorShackleLocal).applyMatrix4(anchor.matrixWorld);
       writeChain(located.span);
       // Links where the camera is close enough to see them; the hairline otherwise.
       const isChainClose = camera.position.distanceTo(anchor.position) < CHAIN_LINK_VIEW_KM;
@@ -1132,6 +1132,13 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
    */
   async function prepareRefinement(environment: THREE.Texture | null): Promise<void> {
     shipModel.addHull();
+    anchor.add(buildAnchorModel(anchorMaterial).group);
+    try {
+      const { addShipDetail } = await shipDetailCode;
+      addShipDetail(shipModel, input.vessel.name);
+    } catch (error) {
+      console.error(`[prepareRefinement] the ship's detail level did not load: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const lineMaterials = createSeabedLineMaterials();
     for (const dataLine of dataTubes) {
       const { tone, radius, tube } = dataLine;
@@ -1140,7 +1147,6 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       refinement.add(physical.group);
       dataLine.physical = physical;
     }
-    await shipDetail;
     if (environment) {
       refinement.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;

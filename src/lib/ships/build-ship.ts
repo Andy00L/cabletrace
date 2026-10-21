@@ -41,7 +41,7 @@ export type ShipModel = {
   hawseLocal: THREE.Vector3;
   form: HullForm;
   kind: ShipKind;
-  /** The house the detail level dresses, or null for a ship without one. */
+  /** The house the detail level dresses: null for a ship without one, and until addHull has built it. */
   house: HouseLayout | null;
   materials: ShipMaterials;
   /** Builds the hull and everything on it into `group`, once; buildShip calls it unless asked to defer it. */
@@ -161,31 +161,31 @@ export function buildShip(options: BuildShipOptions & { isHullDeferred?: boolean
     water: new THREE.Color(SCENE_COLORS.water),
   };
   const materials = createShipMaterials(tone, isDetailed, options.sky ?? null, kind === "tanker");
-  const parts = createShipParts();
-  const cargo = addSuperstructure(kind, form, parts);
-  const group = new THREE.Group();
-  let isHullAdded = false;
-  const addHull = () => {
-    if (isHullAdded) return;
-    isHullAdded = true;
-    buildHullMeshes(kind, form, palette, materials, parts, cargo).forEach((mesh) => {
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      group.add(mesh);
-    });
-  };
-  if (!options.isHullDeferred) addHull();
-  return {
-    group,
+  let isHullBuilt = false;
+  const model: ShipModel = {
+    group: new THREE.Group(),
     sternLocal: new THREE.Vector3(-form.halfLength, 0, 0),
     bowLocal: new THREE.Vector3(form.halfLength, 0, 0),
     hawseLocal: readHawsePoint(form),
     form,
     kind,
-    house: cargo.house,
+    house: null,
     materials,
-    addHull,
+    addHull() {
+      if (isHullBuilt) return;
+      isHullBuilt = true;
+      const parts = createShipParts();
+      const cargo = addSuperstructure(kind, form, parts);
+      model.house = cargo.house;
+      buildHullMeshes(kind, form, palette, materials, parts, cargo).forEach((mesh) => {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        model.group.add(mesh);
+      });
+    },
   };
+  if (!options.isHullDeferred) model.addHull();
+  return model;
 }
 
 /** The ship's meshes: hull, transom, deck, bulwark, then the merged house, gear, funnel, pipes and paint. */

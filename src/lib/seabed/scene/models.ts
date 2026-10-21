@@ -108,6 +108,11 @@ export function createAnchorSteelMaterial(color: string, sky: THREE.Texture | nu
   return material;
 }
 
+/** Where the chain's shackle is on the anchor model (metres, the model's own frame): known before the model is built. */
+export function readAnchorShackleLocal(): THREE.Vector3 {
+  return new THREE.Vector3(0, 0, SHANK_LENGTH + 0.72);
+}
+
 export function buildAnchorModel(material: THREE.Material): AnchorModel {
   const parts: THREE.BufferGeometry[] = [];
   // The crown: the cast head, wider than deep, with the shank's pin bosses on both sides.
@@ -163,7 +168,7 @@ export function buildAnchorModel(material: THREE.Material): AnchorModel {
   mesh.receiveShadow = true;
   const group = new THREE.Group();
   group.add(mesh);
-  return { group, shackleLocal: new THREE.Vector3(0, 0, SHANK_LENGTH + 0.72) };
+  return { group, shackleLocal: readAnchorShackleLocal() };
 }
 
 /** One stud link (about 0.5 m long, the common link for an 11 t anchor's chain), for instancing. */
