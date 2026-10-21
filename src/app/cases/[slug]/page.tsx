@@ -8,7 +8,6 @@ import { toConsoleCase } from "@/lib/cases/case-console";
 import { toReplaySceneInput } from "@/lib/cases/case-file";
 import { loadCaseFileExport } from "@/lib/cases/load-case-file";
 import { loadCaseSeries } from "@/lib/cases/load-case-series";
-import { loadCaseSketch } from "@/lib/cases/load-case-sketch";
 import { loadSeabedSummary } from "@/lib/seabed/load-seabed-summary";
 import { chooseSceneExaggeration } from "@/lib/seabed/scene-scales";
 
@@ -33,11 +32,9 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
   if (!cableCase) notFound();
 
   const input = toReplaySceneInput(cableCase);
-  // Only this case's sketch travels with the page (the 3D view's still if WebGL fails); the switcher fetches the
-  // others from /cases/sketches when a reader reaches for it.
-  const [series, caseSketch, seabedSummary, caseFile] = await Promise.all([
+  // No sketch travels with the page: the switcher and the 3D view's still fetch them from /cases/sketches when needed.
+  const [series, seabedSummary, caseFile] = await Promise.all([
     loadCaseSeries(input),
-    loadCaseSketch(input),
     loadSeabedSummary(input.seabedArea),
     loadCaseFileExport(cableCase.slug),
   ]);
@@ -51,7 +48,6 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
           consoleCase={toConsoleCase(cableCase)}
           series={series}
           switcherCases={switcherCases}
-          caseSketch={caseSketch}
           sceneSummary={
             seabedSummary
               ? {
