@@ -35,7 +35,7 @@
     },
     {
       "type": "action",
-      "description": "In the card's camera switch (data-testid ship-camera-switch), click \"Follow\""
+      "description": "In the vessel card (data-testid vessel-card), click \"Follow\" in its camera switch (data-testid ship-camera-switch)"
     },
     {
       "type": "assertion",
