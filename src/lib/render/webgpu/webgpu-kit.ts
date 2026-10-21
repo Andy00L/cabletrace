@@ -1,8 +1,8 @@
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { Line2 } from "three/addons/lines/webgpu/Line2.js";
-import { instancedBufferAttribute } from "three/tsl";
-import { Color, InstancedBufferAttribute, Line2NodeMaterial, PMREMGenerator, PointsNodeMaterial, Sprite, type WebGPURenderer } from "three/webgpu";
-import type { SceneMaterialKit, SoftPoints, SoftPointsOptions } from "@/lib/render/scene-renderer";
+import { densityFogFactor, float, fog, instancedBufferAttribute, mix, rangeFogFactor, reference, renderGroup, uniform } from "three/tsl";
+import { Color, InstancedBufferAttribute, Line2NodeMaterial, PMREMGenerator, PointsNodeMaterial, Sprite, type Fog, type FogExp2, type Scene, type WebGPURenderer } from "three/webgpu";
+import type { SceneFogSwitch, SceneMaterialKit, SoftPoints, SoftPointsOptions } from "@/lib/render/scene-renderer";
 import { createCausticsNode } from "@/lib/render/webgpu/caustics-node";
 import { createKelvinWakeNodeMaterial } from "@/lib/render/webgpu/kelvin-wake-node-material";
 import { createTerrainNodeMaterial } from "@/lib/render/webgpu/terrain-node-material";
@@ -37,6 +37,28 @@ function createSoftPointSprites(count: number, { map, color, size, opacity }: So
   };
 }
 
+/**
+ * One fog node for both fogs, blended by an "underwater" uniform: the colour and the factor of the range fog above
+ * the surface and of the density fog below it, read from the two fog objects every draw (reference nodes). The scene
+ * keeps no scene.fog, so its fog node never changes.
+ * sourceRef: node_modules/three/src/renderers/common/nodes/NodeManager.js (updateFog, getFogNode reads scene.fogNode).
+ */
+function createFogNodeSwitch(scene: Scene, aboveWater: Fog | null, underwater: FogExp2): SceneFogSwitch {
+  const underwaterShare = uniform(0).setGroup(renderGroup);
+  const underwaterColor = reference("color", "color", underwater);
+  const underwaterFactor = densityFogFactor(reference("density", "float", underwater));
+  const aboveColor = aboveWater ? reference("color", "color", aboveWater) : underwaterColor;
+  const aboveFactor = aboveWater ? rangeFogFactor(reference("near", "float", aboveWater), reference("far", "float", aboveWater)) : float(0);
+  scene.fog = null;
+  // three.js's Scene type does not declare the WebGPU renderer's fogNode.
+  Reflect.set(scene, "fogNode", fog(mix(aboveColor, underwaterColor, underwaterShare), mix(aboveFactor, underwaterFactor, underwaterShare)));
+  return {
+    setUnderwater(isUnderwater) {
+      underwaterShare.value = isUnderwater ? 1 : 0;
+    },
+  };
+}
+
 export function createWebGpuKit(renderer: WebGPURenderer): SceneMaterialKit {
   return {
     createEnvironment() {
@@ -55,5 +77,6 @@ export function createWebGpuKit(renderer: WebGPURenderer): SceneMaterialKit {
     createKelvinWakeMaterial: createKelvinWakeNodeMaterial,
     createCaustics: createCausticsNode,
     createSoftPoints: createSoftPointSprites,
+    createFogSwitch: createFogNodeSwitch,
   };
 }

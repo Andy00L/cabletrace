@@ -4,6 +4,7 @@ import type { RendererKind } from "@/lib/diagnostics/webgl-renderer";
 import { closeWebGl, openWebGl, type OpenedWebGl } from "@/lib/render/webgl-canvas";
 import { requestWebGpuDevice, type WebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
 import { claimParkedRenderer, parkRenderer, type ParkedRenderer } from "@/lib/render/renderer-pool";
+import { yieldToPage } from "@/lib/render/yield-to-page";
 import type { RenderTierName, SceneRenderer } from "@/lib/render/scene-renderer";
 import { createWebGlSceneRenderer, type DrawingBudget } from "@/lib/render/webgl-scene-renderer";
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
@@ -63,6 +64,12 @@ const CLOSE_UP_HIDDEN_MARGIN = 0.3;
 // every frame took the replay from 23 to 15.5 frames a second), and as a still refreshed every 10 s on a CPU renderer,
 // where a frame already takes 0.3 to 0.5 s.
 const SECOND_VIEW_INTERVAL_MS: Record<"gpu" | "cpu", number> = { gpu: 125, cpu: 10_000 };
+// The warm-up (warmUpBatch) runs on a replay without a new moment and without the reader's input for this long (ms),
+// two objects a frame on WebGPU: a frame that builds them takes longer than the display's.
+const WARM_UP_QUIET_MS = 1500;
+// A camera that moved less than 1 m (scene km, squared) since the last frame is at rest.
+const CAMERA_REST_KM_SQUARED = 0.001 ** 2;
+const WARM_UP_BATCH_SIZE = 2;
 // Labels keep this far inside the stage's edges (CSS px), so a name is never cut by the stage's rounded frame.
 const LABEL_EDGE_ROOM_PX = 8;
 
@@ -433,7 +440,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     // The close-up's own camera as built: the director's orbit turns about this pose.
     closeUpHome = { position: built.camera.position.clone(), target: built.controls.target.clone() };
     closeUp = built;
-    resize();
+    // Only its camera: a full resize sets the canvas size again, which clears the picture on screen until the next frame.
+    fitCamera(built.camera, Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     return built;
   }
 
@@ -513,20 +521,21 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   }
 
   let rightInsetPx = 0;
+  /** Fits a camera to the view's size, shifted left by half the rail's inset (a view offset renders the window further right). */
+  function fitCamera(camera: THREE.PerspectiveCamera, width: number, height: number) {
+    const shiftPx = Math.min(rightInsetPx / 2, width / 4);
+    camera.aspect = width / height;
+    if (shiftPx > 0) camera.setViewOffset(width, height, shiftPx, 0, width, height);
+    else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+  }
   function resize() {
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
     overview.camera.fov = fitOverviewFov(width / height);
     overview.setCompactLabels(width < COMPACT_LABEL_WIDTH_PX);
-    const cameras = closeUp ? [overview.camera, closeUp.camera] : [overview.camera];
-    // A view offset renders the window starting this far right, so the picture (and its labels) shift left.
-    const shiftPx = Math.min(rightInsetPx / 2, width / 4);
-    for (const camera of cameras) {
-      camera.aspect = width / height;
-      if (shiftPx > 0) camera.setViewOffset(width, height, shiftPx, 0, width, height);
-      else camera.clearViewOffset();
-      camera.updateProjectionMatrix();
-    }
+    fitCamera(overview.camera, width, height);
+    if (closeUp) fitCamera(closeUp.camera, width, height);
     renderer.setSize(width, height);
     overviewLabels.setSize(width, height);
     closeUpLabels.setSize(width, height);
@@ -727,6 +736,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     // distance (1.5 km), closer than a short hull's follow offset allows, and the two would fight every frame.
     const hasCameraMoved = vesselFrame || cameraOverride || directedPose ? false : overview.controls.update();
     if (isCalm && !isDirty && !hasTimeChanged && !hasCameraMoved && !isCameraEasing) return;
+    if (hasTimeChanged) lastTimeChangeAt = now;
     // A paused calm scene holds still: silt drifts only while the replay moves.
     overview.update(atMs, isCalm && !hasTimeChanged ? 0 : deltaSeconds, now / 1000);
     // The vessel moved with the replay, so the follow camera has a new target: one more frame after this one.
@@ -736,6 +746,12 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     if (secondView && now - lastSecondViewAt >= SECOND_VIEW_INTERVAL_MS[isGpuTier ? "gpu" : "cpu"]) {
       drawSecondView(secondView, atMs, now / 1000);
       lastSecondViewAt = now;
+    }
+    // Any camera motion (the intro, the director easing, a drag, the follow camera) keeps the warm-up waiting.
+    if (overview.camera.position.distanceToSquared(lastCameraPosition) > CAMERA_REST_KM_SQUARED || overview.controls.target.distanceToSquared(lastCameraTarget) > CAMERA_REST_KM_SQUARED) {
+      lastCameraChangeAt = now;
+      lastCameraPosition.copy(overview.camera.position);
+      lastCameraTarget.copy(overview.controls.target);
     }
     overview.followCamera(overview.camera.position, overview.camera.position.distanceTo(overview.controls.target));
     overview.camera.updateMatrixWorld();
@@ -996,6 +1012,14 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     if (!isOnScreen) return;
     // Scene motion steps at most 0.1 s per frame; the follow camera uses real time so it arrives even on slow GPUs.
     const deltaSeconds = Math.min(0.1, elapsedSeconds);
+    // Only on a quiet replay: never during the intro, a camera move, playback or the reader's input.
+    const isQuiet = now - Math.max(lastTimeChangeAt, lastInputAt, lastCameraChangeAt) >= WARM_UP_QUIET_MS;
+    if (isQuiet) quietFrameWaiters.splice(0).forEach((resolve) => resolve());
+    const warmUp = isQuiet && activeView !== "closeup" ? warmUpQueue.shift() : undefined;
+    if (warmUp) {
+      warmUpBatch(warmUp, now / 1000);
+      markDirty();
+    }
     if (activeView === "closeup" && closeUp) renderCloseUp(closeUp, now / 1000, deltaSeconds);
     else renderOverview(now, elapsedSeconds, deltaSeconds);
   }
@@ -1032,10 +1056,15 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       object.visible = true;
     });
     const compiled = compileWithoutStalling(overview.scene);
+    // The anchor cam's look under the surface: on WebGL each fogged material needs a second program for the water
+    // column's fog, linked here instead of in the cam's first frame (370 ms on Windows Chrome). WebGPU keeps one fog
+    // node (createFogSwitch), so its materials need nothing more.
+    const compiledUnderwater = isGpuTier && renderer.tier !== "webgpu" ? overview.withUnderwaterLook(() => compileWithoutStalling(overview.scene)) : Promise.resolve();
     hiddenObjects.forEach((object) => {
       object.visible = false;
     });
     await compiled;
+    await compiledUnderwater;
     if (isDisposed) return;
     performance.mark("seabed:complete");
     // This scene's materials now hold every program it uses: the previous replay's can go.
@@ -1043,7 +1072,130 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     overview.revealRefinement();
     markRefinementReady();
     settleAsset();
+    if (isGpuTier) await prepareCloseUp();
   }
+
+  /**
+   * Builds the close-up ("At the cut", which the director also cuts to near the cut's minute) and compiles its shaders
+   * while the reader looks at the overview, one piece per task. Built on its first showing instead, it froze the page
+   * for 2.2 to 3.6 s on Windows Chrome (scripts/perf/windows-frame-pacing.ts, 21 Oct 2026). The software tier keeps
+   * building it on first showing: there the compile would hold the CPU for longer than the freeze it saves.
+   */
+  async function prepareCloseUp() {
+    // Each step holds the page in one go (the room's reflections 0.1 to 1.3 s, the build about 0.4 s on Windows
+    // Chrome): each waits for a quiet replay, like the warm-up.
+    await waitForQuietFrame();
+    if (isDisposed || closeUp) return;
+    const environmentStartedAt = performance.now();
+    ensureEnvironment();
+    performance.measure("seabed:environment", { start: environmentStartedAt });
+    await waitForQuietFrame();
+    if (isDisposed || closeUp) return;
+    const closeUpStartedAt = performance.now();
+    const closeUpScene = ensureCloseUp();
+    performance.measure("seabed:close-up-build", { start: closeUpStartedAt });
+    await yieldToPage();
+    if (isDisposed) return;
+    // WebGPU builds its pipelines inside each render pass, which compileAsync does not reach: the warm-up draws them.
+    if (renderer.tier === "webgpu") {
+      queueWarmUp(closeUpScene);
+      return;
+    }
+    // As for the overview: hidden objects (the parted ends, the silt) are shown only while the compile walks the scene.
+    const hiddenObjects: THREE.Object3D[] = [];
+    closeUpScene.scene.traverse((object) => {
+      if (object.visible) return;
+      hiddenObjects.push(object);
+      object.visible = true;
+    });
+    const compiled = renderer.compile(closeUpScene.scene, closeUpScene.camera, closeUpScene.scene);
+    hiddenObjects.forEach((object) => {
+      object.visible = false;
+    });
+    await compiled.catch((error: unknown) => {
+      console.error(`[prepareCloseUp] shader compile failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    // On WebGL the warm-up draw comes after the compile, which links each program in a task of its own: drawn first, it
+    // linked them all in one frame (0.8 s on Windows Chrome).
+    if (!isDisposed) queueWarmUp(closeUpScene);
+  }
+
+  /**
+   * The warm-up: on quiet frames, draws what the reader has not seen yet (the overview's objects that appear later,
+   * such as the cut pieces and markers, and the close-up), then the frame itself over it, so the screen never shows
+   * it. A first draw pays for what a compile does not: shadow maps, texture uploads, and on WebGPU every pipeline of
+   * its render passes. Without it, WebGPU held a frame 2.2 s when the cut pieces appeared during playback and about
+   * 1 s on the first close-up, WebGL 0.2 to 0.4 s (Windows Chrome, scripts/perf/windows-frame-pacing.ts, 21 Oct 2026).
+   * WebGPU warms WARM_UP_BATCH_SIZE objects a frame, so no frame holds long; WebGL, whose programs the refinement's
+   * compile already linked, warms the close-up in one draw.
+   */
+  type WarmUpBatch = { scene: THREE.Scene; camera: THREE.PerspectiveCamera; objects: THREE.Object3D[]; isIsolated: boolean };
+  // Resolved by the next quiet frame (renderFrame). A viewer disposed first leaves them pending, which only stops work.
+  const quietFrameWaiters: (() => void)[] = [];
+  function waitForQuietFrame(): Promise<void> {
+    return new Promise((resolve) => quietFrameWaiters.push(resolve));
+  }
+  const warmUpQueue: WarmUpBatch[] = [];
+  function listRenderables(root: THREE.Object3D, shouldInclude: (object: THREE.Object3D) => boolean): THREE.Object3D[] {
+    const renderables: THREE.Object3D[] = [];
+    root.traverse((object) => {
+      if ((object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points || object instanceof THREE.Sprite) && shouldInclude(object)) renderables.push(object);
+    });
+    return renderables;
+  }
+  /** Whether a frame would draw the object as things stand (it and every parent visible). */
+  function isDrawn(object: THREE.Object3D): boolean {
+    for (let current: THREE.Object3D | null = object; current; current = current.parent) if (!current.visible) return false;
+    return true;
+  }
+  function splitIntoBatches(objects: THREE.Object3D[], scene: THREE.Scene, camera: THREE.PerspectiveCamera, isIsolated: boolean): WarmUpBatch[] {
+    const size = renderer.tier === "webgpu" ? WARM_UP_BATCH_SIZE : Math.max(1, objects.length);
+    const batches: WarmUpBatch[] = [];
+    for (let start = 0; start < objects.length; start += size) batches.push({ scene, camera, objects: objects.slice(start, start + size), isIsolated });
+    return batches;
+  }
+  /** Queues the overview's objects not drawn yet (WebGPU only) and the close-up, all of whose objects are new. */
+  function queueWarmUp(closeUpScene: CloseUpScene) {
+    if (renderer.tier === "webgpu") warmUpQueue.push(...splitIntoBatches(listRenderables(overview.scene, (object) => !isDrawn(object)), overview.scene, overview.camera, false));
+    warmUpQueue.push(...splitIntoBatches(listRenderables(closeUpScene.scene, () => true), closeUpScene.scene, closeUpScene.camera, true));
+  }
+  /**
+   * Draws one batch where nobody sees it: its objects (and their hidden parents) shown, and in an isolated batch every
+   * other object of that scene hidden, so only the batch is new to the renderer. Visibility is put back after.
+   */
+  function warmUpBatch(batch: WarmUpBatch, nowSeconds: number) {
+    const changed: { object: THREE.Object3D; wasVisible: boolean }[] = [];
+    const setVisible = (object: THREE.Object3D, isVisible: boolean) => {
+      if (object.visible === isVisible) return;
+      changed.push({ object, wasVisible: object.visible });
+      object.visible = isVisible;
+    };
+    const batchObjects = new Set(batch.objects);
+    if (batch.isIsolated) listRenderables(batch.scene, (object) => !batchObjects.has(object)).forEach((object) => setVisible(object, false));
+    batch.objects.forEach((object) => {
+      for (let current: THREE.Object3D | null = object; current; current = current.parent) setVisible(current, true);
+    });
+    const startedAt = performance.now();
+    if (closeUp && batch.scene === closeUp.scene) closeUp.update(readDrawTimeMs(), nowSeconds, 0);
+    renderer.draw(batch.scene, batch.camera);
+    changed.reverse().forEach(({ object, wasVisible }) => {
+      object.visible = wasVisible;
+    });
+    // On the page's timeline (scripts/perf/windows-frame-pacing.ts lists the slow ones), with what the batch drew.
+    performance.measure("seabed:warm-up", { start: startedAt, detail: batch.objects.map((object) => `${object.type} ${object.name}`.trim()).join(", ") });
+  }
+  // When the replay moment, the reader's input and the overview's camera last changed (performance.now ms), for the
+  // warm-up, and where the camera last stood.
+  let lastTimeChangeAt = performance.now();
+  let lastInputAt = performance.now();
+  let lastCameraChangeAt = performance.now();
+  const lastCameraPosition = new THREE.Vector3();
+  const lastCameraTarget = new THREE.Vector3();
+  const recordInput = () => {
+    lastInputAt = performance.now();
+  };
+  const INPUT_EVENTS = ["pointerdown", "pointermove", "keydown", "wheel"] as const;
+  INPUT_EVENTS.forEach((eventName) => window.addEventListener(eventName, recordInput, { passive: true, capture: true }));
 
   /** Compiles `objects` under the overview's lights and settings; a failure is logged, never thrown. */
   function compileWithoutStalling(objects: THREE.Object3D): Promise<void> {
@@ -1103,6 +1255,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         canvas.removeEventListener("pointerup", handlePointerUp);
         canvas.removeEventListener("pointercancel", handlePointerCancel);
         canvas.removeEventListener("pointermove", handlePointerMove);
+        INPUT_EVENTS.forEach((eventName) => window.removeEventListener(eventName, recordInput, { capture: true }));
         overview.controls.removeEventListener("start", stopCameraMove);
         overview.controls.removeEventListener("change", markDirty);
         overview.controls.dispose();

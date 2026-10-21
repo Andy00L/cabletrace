@@ -69,6 +69,11 @@ export function createWebGlKit(renderer: THREE.WebGLRenderer): SceneMaterialKit 
     createKelvinWakeMaterial: createKelvinWakeGlslMaterial,
     createCaustics,
     createSoftPoints: createSoftPointCloud,
+    createFogSwitch: (scene, aboveWater, underwater) => ({
+      setUnderwater(isUnderwater) {
+        scene.fog = isUnderwater ? underwater : aboveWater;
+      },
+    }),
   };
 }
 

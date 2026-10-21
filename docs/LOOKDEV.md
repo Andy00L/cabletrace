@@ -244,6 +244,12 @@ from WSL, so Playwright cannot drive it. `scripts/lookdev/webgpu-capture.ts` dri
   The budget is now 30 ticks of 100 ms of idle page time, so a block counts as one tick, plus one task's grace
   (`webgpu-adapter.ts`, `waitForIdleTicks`); every load since drew on WebGPU. A case opened by a click from `/cases`
   did not show the block (`scripts/perf/windows-case-click.ts`, docs/PERFORMANCE.md).
+- `scripts/perf/windows-frame-pacing.ts` uses the same Chrome and proxy with a `frame-pacing` agent and motion allowed
+  (no forced reduced motion, frames at the display's pace, no lookdev hooks): on a case page it records the frame
+  intervals while the replay idles, plays, changes view and is scrubbed, with the long animation frames, the JS
+  sampling profiler (the proxy sends `Document-Policy: js-profiling`) and the viewer's slow `seabed:*` steps
+  (docs/PERFORMANCE.md, Replay frame pacing). `--webgl` hands the page Chrome's CPU WebGPU adapter, which the app
+  refuses, so it draws on WebGL on the GPU.
 - `scripts/perf/windows-case-click.ts` uses the same Chrome and proxy with a `case-click` agent: it opens `/cases` from
   a profile whose caches, cookies and storage are emptied, waits for React to hydrate a card, clicks it, times the case
   until its 3D view says ready, goes back and clicks another (warm). It acts only in the page the run opened: Chrome

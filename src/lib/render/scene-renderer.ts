@@ -48,6 +48,9 @@ export type SoftPointsOptions = { map: THREE.Texture; color: string; size: numbe
  */
 export type SoftPoints = { object: THREE.Object3D; positions: Float32Array; markMoved: () => void };
 
+/** The fog a scene switches between per camera: the haze above the surface, the water column below it. */
+export type SceneFogSwitch = { setUnderwater: (isUnderwater: boolean) => void };
+
 export type SceneMaterialKit = {
   /** The studio room's reflections (three.js RoomEnvironment, prefiltered) for the scene's metal and glass. */
   createEnvironment: () => THREE.Texture;
@@ -68,6 +71,14 @@ export type SceneMaterialKit = {
    * kit draws them as instanced sprites of the same size.
    */
   createSoftPoints: (count: number, options: SoftPointsOptions) => SoftPoints;
+  /**
+   * Fogs `scene` with `aboveWater` (or none) above the surface and `underwater` below it, switched per camera (the
+   * anchor cam draws the same scene from under the surface). WebGL swaps scene.fog: its programs for both fogs stay
+   * cached. WebGPU keeps one fog node and moves a uniform: there a different fog changes every material's cache key,
+   * and swapping fogs rebuilt every shader twice each time the anchor cam drew (2 to 4 fps on Windows Chrome,
+   * scripts/perf/windows-frame-pacing.ts, 21 Oct 2026).
+   */
+  createFogSwitch: (scene: THREE.Scene, aboveWater: THREE.Fog | null, underwater: THREE.FogExp2) => SceneFogSwitch;
 };
 
 /** The drawing backend of the 3D replay: one canvas, one renderer, the kit that matches it. */

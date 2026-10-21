@@ -10,9 +10,10 @@ import type { AnchorSubject, CameraPose, CanvasSize, DirectorSubjects, SafeArea,
 /** Subjects stay this far inside the safe area (CSS px, board 21). */
 export const FRAMING_MARGIN_PX = 24;
 // The bisection's bounds on the camera's distance from its target (scene km): a hull close-up to the widest seabed block.
+// 30 halvings of 5,000 km leave 5 mm, far under a pixel; 60 cost twice the time on every frame the director runs.
 const MIN_DISTANCE_KM = 0.01;
 const MAX_DISTANCE_KM = 5000;
-const DISTANCE_STEPS = 60;
+const DISTANCE_STEPS = 30;
 // Each slide re-centres the box, which changes the distance that fits: a few rounds settle both (board 21 used 6).
 const FIT_ROUNDS = 6;
 // Near and far planes of the framing camera (scene km); only used to project, never drawn.

@@ -231,6 +231,12 @@ export type OverviewScene = {
   revealRefinement: () => void;
   /** Keeps the sky around the camera and the haze measured from the camera's target. */
   followCamera: (cameraPosition: THREE.Vector3, targetDistanceKm: number) => void;
+  /**
+   * Runs `run` with the scene dressed as the anchor cam sees it under the surface (the water column's fog and
+   * background, the light shafts and caustics, no water surface), then dresses it back for the overview's camera:
+   * for compiling and drawing what that look needs before the anchor cam first opens.
+   */
+  withUnderwaterLook: <Value>(run: () => Value) => Value;
   /** Gives the screen-sized markers (the cut markers) their size for this camera and view height (CSS px); call before each draw. */
   fitScreenSizes: (viewCamera: THREE.PerspectiveCamera, viewportHeightPx: number) => void;
   /** Lookdev (explore/natural-look): named subjects at the last updated moment. */
@@ -944,7 +950,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
   const haze = new THREE.Fog(palette.sky.hazeHex, 1, 1 + HAZE_FAR_SHARE);
   scene.add(skyDome);
   scene.fog = haze;
-  const underwaterLook = createUnderwaterLook(WATER_LOOK, sampleSeabedHeight, haze);
+  const underwaterLook = createUnderwaterLook(WATER_LOOK, sampleSeabedHeight, haze, kit);
   refinement.add(underwaterLook.group);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
@@ -1449,6 +1455,15 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       });
     },
     followCamera,
+    withUnderwaterLook(run) {
+      underwaterLook.prepare();
+      underwaterLook.apply(scene, camera, true);
+      water.group.visible = false;
+      const value = run();
+      underwaterLook.apply(scene, camera, camera.position.y < 0);
+      water.group.visible = camera.position.y >= 0;
+      return value;
+    },
     fitScreenSizes,
     readSubjects,
     isBehindRelief,

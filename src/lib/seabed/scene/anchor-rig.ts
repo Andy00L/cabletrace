@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { createSeededRandom, sampleFractalNoise, smoothStep } from "@/lib/seabed/math";
+import type { SceneFogSwitch, SceneMaterialKit } from "@/lib/render/scene-renderer";
 import { buildStudLinkGeometry } from "@/lib/seabed/scene/models";
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import { createRayTexture } from "@/lib/seabed/scene/textures";
@@ -150,7 +151,12 @@ export function createFurrowTrench(
  * material is untouched), and the surface itself hidden (from below, the sky's window would be a bright disc; the
  * background's lit top stands in).
  */
-export type UnderwaterLook = { group: THREE.Group; apply: (scene: THREE.Scene, camera: THREE.Camera, isUnderwater: boolean) => void };
+export type UnderwaterLook = {
+  group: THREE.Group;
+  apply: (scene: THREE.Scene, camera: THREE.Camera, isUnderwater: boolean) => void;
+  /** Builds what the first camera under the surface would otherwise build in its frame (the caustic decal). */
+  prepare: () => void;
+};
 
 // Haze density (per km, exponential squared): 1.0 keeps a subject 0.6 km away 70% clear and hides the seabed 2.5 km out.
 const UNDERWATER_HAZE_PER_KM = 1.0;
@@ -178,8 +184,11 @@ const CAUSTIC_SEED = 20241225;
 // The caustic tile's size (px).
 const CAUSTIC_TEXTURE_PX = 256;
 
-/** `aboveWaterFog` is the haze the scene keeps while the camera is above the surface (overview.ts). */
-export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number, aboveWaterFog: THREE.Fog | null): UnderwaterLook {
+/**
+ * `aboveWaterFog` is the haze the scene keeps while the camera is above the surface (overview.ts); the kit switches
+ * between it and the water column's fog (SceneMaterialKit.createFogSwitch).
+ */
+export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (sceneX: number, sceneZ: number) => number, aboveWaterFog: THREE.Fog | null, kit: SceneMaterialKit): UnderwaterLook {
   const hazeColor = new THREE.Color(look.column);
   const fog = new THREE.FogExp2(hazeColor, UNDERWATER_HAZE_PER_KM);
   const background = createUnderwaterBackground(look);
@@ -196,21 +205,28 @@ export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (scene
   const group = new THREE.Group();
   group.add(lightShafts);
   group.visible = false;
-  // The caustic decal (its texture takes tens of ms to draw) is made the first time a camera goes under the surface,
-  // never on the replay's first frame.
+  // The caustic decal (its texture takes tens of ms to draw) is made by prepare, after the replay's first frame, or the
+  // first time a camera goes under the surface.
   let caustics: ReturnType<typeof createCausticDecal> | null = null;
+  function ensureCaustics(): ReturnType<typeof createCausticDecal> {
+    if (caustics) return caustics;
+    const made = createCausticDecal(sampleSeabedHeight);
+    group.add(made.mesh);
+    caustics = made;
+    return made;
+  }
   const forward = new THREE.Vector3();
+  // Made on the first apply, which names the scene.
+  let fogSwitch: SceneFogSwitch | null = null;
   return {
     group,
     apply(scene, camera, isUnderwater) {
-      scene.fog = isUnderwater ? fog : aboveWaterFog;
+      fogSwitch ??= kit.createFogSwitch(scene, aboveWaterFog, fog);
+      fogSwitch.setUnderwater(isUnderwater);
       scene.background = isUnderwater ? background : null;
       group.visible = isUnderwater;
       if (!isUnderwater) return;
-      if (!caustics) {
-        caustics = createCausticDecal(sampleSeabedHeight);
-        group.add(caustics.mesh);
-      }
+      const causticDecal = ensureCaustics();
       // The shafts stand in front of the camera, from the surface down, leaning with the sun and turned to face it.
       camera.getWorldDirection(forward);
       forward.y = 0;
@@ -222,7 +238,10 @@ export function createUnderwaterLook(look: WaterLook, sampleSeabedHeight: (scene
         shaft.position.set(camera.position.x + forward.x * layout.aheadKm - forward.z * layout.acrossKm, -1.6, camera.position.z + forward.z * layout.aheadKm + forward.x * layout.acrossKm);
         shaft.rotation.set(0, Math.atan2(camera.position.x - shaft.position.x, camera.position.z - shaft.position.z), LIGHT_SHAFT_LEAN);
       });
-      caustics.moveTo(camera.position.x + forward.x * CAUSTIC_DECAL_KM * 0.4, camera.position.z + forward.z * CAUSTIC_DECAL_KM * 0.4);
+      causticDecal.moveTo(camera.position.x + forward.x * CAUSTIC_DECAL_KM * 0.4, camera.position.z + forward.z * CAUSTIC_DECAL_KM * 0.4);
+    },
+    prepare() {
+      ensureCaustics();
     },
   };
 }
