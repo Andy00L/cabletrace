@@ -1,9 +1,9 @@
 import type { RenderTierName, SceneRenderer } from "@/lib/render/scene-renderer";
 
-// One renderer kept between 3D replays on the same page. Opening a case after another one (a client navigation) used
-// to pay again for what the first one had already paid: the WebGPU adapter check, the WebGL context (300 to 900 ms on
-// some machines, webgl-canvas.ts) and every shader program's link (50 to 300 ms each without
-// KHR_parallel_shader_compile, webgl-scene-renderer.ts). A viewer that closes parks its renderer here with the
+// One WebGL renderer kept between 3D replays on the same page (viewer.ts parks WebGL renderers only). Opening a case
+// after another one (a client navigation) used to pay again for what the first one had already paid: the WebGL
+// context (300 to 900 ms on some machines, webgl-canvas.ts) and every shader program's link (50 to 300 ms each
+// without KHR_parallel_shader_compile, webgl-scene-renderer.ts). A viewer that closes parks its renderer here with the
 // materials it drew with, undisposed, so their programs stay linked; the next viewer takes it, compiles its own
 // materials against those programs, then releases the old materials. Three-free (types only), so the replay's client
 // component can ask what is parked before any three.js code loads.

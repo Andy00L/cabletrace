@@ -1126,6 +1126,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         overviewLabels.domElement.remove();
         closeUpLabels.domElement.remove();
         const releaseHeldMaterials = () => heldMaterials.splice(0).forEach((material) => material.dispose());
+        // WebGL renderers only: there each kept program saves a blocking link. On Windows Chrome's WebGPU tier a second
+        // case opened as fast with a new renderer (pipelines are cached by the browser), so nothing is kept there.
         if (renderer.tier === "webgpu" || !parkRenderer({ renderer, releaseHeldMaterials })) {
           releaseHeldMaterials();
           renderer.dispose();
