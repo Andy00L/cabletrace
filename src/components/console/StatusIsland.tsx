@@ -43,7 +43,7 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
       {/* One shape grows from pill to card: width and height transition between their auto sizes where the
           browser can (interpolate-size), and snap where it cannot; the corner radius follows. */}
       <div
-        className={`pointer-events-auto flex w-max max-w-[min(440px,calc(100vw-48px))] flex-col overflow-hidden bg-card shadow-row transition-[width,height,border-radius] duration-220 ease-enter [interpolate-size:allow-keywords] ${isOpen ? "rounded-row" : "rounded-full"}`}
+        className={`pointer-events-auto flex w-max max-w-[min(500px,calc(100vw-48px))] flex-col overflow-hidden bg-card shadow-row transition-[width,height,border-radius] duration-220 ease-enter [interpolate-size:allow-keywords] ${isOpen ? "rounded-row" : "rounded-full"}`}
         data-label-blocker="true"
       >
         <button
@@ -60,9 +60,11 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
             {status.text}
           </span>
           {/* Read by eye, not announced: a live region ticking every replay minute would drown the status. Under
-              640 px the pill has no room for both, and the status wins; the timeline sits right under the stage. */}
+              640 px the pill has no room for both, and the status wins; the timeline sits right under the stage.
+              From 1280 px the pill is centred between the view switcher and the rail, and both fit only from
+              1400 px (about 450 px of pill). */}
           {minutesToNext !== null && (
-            <span className="hidden flex-none text-muted tabular-nums sm:inline" data-testid="event-countdown" data-minutes={minutesToNext}>
+            <span className="hidden flex-none text-muted tabular-nums sm:inline xl:max-[1399px]:hidden" data-testid="event-countdown" data-minutes={minutesToNext}>
               next event {formatCountdown(minutesToNext)}
             </span>
           )}
