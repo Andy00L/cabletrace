@@ -61,7 +61,7 @@ export type AgentConfig = {
 };
 
 /** One timed click in the `case-click` mode, in ms from the click. */
-export type CaseClickTiming = { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; isRoutedByAgent: boolean; steps: string };
+export type CaseClickTiming = { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; steps: string };
 
 type BoxRect = { left: number; top: number; width: number; height: number };
 
@@ -187,7 +187,7 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
   const runCaseClicks = async () => {
     const isShown = (element: Element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
     const findShownView = () => [...document.querySelectorAll('[data-testid="seabed-view"]')].find(isShown) ?? null;
-    const timings: { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; isRoutedByAgent: boolean; steps: string }[] = [];
+    const timings: { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; steps: string }[] = [];
     for (const slug of config.clickSlugs) {
       const findCard = () => [...document.querySelectorAll(`a[href="/cases/${slug}"]`)].find(isShown) ?? null;
       // Clicked before React has hydrated it, a card is a plain link and the browser loads the case as a new page: wait
@@ -208,23 +208,10 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
         if (firstFrameAt === null && view.querySelector("canvas[data-frame-count]")) firstFrameAt = performance.now();
       });
       watcher.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-state", "data-frame-count"] });
-      // In this Chrome a script's click on a card has reached the browser's default action (a new page load) instead of
-      // Next's router, though React had hydrated the card; when nothing took the click, the agent hands the URL to the
-      // router itself, as the card's link would have. Checked on window, after React's own listener at the root.
-      let isRoutedByAgent = false;
-      const routeIfUnhandled = (event: Event) => {
-        const router: unknown = Reflect.get(Reflect.get(window, "next") ?? {}, "router");
-        const push: unknown = typeof router === "object" && router !== null ? Reflect.get(router, "push") : null;
-        if (event.defaultPrevented || typeof push !== "function") return;
-        event.preventDefault();
-        isRoutedByAgent = true;
-        Reflect.apply(push, router, [`/cases/${slug}`]);
-      };
-      window.addEventListener("click", routeIfUnhandled, { once: true });
       card.click();
       await waitUntil(() => readyAt !== null && firstFrameAt !== null, `${slug} to be ready`);
       watcher.disconnect();
-      timings.push({ slug, readyMs: (readyAt ?? clickAt) - clickAt, firstFrameMs: firstFrameAt === null ? null : firstFrameAt - clickAt, renderer: findShownView()?.querySelector("canvas[data-renderer]")?.getAttribute("data-renderer") ?? "unknown", isRoutedByAgent, steps: performance.getEntriesByType("mark").filter((mark) => mark.name.startsWith("seabed:") && mark.startTime >= clickAt).map((mark) => `${mark.name.slice("seabed:".length)} ${Math.round(mark.startTime - clickAt)}`).join(", ") });
+      timings.push({ slug, readyMs: (readyAt ?? clickAt) - clickAt, firstFrameMs: firstFrameAt === null ? null : firstFrameAt - clickAt, renderer: findShownView()?.querySelector("canvas[data-renderer]")?.getAttribute("data-renderer") ?? "unknown", steps: performance.getEntriesByType("mark").filter((mark) => mark.name.startsWith("seabed:") && mark.startTime >= clickAt).map((mark) => `${mark.name.slice("seabed:".length)} ${Math.round(mark.startTime - clickAt)}`).join(", ") });
       await pause(2500);
       history.back();
     }
@@ -416,7 +403,7 @@ function readClickTimings(value: unknown): CaseClickTiming[] {
     const firstFrameMs: unknown = Reflect.get(entry, "firstFrameMs");
     const renderer: unknown = Reflect.get(entry, "renderer");
     if (typeof slug !== "string" || typeof readyMs !== "number" || typeof renderer !== "string") return [];
-    return [{ slug, readyMs, firstFrameMs: typeof firstFrameMs === "number" ? firstFrameMs : null, renderer, isRoutedByAgent: Reflect.get(entry, "isRoutedByAgent") === true, steps: String(Reflect.get(entry, "steps") ?? "") }];
+    return [{ slug, readyMs, firstFrameMs: typeof firstFrameMs === "number" ? firstFrameMs : null, renderer, steps: String(Reflect.get(entry, "steps") ?? "") }];
   });
 }
 

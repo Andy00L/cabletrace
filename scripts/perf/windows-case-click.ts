@@ -66,7 +66,7 @@ async function main(): Promise<number> {
       }
       const timings = captured.value.report.clickTimings;
       timings.forEach((timing, index) => samples.push({ timing, isCold: index === 0 }));
-      console.log(`[windowsCaseClick] run ${runIndex + 1}: ${timings.map((timing, index) => `${timing.slug} ${index === 0 ? "cold" : "warm"} ready ${Math.round(timing.readyMs)} ms, first frame ${timing.firstFrameMs === null ? "n/a" : Math.round(timing.firstFrameMs)} ms on ${timing.renderer}${timing.isRoutedByAgent ? " (routed by the agent)" : ""} [${timing.steps}]`).join("; ")}`);
+      console.log(`[windowsCaseClick] run ${runIndex + 1}: ${timings.map((timing, index) => `${timing.slug} ${index === 0 ? "cold" : "warm"} ready ${Math.round(timing.readyMs)} ms, first frame ${timing.firstFrameMs === null ? "n/a" : Math.round(timing.firstFrameMs)} ms on ${timing.renderer} [${timing.steps}]`).join("; ")}`);
     }
   } finally {
     proxy.releaseAll();
