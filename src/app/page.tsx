@@ -23,7 +23,7 @@ const EVIDENCE_CUT_LABEL = "C-Lion1";
 // The press scales the pill to 0.97 (the design system's press, as LiveDock's buttons); hover only shifts the fill and
 // slides the chevron 2 px, the pill itself never moves.
 const INK_PILL_CLASS =
-  "group flex h-12 items-center justify-center gap-1 rounded-full bg-ink pr-5 pl-6 text-label text-card transition-[background-color,transform] duration-80 ease-standard hover:bg-ink-hover active:scale-[0.97]";
+  "group flex h-12 items-center justify-center gap-1 rounded-full bg-ink pr-5 pl-6 text-label text-card transition-[background-color,scale] duration-80 ease-standard hover:bg-ink-hover active:scale-[0.97]";
 // Where the recorder figures are counted, readable without signing in (src/proxy.ts, isPublicRoute).
 const HEALTH_PATH = "/api/health";
 const CONTENT_CLASS = "mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-20";
