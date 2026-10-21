@@ -38,9 +38,9 @@ function buildProofFigures(cablesWatched: number | null, positionsLastHour: numb
   const sourceCount = CABLE_CASES.reduce((total, cableCase) => total + cableCase.sources.length, 0);
   return [
     { value: String(CABLE_CASES.length), label: "cases on file", detail: `${sourceCount} sources, each quote linked to its page and an archived copy` },
-    { value: cablesWatched === null ? "-" : cablesWatched.toLocaleString("en-US"), label: "cables and pipelines watched", detail: `OpenStreetMap and EMODnet lines in ${REGIONS.length} regions`, source: { href: HEALTH_PATH, label: "live count" } },
-    { value: String(REGIONS.length), label: "regions recorded every minute", detail: `Digitraffic in the Gulf of Finland, aisstream.io in all ${REGIONS.length}`, source: { href: HEALTH_PATH, label: "recorder status" } },
-    { value: positionsLastHour === null ? "-" : positionsLastHour.toLocaleString("en-US"), label: "positions in the last hour", detail: "every ship within 3 km of a watched line", source: { href: HEALTH_PATH, label: "live count" } },
+    { value: cablesWatched === null ? "-" : cablesWatched.toLocaleString("en-US"), label: "cables and pipelines watched", detail: `OpenStreetMap and EMODnet lines in ${REGIONS.length} regions`, source: { href: HEALTH_PATH, label: "Live count" } },
+    { value: String(REGIONS.length), label: "regions recorded every minute", detail: `Digitraffic in the Gulf of Finland, aisstream.io in all ${REGIONS.length}`, source: { href: HEALTH_PATH, label: "Recorder status" } },
+    { value: positionsLastHour === null ? "-" : positionsLastHour.toLocaleString("en-US"), label: "positions in the last hour", detail: "every ship within 3 km of a watched line", source: { href: HEALTH_PATH, label: "Live count" } },
   ];
 }
 
