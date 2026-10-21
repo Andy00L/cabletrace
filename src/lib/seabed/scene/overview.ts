@@ -16,6 +16,7 @@ import type { TerrainGrid } from "@/lib/seabed/scene/terrain-grid";
 import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene/terrain-material";
 import { createPhysicalLine, createSeabedLineMaterials, type PhysicalLine } from "@/lib/seabed/scene/seabed-lines";
 import { buildWaterBody, createWaterDepthMap, WATER_ABSORPTION, WATER_LOOK } from "@/lib/seabed/scene/water-surface";
+import { buildPolylineTube } from "@/lib/seabed/scene/polyline-tube";
 import { FULL_WIDTH_DISTANCE_KM, MIN_WIDTH_SHARE, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
@@ -29,6 +30,8 @@ import { clipToBlock, densifyScenePoints, elevationToSceneY, type Projection, ty
 const BLOCK_BASE_THICKNESS_KM = 2.6;
 // Lines are resampled every 300 m so they follow the seabed.
 const LINE_STEP_KM = 0.3;
+// Faces around each map tube (and its casing and the signal's halo).
+const TUBE_RADIAL_SEGMENTS = 8;
 // Points on each side used to even out a line's height along the seabed.
 const LINE_HEIGHT_SMOOTHING_POINTS = 4;
 const POWER_CABLE_RADIUS_KM = 0.13;
@@ -406,12 +409,11 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
   });
   // Where the line rests on the seabed (for its physical twin, seabed-lines.ts).
   const restingPoints = vectors.map((vector) => new THREE.Vector3(vector.x, vector.y - radius - 0.04, vector.z));
+  // The spline, for what follows the line later (the signal, the probes, the physical twin); its samples are taken
+  // only when asked for.
   const curve = new THREE.CatmullRomCurve3(vectors, false, "centripetal");
-  // One ring per resampled point (every 300 m): the map draws these tubes a few pixels wide, so finer rings add build
-  // time on the way to the first frame and nothing on screen.
-  const tubularSegments = Math.max(12, vectors.length);
   // Data tubes are drawn unlit and after the water (src/lib/render/data-colors.ts), so they show their exact colour.
-  const mesh = drawAfterWater(new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSegments, radius, 8, false), materials.line));
+  const mesh = drawAfterWater(new THREE.Mesh(createPolylineTubeGeometry(vectors, radius), materials.line));
   mesh.castShadow = true;
   // The casing's underside rests on the seabed with the line's, so its centreline sits higher by the extra radius. It
   // is the line's tube widened in place (same rings, same normals), which costs a pass over its vertices instead of a
@@ -419,7 +421,22 @@ function createSeabedTube(points: readonly ScenePoint[], radius: number, materia
   const casing = new THREE.Mesh(widenTube(mesh.geometry, radius, radius * CASING_RADIUS_SHARE), materials.casing);
   casing.renderOrder = CASING_RENDER_ORDER;
   mesh.add(casing);
-  return { mesh, curve, restingPoints };
+  return { mesh, curve, restingPoints, centreline: vectors };
+}
+
+/**
+ * A tube with one ring per point of the line (polyline-tube.ts): the points are already resampled every 300 m, and
+ * the map draws the tubes a few pixels wide, so sampling the spline for each ring (TubeGeometry) only cost time on the
+ * way to the first frame (about 650 ms on a phone).
+ */
+function createPolylineTubeGeometry(points: readonly THREE.Vector3[], radius: number): THREE.BufferGeometry {
+  const tube = buildPolylineTube(points, radius, TUBE_RADIAL_SEGMENTS);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(tube.positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(tube.normals, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(tube.uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(tube.indices, 1));
+  return geometry;
 }
 
 /**
@@ -650,7 +667,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       if (cut === primaryCut) {
         // The signature "signal": a faint halo and a light that runs along the cable under watch.
         halo = new THREE.Mesh(
-          new THREE.TubeGeometry(intact.curve, Math.max(12, run.length * 2), tubeRadii.signalHalo, 8, false),
+          createPolylineTubeGeometry(intact.centreline, tubeRadii.signalHalo),
           kit.createThinnedDataTubeMaterial({ hex: WEBGL_COLORS.cable, radiusKm: tubeRadii.signalHalo, fullWidthDistanceKm, opacity: 0.12, depthWrite: false }),
         );
         drawAfterWater(halo);

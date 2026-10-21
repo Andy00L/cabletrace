@@ -7,6 +7,7 @@ import { progressToTimeMs, type ReplaySceneInput } from "@/lib/replay/replay-sce
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewer, SeabedViewName } from "@/lib/seabed/scene/viewer";
 import { requestWebGpuDevice, type WebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
+import { isCompactScreen } from "@/lib/render/compact-screen";
 import { readParkedRendererTier } from "@/lib/render/renderer-pool";
 import { closeWebGl, openWebGl, type OpenedWebGl } from "@/lib/render/webgl-canvas";
 import type { Result } from "@/lib/result";
@@ -81,9 +82,12 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
       // of 2.1 s, and the page fell back to WebGL (docs/LOOKDEV.md, WebGPU).
       // A replay opened after another one draws on its parked renderer (renderer-pool.ts): no adapter check, no context.
       const parkedTier = readParkedRendererTier();
+      // A phone draws on WebGL with the compact budget (compact-screen.ts): no adapter check there either.
+      const isCompact = isCompactScreen();
       // The adapter check starts here, not while the console renders: its 3 s timeout (webgpu-adapter.ts) runs in page
       // time, and on Windows Chrome with a cold cache the console's own work let it expire, so the page drew on WebGL.
-      const webGpuDevice: Promise<Result<WebGpuDevice>> = parkedTier === null ? requestWebGpuDevice() : Promise.resolve({ ok: false, reason: "a renderer is parked" });
+      const webGpuDevice: Promise<Result<WebGpuDevice>> =
+        parkedTier === null && !isCompact ? requestWebGpuDevice() : Promise.resolve({ ok: false, reason: parkedTier === null ? "a phone draws on WebGL" : "a renderer is parked" });
       // Opening the context blocks the page for as long as it takes: let the console paint first.
       if (parkedTier === null) await waitForPaint();
       const hasWebGpuDevice = (await webGpuDevice).ok;
@@ -95,7 +99,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
       // the viewer opens its own.
       const openedWebGl: OpenedWebGl = hasWebGpuDevice || parkedTier !== null ? { kind: "none" } : openWebGl();
       const isSoftwareTier = parkedTier === null ? openedWebGl.kind === "software" : parkedTier === "software";
-      const step = isSoftwareTier ? TERRAIN_STEPS.software : TERRAIN_STEPS.gpu;
+      const step = isSoftwareTier ? TERRAIN_STEPS.software : isCompact ? TERRAIN_STEPS.compact : TERRAIN_STEPS.gpu;
       const [loaded, viewerModule] = await Promise.all([loadSeabedScene(input.seabedArea, step), viewerCode]);
       // Load steps on the page's timeline (scripts/perf/measure-pages.ts --profile case-click reads every seabed:* mark).
       performance.mark("seabed:data-and-code");
@@ -120,6 +124,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
         onTargetPick: (target) => onTargetPickRef.current(target),
         webGpuDevice,
         openedWebGl,
+        isCompact,
       });
       // The viewer picks its renderer tier asynchronously; an unmount meanwhile frees what it built.
       if (isCancelled) {

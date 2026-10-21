@@ -131,6 +131,9 @@ const RENDER_TIERS: Record<RenderTierName, DrawingBudget> = {
   hardware: { antialias: true, shadows: true, maxPixelRatio: 2 },
   software: { antialias: false, shadows: false, maxPixelRatio: 0.75 },
 };
+// A phone on its GPU (src/lib/render/compact-screen.ts): no shadows, and at most 1.5 device pixels per CSS pixel on a
+// screen of 3, which draws a quarter of the pixels.
+const COMPACT_BUDGET: DrawingBudget = { antialias: true, shadows: false, maxPixelRatio: 1.5 };
 
 export type SeabedViewName = OverviewViewName | "vessel" | "closeup";
 
@@ -181,6 +184,8 @@ type ViewerOptions = {
   webGpuDevice?: Promise<Result<WebGpuDevice>>;
   /** The WebGL context the caller opened early (webgl-canvas.ts, openWebGl); opened here otherwise. */
   openedWebGl?: OpenedWebGl;
+  /** A phone's screen (compact-screen.ts): the GPU tier draws with COMPACT_BUDGET, plain hulls and no sand ripples. */
+  isCompact?: boolean;
 };
 
 type CameraMove = {
@@ -214,7 +219,7 @@ function disposeObjectTree(root: THREE.Object3D, heldMaterials: THREE.Material[]
  * then), else WebGL on the GPU or on the CPU, as before. A WebGPU tier that fails to start falls back to WebGL, so the
  * canvas never reports `webgpu` for anything but a WebGPU backend.
  */
-async function createSceneRenderer(webGpuDeviceRequest: Promise<Result<WebGpuDevice>>, kind: RendererKind, openedWebGl: OpenedWebGl, parked: ParkedRenderer | null): Promise<Result<SceneRenderer>> {
+async function createSceneRenderer(webGpuDeviceRequest: Promise<Result<WebGpuDevice>>, kind: RendererKind, budget: DrawingBudget, openedWebGl: OpenedWebGl, parked: ParkedRenderer | null): Promise<Result<SceneRenderer>> {
   const webGpuDevice = await webGpuDeviceRequest;
   if (parked) {
     // The previous replay's renderer, its context open and its programs linked: nothing new to start.
@@ -239,7 +244,7 @@ async function createSceneRenderer(webGpuDeviceRequest: Promise<Result<WebGpuDev
     // Not a fault (most browsers have no WebGPU adapter), but the reason tells a slow adapter from a missing one.
     console.info(`[createSceneRenderer] drawing with WebGL: ${webGpuDevice.reason}`);
   }
-  return createWebGlSceneRenderer(kind, RENDER_TIERS[kind], openedWebGl.kind === "hardware" ? openedWebGl : null);
+  return createWebGlSceneRenderer(kind, budget, openedWebGl.kind === "hardware" ? openedWebGl : null);
 }
 
 function createLabelLayer(container: HTMLElement): CSS2DRenderer {
@@ -286,6 +291,9 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   const openedWebGl: OpenedWebGl = parked ? { kind: "none" } : (options.openedWebGl ?? openWebGl());
   const rendererKind: RendererKind = (parked ? parked.renderer.tier === "software" : openedWebGl.kind === "software") ? "software" : "hardware";
   const isGpuTier = rendererKind !== "software";
+  const isCompact = isGpuTier && options.isCompact === true;
+  // The full GPU look: detailed hulls and wakes, sand ripples (a phone gets the plain ones, compact-screen.ts).
+  const isHighDetail = isGpuTier && !isCompact;
   const isCalm = prefersReducedMotion || !isGpuTier;
   // Set whenever the picture must be redrawn even though the replay moment did not change. Declared first: a texture
   // can finish loading while the renderer is still being chosen.
@@ -306,7 +314,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   }
   // The sand-ripple detail (Poly Haven, CC0, docs/LOOKDEV.md) and the sky HDRI (CC0, public/textures/CREDITS.md) for
   // the water's reflection and the ships' light: GPU tiers only, requested before anything else is built.
-  const rippleNormalMap = isGpuTier ? startTextureLoad(RIPPLE_NORMAL_MAP_URL, settleAsset) : null;
+  const rippleNormalMap = isHighDetail ? startTextureLoad(RIPPLE_NORMAL_MAP_URL, settleAsset) : null;
   let markSkyLoaded = () => {};
   const skyLoaded = new Promise<void>((resolve) => {
     markSkyLoaded = resolve;
@@ -333,7 +341,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   const palette = chooseScenePalette(features.region);
   const projection = createProjection(features.region);
   const webGpuDeviceRequest: Promise<Result<WebGpuDevice>> = parked ? Promise.resolve({ ok: false, reason: "a renderer is parked" }) : (options.webGpuDevice ?? requestWebGpuDevice());
-  const createdRenderer = await createSceneRenderer(webGpuDeviceRequest, rendererKind, openedWebGl, parked);
+  const createdRenderer = await createSceneRenderer(webGpuDeviceRequest, rendererKind, isCompact ? COMPACT_BUDGET : RENDER_TIERS[rendererKind], openedWebGl, parked);
   performance.mark("seabed:renderer");
   if (!createdRenderer.ok) return createdRenderer;
   const renderer = createdRenderer.value;
@@ -362,7 +370,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     input,
     softDot,
     prefersReducedMotion: isCalm,
-    isHighDetail: isGpuTier,
+    isHighDetail,
     rippleNormalMap,
     skyMap,
   });

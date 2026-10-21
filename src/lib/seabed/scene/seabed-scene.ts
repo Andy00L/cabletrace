@@ -11,8 +11,11 @@ import { chooseSmoothingPasses, createProjection } from "@/lib/seabed/terrain";
 /** The area's features (lines, places, region, credits) and its terrain, built for one tier's grid step. */
 export type SeabedScene = { features: SeabedFeatures; terrain: TerrainGrid };
 
-/** Every `step`-th row and column of the grid is drawn: all of them on a GPU, every second one on a CPU renderer. */
-export const TERRAIN_STEPS = { gpu: 1, software: 2 } as const;
+/**
+ * Every `step`-th row and column of the grid is drawn: all of them on a GPU, every second one on a CPU renderer and on
+ * a phone (src/lib/render/compact-screen.ts).
+ */
+export const TERRAIN_STEPS = { gpu: 1, software: 2, compact: 2 } as const;
 
 /** Builds the terrain of an area's data at a grid step, in the look the area draws in (scene-look.ts). */
 export function buildSeabedScene(data: SeabedData, step: number): SeabedScene {
