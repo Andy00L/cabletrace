@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AnchorFigure } from "@/components/landing/AnchorFigure";
 import { ArtPicture } from "@/components/landing/ArtPicture";
+import { Icon } from "@/components/icons/Icon";
 import { EvidenceNote } from "@/components/landing/EvidenceNote";
 import { describeLandingRecord, LandingFooter } from "@/components/landing/LandingFooter";
 import { LandingStickyBar } from "@/components/landing/LandingStickyBar";
@@ -19,8 +20,10 @@ import type { CSSProperties } from "react";
 const CONSOLE_PATH = `/cases/${EAGLE_S_2024.slug}`;
 // The evidence note explains one placed position: the C-Lion1 cut, placed from Cinia's own description.
 const EVIDENCE_CUT_LABEL = "C-Lion1";
+// The press scales the pill to 0.97 (the design system's press, as LiveDock's buttons); hover only shifts the fill and
+// slides the chevron 2 px, the pill itself never moves.
 const INK_PILL_CLASS =
-  "flex h-12 items-center justify-center rounded-full bg-ink px-6 text-label text-card transition-colors duration-140 ease-standard hover:bg-ink-hover";
+  "group flex h-12 items-center justify-center gap-1 rounded-full bg-ink pr-5 pl-6 text-label text-card transition-[background-color,transform] duration-80 ease-standard hover:bg-ink-hover active:scale-[0.97]";
 const CONTENT_CLASS = "mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-20";
 // The hero block the sticky bar watches: once it has scrolled away, the bar brings its action back (LandingStickyBar).
 const HERO_BLOCK_ID = "landing-hero";
@@ -74,6 +77,7 @@ export default async function LandingPage() {
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Link href={CONSOLE_PATH} className={INK_PILL_CLASS} data-testid="open-console">
                   Open the console
+                  <Icon name="chevronRight" className="transition-transform duration-140 ease-standard group-hover:translate-x-0.5" />
                 </Link>
                 <Link href="/sign-in" className="flex h-12 items-center rounded-full px-4 text-label text-ink hover:bg-ink/5" data-testid="landing-sign-in">
                   Sign in
@@ -149,6 +153,7 @@ export default async function LandingPage() {
               )}
               <Link href={CONSOLE_PATH} className={INK_PILL_CLASS}>
                 Open the console
+                <Icon name="chevronRight" className="transition-transform duration-140 ease-standard group-hover:translate-x-0.5" />
               </Link>
             </div>
             <LandingFooter />

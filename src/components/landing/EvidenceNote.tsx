@@ -39,9 +39,9 @@ export function EvidenceNote({ cableCase, cut }: { cableCase: CableCase; cut: Ca
         </p>
       )}
       <p className="text-small">{cut.placement.split(". ")[0]}. The replay marks it as a reconstructed position.</p>
-      <Link href={`/cases/${cableCase.slug}?t=${cut.atUtc.slice(0, 16)}Z`} className="-mx-2 flex min-h-11 w-fit items-center gap-1 rounded-full px-2 text-label hover:bg-ink/5">
+      <Link href={`/cases/${cableCase.slug}?t=${cut.atUtc.slice(0, 16)}Z`} className="group -mx-2 flex min-h-11 w-fit items-center gap-1 rounded-full px-2 text-label hover:bg-ink/5">
         See it in the replay
-        <Icon name="chevronRight" />
+        <Icon name="chevronRight" className="transition-transform duration-140 ease-standard group-hover:translate-x-0.5" />
       </Link>
     </div>
   );
