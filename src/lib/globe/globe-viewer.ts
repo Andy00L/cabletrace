@@ -4,7 +4,7 @@ import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { detectRendererKind, type RendererKind } from "@/lib/diagnostics/webgl-renderer";
 import { WEBGL_COLORS } from "@/lib/design/webgl-colors";
 import type { FramePair } from "@/lib/globe/frame-pairing";
-import { readDistanceTier, readPlanetShare, type DistanceTier } from "@/lib/globe/globe-tier";
+import { readDistanceTier, readPlanetShare, SHIP_TIER_DISTANCE, type DistanceTier } from "@/lib/globe/globe-tier";
 import type { LandPolygons } from "@/lib/globe/land-polygons";
 import { COVERAGE_HEIGHT, COVERAGE_WIDTH } from "@/lib/globe/coverage";
 import { createLandTexture, WORLD_BOX, type LandBox } from "@/lib/globe/land-texture";
@@ -39,7 +39,11 @@ const CAMERA_FOV_DEGREES = 28;
 const HOME_LONGITUDE = 16;
 const HOME_LATITUDE = 50;
 const HOME_DISTANCE = 3.6;
-const MIN_DISTANCE = 1.08;
+// The closest the camera comes is the Ship tier. Before it existed the floor was 1.08, and it clamped the Ship tier
+// there, barely closer than the Strait tier (1.1).
+const MIN_DISTANCE = SHIP_TIER_DISTANCE;
+// A flight to a place that names no distance (the dive to a cut) ends this far out, about 500 km up.
+const DIVE_DISTANCE = 1.08;
 const MAX_DISTANCE = 6;
 // Heights above the unit sphere: ships sit above the cables so a ship over a cable stays visible.
 const SHIP_LIFT = 1.0012;
@@ -61,6 +65,8 @@ const RIM_RADIUS = 1.035;
 // long (docs/UI_DESIGN_SYSTEM.md, Motion: duration-large for camera moves inside the UI).
 const FOCUS_DISTANCE = 1.3;
 const FOCUS_MOVE_MS = 900;
+// A followed ship nearer the stage's centre than this (squared, in Earth radii: about 6 m) leaves the camera be.
+const FOLLOW_TOLERANCE_SQUARED = 1e-12;
 // The hatching over sea no feed heard (CSS px): a thin diagonal line every 7 px, in the depth-deep tone.
 const HATCH_SPACING_PX = 7;
 // Incident markers (CSS px), just above the ships; the selected one grows by this factor.
@@ -108,8 +114,8 @@ const RIPPLE_LIFT = 1.0017;
 /** What a click on the globe landed on. */
 export type GlobePick = { kind: "ship"; mmsi: number } | { kind: "line"; lineId: number } | { kind: "incident"; slug: string } | { kind: "none" };
 
-/** Where the camera is: its tier and the point under the stage's centre. */
-export type GlobeView = { tier: DistanceTier; longitude: number; latitude: number };
+/** Where the camera is: its tier, the point under the stage's centre, and the ship it follows (the Ship tier), if any. */
+export type GlobeView = { tier: DistanceTier; longitude: number; latitude: number; followedMmsi: number | null };
 
 /** A named sea's label at the Planet tier: its name over a muted note (its ship count). */
 export type GlobeSeaLabel = { name: string; note: string; longitude: number; latitude: number };
@@ -129,8 +135,7 @@ export type GlobeViewer = {
   setIncidents: (markers: readonly GlobeMarker[]) => void;
   setSelectedIncident: (slug: string | null) => void;
   /**
-   * Flies the camera down over a place, ending at `distance` from the centre (the closest the globe allows when left
-   * out). Resolves when the camera arrives, or at once when motion is reduced or `isJump` asks for no flight (a view
+   * Flies the camera down over a place, ending at `distance` from the centre (about 500 km up when left out). Resolves when the camera arrives, or at once when motion is reduced or `isJump` asks for no flight (a view
    * restored from the address); resolves early if a drag takes over.
    */
   flyTo: (target: { longitude: number; latitude: number; distance?: number; durationMs?: number; isJump?: boolean }) => Promise<void>;
@@ -140,6 +145,11 @@ export type GlobeViewer = {
   setCoverage: (mask: Uint8Array | null) => void;
   /** Flies the camera over a ship of the current pair, to `distance` from the centre (about 1,900 km up when left out); false when the pair does not hold it. */
   focusShip: (mmsi: number, distance?: number) => boolean;
+  /**
+   * The Ship tier: flies to a ship of the current pair and keeps it under the stage's centre as the day plays, until a
+   * drag, another flight, another selection or a zoom out past the Strait tier; false when the pair does not hold it.
+   */
+  followShip: (mmsi: number, distance: number) => boolean;
   /** Width of a panel floating over the right edge (CSS px); the globe centres on what is left. */
   setRightInset: (insetPx: number) => void;
   /** The Planet tier's density dots for the moment, or null for none. */
@@ -616,6 +626,9 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   let pair: FramePair | null = null;
   let blend = 0;
   let selectedMmsi: number | null = null;
+  // The ship the camera follows, and the value last reported through onViewChange.
+  let followedMmsi: number | null = null;
+  let reportedFollowedMmsi: number | null = null;
   let isDirty = true;
   const markDirty = () => {
     isDirty = true;
@@ -623,10 +636,15 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   controls.addEventListener("change", markDirty);
   type CameraMove = { from: THREE.Vector3; to: THREE.Vector3; startedAt: number; durationMs: number; ease: (amount: number) => number; onEnd: () => void };
   let cameraMove: CameraMove | null = null;
-  // Grabbing the globe ends a scripted flight.
   const stopCameraMove = () => {
     cameraMove?.onEnd();
     cameraMove = null;
+  };
+  // Grabbing the globe ends a scripted flight, and a flight to a followed ship ends the follow too. A wheel zoom while
+  // following keeps it, so the reader can close in on the ship.
+  const stopCameraMoveByHand = () => {
+    if (cameraMove) followedMmsi = null;
+    stopCameraMove();
   };
   // Ease out cubic for a short hop to a ship, as the seabed's camera moves do.
   const easeOutCubic = (amount: number) => 1 - (1 - amount) ** 3;
@@ -655,7 +673,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
       cameraMove = { from: camera.position.clone(), to: destination, startedAt: performance.now(), durationMs, ease, onEnd: resolve };
     });
   }
-  controls.addEventListener("start", stopCameraMove);
+  controls.addEventListener("start", stopCameraMoveByHand);
 
   /** Index of an MMSI in the current pair (ascending), or -1. */
   function findShipIndex(mmsi: number): number {
@@ -685,6 +703,29 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
       .normalize()
       .multiplyScalar(SHIP_LIFT);
     return (pair.fromPresence[shipIndex] ?? 0) * (1 - blend) + (pair.toPresence[shipIndex] ?? 0) * blend;
+  }
+
+  /** Starts a flight over a ship of the current pair; false when the pair does not hold it. */
+  function flyToShip(mmsi: number, distance: number): boolean {
+    const shipIndex = findShipIndex(mmsi);
+    if (shipIndex === -1) return false;
+    const shipVector = new THREE.Vector3();
+    readShip(shipIndex, shipVector);
+    void startCameraMove(shipVector.normalize().multiplyScalar(Math.max(MIN_DISTANCE, distance)), FOCUS_MOVE_MS, easeOutCubic, isCalm);
+    return true;
+  }
+
+  const followVector = new THREE.Vector3();
+  /** Turns the camera over the followed ship at its current distance; true when the camera moved. */
+  function stepFollow(): boolean {
+    if (followedMmsi === null) return false;
+    const shipIndex = findShipIndex(followedMmsi);
+    // A ship missing from the frames on screen holds the camera where it is until it shows again.
+    if (shipIndex === -1 || readShip(shipIndex, followVector) < 0.05) return false;
+    followVector.normalize().multiplyScalar(camera.position.length());
+    if (followVector.distanceToSquared(camera.position) < FOLLOW_TOLERANCE_SQUARED) return false;
+    camera.position.copy(followVector);
+    return true;
   }
 
   const ringVector = new THREE.Vector3();
@@ -724,6 +765,10 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   let pressStart: { x: number; y: number } | null = null;
   const onPointerDown = (event: PointerEvent) => {
     pressStart = { x: event.clientX, y: event.clientY };
+  };
+  // A drag takes the camera back from a followed ship.
+  const onPointerMove = (event: PointerEvent) => {
+    if (pressStart && Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) > CLICK_SLOP_PX) followedMmsi = null;
   };
   const pickVector = new THREE.Vector3();
   type ScreenPoint = { x: number; y: number; isFacing: boolean };
@@ -812,6 +857,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
     else onPick({ kind: "none" });
   };
   renderer.domElement.addEventListener("pointerdown", onPointerDown);
+  renderer.domElement.addEventListener("pointermove", onPointerMove);
   renderer.domElement.addEventListener("pointerup", onPointerUp);
 
   let frameHandle = 0;
@@ -841,12 +887,15 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
   function renderFrame(now: number) {
     frameHandle = requestAnimationFrame(renderFrame);
     const isFlying = stepCameraMove(now);
-    const hasCameraMoved = controls.update() || isFlying;
+    const hasFollowed = !isFlying && stepFollow();
+    const hasCameraMoved = controls.update() || isFlying || hasFollowed;
     if (!isDirty && !hasCameraMoved && !isSignalRunning && !isRippleRunning) return;
     // A frame drawn only for a cable's running light leaves the labels where they are.
     const shouldPlaceLabels = isDirty || hasCameraMoved;
     isDirty = false;
     const distance = camera.position.length();
+    // Zooming out past the Strait tier lets the followed ship go (a flight on its way down to it passes through).
+    if (followedMmsi !== null && !cameraMove && readDistanceTier(distance) !== "strait") followedMmsi = null;
     controls.rotateSpeed = Math.max(0.05, Math.min(1, (distance - 1) * ROTATE_SPEED_PER_UNIT));
     const pixelRatio = renderer.getPixelRatio();
     const pointPx = Math.max(SHIP_POINT_MIN_PX, Math.min(SHIP_POINT_MAX_PX, SHIP_POINT_PX * ((HOME_DISTANCE - 1) / Math.max(0.02, distance - 1)) ** 0.5));
@@ -877,10 +926,11 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
       labelRenderer.render(labelScene, camera);
       if (showsSeaLabels) hideOverlappingLabels(labelRenderer.domElement);
     }
-    if (hasCameraMoved || isFirstFrame) {
+    if (hasCameraMoved || isFirstFrame || followedMmsi !== reportedFollowedMmsi) {
       isFirstFrame = false;
+      reportedFollowedMmsi = followedMmsi;
       const centre = readLongitudeLatitude(camera.position.x, camera.position.y, camera.position.z);
-      onViewChange({ tier: readDistanceTier(distance), longitude: centre.longitude, latitude: centre.latitude });
+      onViewChange({ tier: readDistanceTier(distance), longitude: centre.longitude, latitude: centre.latitude, followedMmsi });
     }
   }
   renderer
@@ -919,6 +969,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
       },
       setSelectedShip(mmsi) {
         selectedMmsi = mmsi;
+        if (mmsi !== followedMmsi) followedMmsi = null;
         placeRing();
         markDirty();
       },
@@ -949,12 +1000,14 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         markDirty();
       },
       focusShip(mmsi, distance = FOCUS_DISTANCE) {
-        const shipIndex = findShipIndex(mmsi);
-        if (shipIndex === -1) return false;
-        const shipVector = new THREE.Vector3();
-        readShip(shipIndex, shipVector);
-        void startCameraMove(shipVector.normalize().multiplyScalar(Math.max(MIN_DISTANCE, distance)), FOCUS_MOVE_MS, easeOutCubic, isCalm);
-        return true;
+        const hasFlown = flyToShip(mmsi, distance);
+        if (hasFlown) followedMmsi = null;
+        return hasFlown;
+      },
+      followShip(mmsi, distance) {
+        const hasFlown = flyToShip(mmsi, distance);
+        if (hasFlown) followedMmsi = mmsi;
+        return hasFlown;
       },
       setRightInset(insetPx) {
         const nextInsetPx = Math.max(0, insetPx);
@@ -970,7 +1023,8 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         selectedIncident = slug;
         placeMarkers();
       },
-      flyTo({ longitude, latitude, distance = MIN_DISTANCE, durationMs = DIVE_MOVE_MS, isJump = false }) {
+      flyTo({ longitude, latitude, distance = DIVE_DISTANCE, durationMs = DIVE_MOVE_MS, isJump = false }) {
+        followedMmsi = null;
         // The dive flies on a software renderer too (it is one deliberate move, drawn as fast as the renderer can);
         // only reduced motion turns it into a jump.
         return startCameraMove(cameraPositionFor(longitude, latitude, Math.max(MIN_DISTANCE, distance)), durationMs, easeStandard, prefersReducedMotion || isJump);
@@ -1039,6 +1093,7 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
       },
       resetView() {
         stopCameraMove();
+        followedMmsi = null;
         camera.position.copy(cameraPositionFor(HOME_LONGITUDE, HOME_LATITUDE, HOME_DISTANCE));
         controls.target.set(0, 0, 0);
         controls.update();
@@ -1049,9 +1104,10 @@ export function createGlobeViewer(options: GlobeViewerOptions): Result<GlobeView
         cancelAnimationFrame(frameHandle);
         resizeObserver.disconnect();
         renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+        renderer.domElement.removeEventListener("pointermove", onPointerMove);
         renderer.domElement.removeEventListener("pointerup", onPointerUp);
         controls.removeEventListener("change", markDirty);
-        controls.removeEventListener("start", stopCameraMove);
+        controls.removeEventListener("start", stopCameraMoveByHand);
         controls.dispose();
         scene.traverse((child) => {
           if (!(child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.Line)) return;

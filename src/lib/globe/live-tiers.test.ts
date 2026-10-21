@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { COORDINATE_UNITS_PER_DEGREE } from "@/lib/live/snapshot-codec";
 import { findFaultRipples } from "./fault-ripples";
-import { readDistanceTier, readPlanetShare, TIER_CAMERA_DISTANCE } from "./globe-tier";
+import { describeShipTierRefusal, readDistanceTier, readPlanetShare, SHIP_TIER_DISTANCE, TIER_CAMERA_DISTANCE } from "./globe-tier";
 import { countShipsBySea, countShipsInBoxes, findSeaIndex, measureSeaShare, parseSeaAreas, rankSeasByShips } from "./sea-areas";
 import { binShipDensity, findDensityCell } from "./ship-density";
 import { readLongitudeLatitude } from "./sphere";
@@ -28,6 +28,35 @@ describe("globe tiers", () => {
     const middle = readPlanetShare(2.05);
     expect(middle).toBeGreaterThan(0);
     expect(middle).toBeLessThan(1);
+  });
+
+  test("the Ship tier sits well inside the Strait tier, so pressing it visibly closes in", () => {
+    expect(readDistanceTier(SHIP_TIER_DISTANCE)).toBe("strait");
+    // Altitude above the ground, in Earth radii: the Ship tier at most half the Strait tier's.
+    expect(SHIP_TIER_DISTANCE - 1).toBeLessThanOrEqual((TIER_CAMERA_DISTANCE.strait - 1) / 2);
+  });
+});
+
+describe("a press on Ship that could not fly", () => {
+  const ARKTIS_MMSI = 230359000;
+
+  test("asks for a ship until one is picked", () => {
+    const refusal = { kind: "no-ship" } as const;
+    expect(describeShipTierRefusal({ refusal, selectedMmsi: null, minuteLabel: "22:10", shipName: "" })).toContain("Pick a ship first");
+    expect(describeShipTierRefusal({ refusal, selectedMmsi: ARKTIS_MMSI, minuteLabel: "22:10", shipName: "ARKTIS" })).toBeNull();
+  });
+
+  test("names the ship and the minute while both stay as they were, then clears", () => {
+    const refusal = { kind: "not-in-frames", mmsi: ARKTIS_MMSI, minuteLabel: "04:10" } as const;
+    expect(describeShipTierRefusal({ refusal, selectedMmsi: ARKTIS_MMSI, minuteLabel: "04:10", shipName: "ARKTIS" })).toBe(
+      "ARKTIS is not in the frames at 04:10 UTC. Move the timeline to a moment a feed heard it.",
+    );
+    expect(describeShipTierRefusal({ refusal, selectedMmsi: ARKTIS_MMSI, minuteLabel: "04:20", shipName: "ARKTIS" })).toBeNull();
+    expect(describeShipTierRefusal({ refusal, selectedMmsi: 244000000, minuteLabel: "04:10", shipName: "OTHER" })).toBeNull();
+  });
+
+  test("says nothing when every press flew", () => {
+    expect(describeShipTierRefusal({ refusal: null, selectedMmsi: null, minuteLabel: "22:10", shipName: "" })).toBeNull();
   });
 });
 

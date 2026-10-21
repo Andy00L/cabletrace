@@ -14,9 +14,12 @@ const ROW_CLASS = "flex w-full items-center gap-3 rounded-field px-2 py-2.5 text
 // The busiest seas the Planet rail lists; the globe names more, where they fit.
 const BUSIEST_SEA_ROWS = 8;
 
-/** Planet, Sea, Strait, Ship: one press flies the camera to that tier. Ship needs a picked ship. */
-export function TierLadder({ tier, hasShip, onSelect }: { tier: GlobeTier; hasShip: boolean; onSelect: (tier: GlobeTier) => void }) {
-  const options = GLOBE_TIERS.map((value) => ({ value, label: TIER_LABELS[value], isDisabled: value === "ship" && !hasShip }));
+/**
+ * Planet, Sea, Strait, Ship: one press flies the camera to that tier. Ship always takes the press, so a reader with no
+ * ship picked hears why it did not fly (the stage's note) instead of finding a dead button.
+ */
+export function TierLadder({ tier, onSelect }: { tier: GlobeTier; onSelect: (tier: GlobeTier) => void }) {
+  const options = GLOBE_TIERS.map((value) => ({ value, label: TIER_LABELS[value] }));
   return <SegmentedControl label="Zoom to" options={options} value={tier} onChange={onSelect} testId="live-tier-ladder" />;
 }
 
