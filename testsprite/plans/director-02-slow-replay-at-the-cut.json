@@ -47,11 +47,15 @@
     },
     {
       "type": "action",
-      "description": "Wait up to 20 seconds until \"At the cut\" is pressed in the view switch (data-testid view-switch), then click \"Pause replay\" at once"
+      "description": "Click \"Pause replay\", then navigate to /cases/eagle-s-2024?t=2024-12-25T16:45Z and wait up to 60 seconds for the 3D view (data-testid seabed-view) to reach data-state \"ready\""
+    },
+    {
+      "type": "action",
+      "description": "Click the Director button (data-testid director-toggle) and wait 5 seconds; the replay stays paused at 16:45, one minute after the C-Lion1 cut"
     },
     {
       "type": "assertion",
-      "description": "Assert \"At the cut\" is pressed in the view switch and the replay clock reads a time from 16:44 to 16:49 UTC"
+      "description": "Assert the Director button has data-state \"on\", \"At the cut\" is pressed in the view switch (data-testid view-switch), and the replay clock still reads \"16:45 UTC\": during the two minutes after a cut the director holds the close-up"
     }
   ]
 }

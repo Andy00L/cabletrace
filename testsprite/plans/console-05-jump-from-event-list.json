@@ -35,7 +35,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the list item (the li element, not the button inside it) that holds the row \"Cinia detects a fault on C-Lion1\" has aria-current=\"step\", and it is the only li in the list with aria-current"
+      "description": "Assert the row \"Cinia detects a fault on C-Lion1\" is the list's current row: it is highlighted on the grey tone and its list item (li) has aria-current=\"step\", and no other row is highlighted"
     },
     {
       "type": "action",
@@ -47,7 +47,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the li holding \"Police and Border Guard board the tanker from helicopters\" now has aria-current=\"step\" and the li holding \"Cinia detects a fault on C-Lion1\" has no aria-current attribute"
+      "description": "Assert the row \"Police and Border Guard board the tanker from helicopters\" is now the current row (highlighted, its li with aria-current=\"step\") and the row \"Cinia detects a fault on C-Lion1\" is no longer highlighted"
     },
     {
       "type": "assertion",

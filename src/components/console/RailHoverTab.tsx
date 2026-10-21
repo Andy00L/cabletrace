@@ -16,6 +16,8 @@ type RailHoverTabProps = {
   widthPx: number;
   /** What the rail holds now, under "Show panel" (the vessel and the mode's main card). */
   summary: string;
+  /** Changes when the reader picks a mode (Ship details, the mode switch): the rail opens and stays open. */
+  openRequest: number;
   /** The rail, given the way to fold it back to the tab (its cards' Hide button). */
   renderRail: (foldRail: () => void) => ReactNode;
 };
@@ -25,8 +27,13 @@ type RailHoverTabProps = {
  * anchor cam grown). The rail opens over the stage's right column while the pointer rests on the tab, and stays open
  * after a press (touch, keyboard, a click) until Escape, a press outside it, or a second press on the tab.
  */
-export function RailHoverTab({ tabTopPx, widthPx, summary, renderRail }: RailHoverTabProps) {
-  const [tabState, setTabState] = useState<TabState>("closed");
+export function RailHoverTab({ tabTopPx, widthPx, summary, openRequest, renderRail }: RailHoverTabProps) {
+  const [hoverOrPressState, setHoverOrPressState] = useState<TabState>("closed");
+  // The last open request the reader closed: a newer one keeps the rail pinned until they close it. Derived, not
+  // stored as the tab's state, so a render the router's own update replaces cannot lose it (a pin set while rendering
+  // was dropped that way after "Ship details", 21 Oct 2026).
+  const [closedRequest, setClosedRequest] = useState(openRequest);
+  const tabState: TabState = openRequest !== closedRequest ? "pinned" : hoverOrPressState;
   const panelId = useId();
   const tabId = useId();
   const columnRef = useRef<HTMLDivElement>(null);
@@ -41,8 +48,12 @@ export function RailHoverTab({ tabTopPx, widthPx, summary, renderRail }: RailHov
     cancelClose();
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null;
-      setTabState((current) => (current === "peek" ? "closed" : current));
+      setHoverOrPressState((current) => (current === "peek" ? "closed" : current));
     }, PEEK_CLOSE_DELAY_MS);
+  };
+  const closeRail = () => {
+    setHoverOrPressState("closed");
+    setClosedRequest(openRequest);
   };
 
   // A pinned rail closes on a press anywhere outside it: listens to the document, which React does not own.
@@ -50,11 +61,12 @@ export function RailHoverTab({ tabTopPx, widthPx, summary, renderRail }: RailHov
     if (tabState !== "pinned") return;
     const handlePointerDown = (event: PointerEvent) => {
       if (event.target instanceof Node && columnRef.current?.contains(event.target)) return;
-      setTabState("closed");
+      setHoverOrPressState("closed");
+      setClosedRequest(openRequest);
     };
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [tabState]);
+  }, [tabState, openRequest]);
 
   // The close timer dies with the tab.
   useEffect(
@@ -65,7 +77,7 @@ export function RailHoverTab({ tabTopPx, widthPx, summary, renderRail }: RailHov
   );
   // Folded from inside (Escape, its Hide button, whose control then leaves the page), the focus goes back to the tab.
   const foldRail = () => {
-    setTabState("closed");
+    closeRail();
     document.getElementById(tabId)?.focus();
   };
 
@@ -77,7 +89,7 @@ export function RailHoverTab({ tabTopPx, widthPx, summary, renderRail }: RailHov
       onPointerEnter={(event) => {
         if (event.pointerType !== "mouse") return;
         cancelClose();
-        setTabState((current) => (current === "closed" ? "peek" : current));
+        setHoverOrPressState((current) => (current === "closed" ? "peek" : current));
       }}
       onPointerLeave={(event) => {
         if (event.pointerType === "mouse") scheduleClose();
@@ -93,7 +105,7 @@ export function RailHoverTab({ tabTopPx, widthPx, summary, renderRail }: RailHov
       <button
         id={tabId}
         type="button"
-        onClick={() => setTabState((current) => (current === "pinned" ? "closed" : "pinned"))}
+        onClick={() => (tabState === "pinned" ? closeRail() : setHoverOrPressState("pinned"))}
         aria-expanded={isOpen}
         aria-controls={panelId}
         className="pointer-events-auto absolute right-0 left-0 flex h-12 items-center gap-3 rounded-row bg-card px-4 text-left shadow-card transition-shadow duration-140 ease-standard hover:shadow-raised active:scale-[0.98]"

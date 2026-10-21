@@ -151,6 +151,8 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   const [stageElement, setStageElement] = useState<HTMLElement | null>(null);
   const [stageHeightPx, setStageHeightPx] = useState<number | null>(null);
   const [isAnchorCamExpanded, setAnchorCamExpanded] = useState(false);
+  // Counts the reader's mode picks: a rail folded to its tab opens on each one, so "Ship details" shows them.
+  const [modePickCount, setModePickCount] = useState(0);
   const [viewer, setViewer] = useState<SeabedViewer | null>(null);
   const [driver, setDriver] = useState<CameraDriver | null>(null);
   const [shipCamera, setShipCameraState] = useState<ShipCamera>("follow");
@@ -212,6 +214,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   const setMode = useCallback(
     (mode: ConsoleMode) => {
       setIsRailOpen(true);
+      setModePickCount((count) => count + 1);
       updateUi({ mode }, "replace");
     },
     [updateUi],
@@ -514,6 +517,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
                   tabTopPx={railTabTopPx - STAGE_INSET_PX}
                   widthPx={RAIL_WIDTH_PX}
                   summary={railSummary}
+                  openRequest={modePickCount}
                   renderRail={(foldRail) => <ConsoleRail onHide={foldRail} showsCharts={!isWide} />}
                 />
               )}
