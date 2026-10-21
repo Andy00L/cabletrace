@@ -5,7 +5,7 @@ import { closeWebGl, openWebGl, type OpenedWebGl } from "@/lib/render/webgl-canv
 import { requestWebGpuDevice, type WebGpuDevice } from "@/lib/diagnostics/webgpu-adapter";
 import { claimParkedRenderer, parkRenderer, type ParkedRenderer } from "@/lib/render/renderer-pool";
 import { yieldToPage } from "@/lib/render/yield-to-page";
-import type { RenderTierName, SceneRenderer } from "@/lib/render/scene-renderer";
+import type { RenderTierName, SceneRenderer, SecondPicture } from "@/lib/render/scene-renderer";
 import { createWebGlSceneRenderer, type DrawingBudget } from "@/lib/render/webgl-scene-renderer";
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { Result } from "@/lib/result";
@@ -59,14 +59,21 @@ const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
 const MIN_PROBED_WIDTH_DEVICE_PX = 2;
 // A close-up subject counts as hidden when the seabed is hit this much (units) before reaching it.
 const CLOSE_UP_HIDDEN_MARGIN = 0.3;
-// The anchor cam's picture is a second pass over the whole canvas, so it is drawn less often than the main view (ms of
-// wall time between its frames): at most 8 times a second on a GPU (measured on the hardware tier here, 1,440 x 900:
-// every frame took the replay from 23 to 15.5 frames a second), and as a still refreshed every 10 s on a CPU renderer,
-// where a frame already takes 0.3 to 0.5 s.
-const SECOND_VIEW_INTERVAL_MS: Record<"gpu" | "cpu", number> = { gpu: 125, cpu: 10_000 };
+// Wall time between two pictures of the anchor cam (ms). A GPU draws it at the window's size (openSecondPicture), so it
+// follows every frame the main view draws; a CPU renderer, whose frame already takes 0.3 to 0.5 s, refreshes it as a
+// still every 10 s.
+const SECOND_VIEW_INTERVAL_MS: Record<"gpu" | "cpu", number> = { gpu: 0, cpu: 10_000 };
+// On a GPU the window yields to the main view: after a frame longer than this (ms; a dropped frame at 60 Hz) it skips
+// one, unless its last picture is SECOND_VIEW_MAX_GAP_MS old (at least 20 a second). On Windows Chrome's integrated
+// GPU the Vessel view plays at 56 to 58 fps with it every frame (docs/PERFORMANCE.md, Smooth playback).
+const SECOND_VIEW_FRAME_BUDGET_MS = 20;
+const SECOND_VIEW_MAX_GAP_MS = 50;
 // The warm-up (warmUpBatch) runs on a replay without a new moment and without the reader's input for this long (ms),
 // two objects a frame on WebGPU: a frame that builds them takes longer than the display's.
 const WARM_UP_QUIET_MS = 1500;
+// The anchor cam's picture at rest in CSS px: ANCHOR_CAM_WIDTH_PX at 16:10 (src/components/console/AnchorCamWindow.tsx).
+// The WebGPU warm-up draws one second picture at this size, so the window's first one creates nothing.
+const SECOND_PICTURE_WARM_UP_SIZE_PX = { width: 360, height: 225 };
 // A camera that moved less than 1 m (scene km, squared) since the last frame is at rest.
 const CAMERA_REST_KM_SQUARED = 0.001 ** 2;
 const WARM_UP_BATCH_SIZE = 2;
@@ -187,6 +194,13 @@ type ViewerOptions = {
   input: ReplaySceneInput;
   /** Read once per frame: the replay moment to draw. */
   readTimeMs: () => number;
+  /**
+   * Called first in every animation frame with its timestamp, before the moment is read: the replay clock moves to it
+   * (ReplayClock.advanceTo), so the frame draws its own moment, not the one before.
+   */
+  advanceTimeTo: (frameMs: number) => void;
+  /** Whether the replay plays: the warm-up never runs then, not even on the clock's first frame, which moves nothing. */
+  readIsPlaying: () => boolean;
   prefersReducedMotion: boolean;
   /** Called when a click or tap lands on the vessel or a cut marker (or on its label) in the overview. */
   onTargetPick: (target: SceneTarget) => void;
@@ -297,7 +311,7 @@ function startTextureLoad(url: string, onSettled: () => void): THREE.Texture {
  * and appear (completeScene). Never throws.
  */
 export async function createSeabedViewer(options: ViewerOptions): Promise<Result<SeabedViewer>> {
-  const { container, scene: seabedScene, input, readTimeMs, prefersReducedMotion, onTargetPick } = options;
+  const { container, scene: seabedScene, input, readTimeMs, advanceTimeTo, readIsPlaying, prefersReducedMotion, onTargetPick } = options;
   // The previous replay's renderer when one is parked (renderer-pool.ts); else software or GPU is known from the WebGL
   // context at once, and WebGPU (a GPU tier too) after its adapter check.
   const parked = claimParkedRenderer();
@@ -742,11 +756,14 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     // The vessel moved with the replay, so the follow camera has a new target: one more frame after this one.
     isDirty = activeView === "vessel" && hasTimeChanged;
     lastDrawnAtMs = atMs;
-    // The anchor cam draws at its own, lower rate (SECOND_VIEW_INTERVAL_MS), and at once whenever it opens.
-    if (secondView && now - lastSecondViewAt >= SECOND_VIEW_INTERVAL_MS[isGpuTier ? "gpu" : "cpu"]) {
-      drawSecondView(secondView, atMs, now / 1000);
-      lastSecondViewAt = now;
-    }
+    // The anchor cam draws at its own rate (SECOND_VIEW_INTERVAL_MS), and at once whenever it opens: before the
+    // stage's frame or after it, as its renderer needs (SecondPicture.isDrawnAfterStage).
+    const sinceSecondViewMs = now - lastSecondViewAt;
+    const isSecondViewYielding = isGpuTier && elapsedSeconds * 1000 > SECOND_VIEW_FRAME_BUDGET_MS && sinceSecondViewMs < SECOND_VIEW_MAX_GAP_MS;
+    const dueSecondView = secondView && sinceSecondViewMs >= SECOND_VIEW_INTERVAL_MS[isGpuTier ? "gpu" : "cpu"] && !isSecondViewYielding ? secondView : null;
+    const duePicture = dueSecondView ? readSecondPicture(dueSecondView) : null;
+    if (dueSecondView && duePicture) lastSecondViewAt = now;
+    if (dueSecondView && duePicture && !duePicture.isDrawnAfterStage) drawSecondView(dueSecondView, duePicture);
     // Any camera motion (the intro, the director easing, a drag, the follow camera) keeps the warm-up waiting.
     if (overview.camera.position.distanceToSquared(lastCameraPosition) > CAMERA_REST_KM_SQUARED || overview.controls.target.distanceToSquared(lastCameraTarget) > CAMERA_REST_KM_SQUARED) {
       lastCameraChangeAt = now;
@@ -759,6 +776,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     renderer.draw(overview.scene, overview.camera);
     overviewLabels.render(overview.scene, overview.camera);
     hideOverlappingLabels(overviewLabels.domElement, readLabelRoom());
+    if (dueSecondView && duePicture?.isDrawnAfterStage) drawSecondView(dueSecondView, duePicture);
+    else if (isSecondPictureWarmUpDue && isQuietFrame && stepFrameStart === null) warmSecondPicture();
     recordDrawnFrame(atMs);
     if (canvas.dataset.lookdev === "on") recordColorProbes();
     if (canvas.dataset.lookdevTraces === "request") recordLineTraces();
@@ -869,50 +888,66 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     return { bounds, blockers };
   }
 
+  // The anchor cam's picture and the window canvas it was opened on (SceneRenderer.openSecondPicture).
+  let secondPicture: { canvas: HTMLCanvasElement; picture: SecondPicture } | null = null;
+  function closeSecondPicture() {
+    secondPicture?.picture.dispose();
+    secondPicture = null;
+  }
   /**
-   * Draws the anchor cam: the overview scene from the second view's pose, into the whole canvas, copied (centre crop at
-   * the window's aspect) into the window's own 2D canvas before the main frame overwrites it. One extra pass, only
-   * while the window is open; the overview camera is borrowed and put back, so no second renderer or target exists.
+   * The window's picture, opened the first time it draws into this canvas; null when the renderer cannot open one.
+   * The window's canvas is a page element; the port's type stays structural so the director's tests need no page.
    */
-  function drawSecondView(view: SecondView, atMs: number, nowSeconds: number) {
+  function readSecondPicture(view: SecondView): SecondPicture | null {
+    const windowCanvas = view.canvas;
+    if (!(windowCanvas instanceof HTMLCanvasElement)) return null;
+    if (secondPicture?.canvas === windowCanvas) return secondPicture.picture;
+    closeSecondPicture();
+    const opened = renderer.openSecondPicture(windowCanvas);
+    if (!opened.ok) {
+      console.error(`[readSecondPicture] ${opened.reason}`);
+      return null;
+    }
+    secondPicture = { canvas: windowCanvas, picture: opened.value };
+    return opened.value;
+  }
+
+  /**
+   * Draws the anchor cam: the overview scene from the second view's pose, at the window's size and aspect, into the
+   * window's canvas. One extra pass of the window's pixels, only while the window is open; the overview camera is
+   * borrowed and put back.
+   */
+  function drawSecondView(view: SecondView, picture: SecondPicture) {
     const pose = view.readPose();
-    const context = view.canvas.getContext("2d");
-    if (!pose || !context) return;
+    if (!pose) return;
     const camera = overview.camera;
-    const pixelRatio = renderer.readPixelRatio();
-    const targetWidth = Math.max(1, Math.round(view.widthPx * pixelRatio));
-    const targetHeight = Math.max(1, Math.round(view.heightPx * pixelRatio));
-    if (view.canvas.width !== targetWidth) view.canvas.width = targetWidth;
-    if (view.canvas.height !== targetHeight) view.canvas.height = targetHeight;
-    const viewAspect = view.widthPx / view.heightPx;
-    const cropWidth = Math.min(canvas.width, canvas.height * viewAspect);
-    const cropHeight = cropWidth / viewAspect;
-    // The crop keeps the pose's vertical field of view: a canvas taller than the window's aspect widens the full frame's.
-    const fullFovDegrees = (2 * Math.atan(Math.tan((pose.fovDegrees / 2) * RADIANS_PER_DEGREE) * (canvas.height / cropHeight))) / RADIANS_PER_DEGREE;
-    const saved = { position: camera.position.clone(), quaternion: camera.quaternion.clone(), fov: camera.fov, view: camera.view ? { ...camera.view } : null, target: overview.controls.target.clone() };
+    const saved = { position: camera.position.clone(), quaternion: camera.quaternion.clone(), fov: camera.fov, aspect: camera.aspect, view: camera.view ? { ...camera.view } : null, target: overview.controls.target.clone() };
     camera.position.copy(pose.position);
     camera.lookAt(pose.target);
-    camera.fov = fullFovDegrees;
+    camera.fov = pose.fovDegrees;
+    camera.aspect = view.widthPx / view.heightPx;
     camera.clearViewOffset();
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
-    // The scene reads the camera as it updates (under the surface or not, chain links or hairline, lines up close), so
-    // it is updated for this camera without moving on (no time step), and again for the main camera afterwards.
-    overview.update(atMs, 0, nowSeconds);
+    // Dressed for this camera at the frame's moment (under the surface, chain links, lines up close), then for the main
+    // camera again afterwards: the moment itself is not updated again.
+    overview.applyCamera();
     overview.followCamera(camera.position, camera.position.distanceTo(pose.target));
-    overview.fitScreenSizes(camera, container.clientHeight);
-    renderer.draw(overview.scene, camera);
-    context.clearRect(0, 0, targetWidth, targetHeight);
-    context.drawImage(canvas, (canvas.width - cropWidth) / 2, (canvas.height - cropHeight) / 2, cropWidth, cropHeight, 0, 0, targetWidth, targetHeight);
+    overview.fitScreenSizes(camera, view.heightPx);
+    picture.draw(overview.scene, camera, view.widthPx, view.heightPx);
     camera.position.copy(saved.position);
     camera.quaternion.copy(saved.quaternion);
     camera.fov = saved.fov;
+    camera.aspect = saved.aspect;
     if (saved.view?.enabled) camera.setViewOffset(saved.view.fullWidth, saved.view.fullHeight, saved.view.offsetX, saved.view.offsetY, saved.view.width, saved.view.height);
     else camera.clearViewOffset();
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     overview.controls.target.copy(saved.target);
-    overview.update(atMs, 0, nowSeconds);
+    // Back to the main camera in full (drawn after the stage, nothing else puts these back before a redraw).
+    overview.applyCamera();
+    overview.followCamera(camera.position, camera.position.distanceTo(overview.controls.target));
+    overview.fitScreenSizes(camera, container.clientHeight);
   }
 
   // The hover readout's data, built on the first hover: the cables in scene km and the ship's track a minute apart.
@@ -967,6 +1002,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       readAnchorFacts: (atMs) => overview.readAnchorFacts(atMs),
       setSecondView(view) {
         secondView = view;
+        if (!view) closeSecondPicture();
         // A window that opens or changes size draws at once, on every tier.
         lastSecondViewAt = Number.NEGATIVE_INFINITY;
         markDirty();
@@ -1005,8 +1041,17 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     };
   }
 
+  // Whether this frame is a quiet one (renderFrame), read by the warm-up steps that run inside the overview's frame.
+  let isQuietFrame = false;
   function renderFrame(now: number) {
     frameHandle = requestAnimationFrame(renderFrame);
+    advanceTimeTo(now);
+    // A replay that plays or has just moved is not quiet: read before the warm-up decides, not after this frame draws.
+    if (readIsPlaying() || readDrawTimeMs() !== lastDrawnAtMs) lastTimeChangeAt = now;
+    if (stepFrameStart) {
+      performance.measure(`${stepFrameStart.name}-frame`, { start: stepFrameStart.startedAt, detail: stepFrameStart.detail });
+      stepFrameStart = null;
+    }
     const elapsedSeconds = lastFrameAt === null ? 0 : (now - lastFrameAt) / 1000;
     lastFrameAt = now;
     if (!isOnScreen) return;
@@ -1014,6 +1059,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     const deltaSeconds = Math.min(0.1, elapsedSeconds);
     // Only on a quiet replay: never during the intro, a camera move, playback or the reader's input.
     const isQuiet = now - Math.max(lastTimeChangeAt, lastInputAt, lastCameraChangeAt) >= WARM_UP_QUIET_MS;
+    isQuietFrame = isQuiet;
     if (isQuiet) quietFrameWaiters.splice(0).forEach((resolve) => resolve());
     const warmUp = isQuiet && activeView !== "closeup" ? warmUpQueue.shift() : undefined;
     if (warmUp) {
@@ -1089,11 +1135,13 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     const environmentStartedAt = performance.now();
     ensureEnvironment();
     performance.measure("seabed:environment", { start: environmentStartedAt });
+    measureStepFrame("seabed:environment", environmentStartedAt, "");
     await waitForQuietFrame();
     if (isDisposed || closeUp) return;
     const closeUpStartedAt = performance.now();
     const closeUpScene = ensureCloseUp();
     performance.measure("seabed:close-up-build", { start: closeUpStartedAt });
+    measureStepFrame("seabed:close-up-build", closeUpStartedAt, "");
     await yieldToPage();
     if (isDisposed) return;
     // WebGPU builds its pipelines inside each render pass, which compileAsync does not reach: the warm-up draws them.
@@ -1166,10 +1214,32 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     for (let start = 0; start < objects.length; start += size) batches.push({ scene, camera, objects: objects.slice(start, start + size), isIsolated });
     return batches;
   }
-  /** Queues the overview's objects not drawn yet (WebGPU only) and the close-up, all of whose objects are new. */
+  /**
+   * Queues the overview's objects not drawn yet (WebGPU only) and the close-up, all of whose objects are new. On WebGPU
+   * one second picture is also drawn where nobody sees it (warmSecondPicture): the anchor cam's first one compiled its
+   * pass's output and created its targets, a 0.4 s frame when the anchor went down mid-replay (21 Oct 2026).
+   */
   function queueWarmUp(closeUpScene: CloseUpScene) {
-    if (renderer.tier === "webgpu") warmUpQueue.push(...splitIntoBatches(listRenderables(overview.scene, (object) => !isDrawn(object) && hasGeometryToDraw(object)), overview.scene, overview.camera, false));
+    if (renderer.tier === "webgpu") {
+      warmUpQueue.push(...splitIntoBatches(listRenderables(overview.scene, (object) => !isDrawn(object) && hasGeometryToDraw(object)), overview.scene, overview.camera, false));
+      isSecondPictureWarmUpDue = true;
+    }
     warmUpQueue.push(...splitIntoBatches(listRenderables(closeUpScene.scene, hasGeometryToDraw), closeUpScene.scene, closeUpScene.camera, true));
+  }
+  let isSecondPictureWarmUpDue = false;
+  /** Draws one second picture into a canvas outside the page, right after a stage frame (it reads that frame's AO). */
+  function warmSecondPicture() {
+    isSecondPictureWarmUpDue = false;
+    const startedAt = performance.now();
+    const opened = renderer.openSecondPicture(document.createElement("canvas"));
+    if (!opened.ok) {
+      console.error(`[warmSecondPicture] ${opened.reason}`);
+      return;
+    }
+    opened.value.draw(overview.scene, overview.camera, SECOND_PICTURE_WARM_UP_SIZE_PX.width, SECOND_PICTURE_WARM_UP_SIZE_PX.height);
+    opened.value.dispose();
+    performance.measure("seabed:warm-up", { start: startedAt, detail: "second picture" });
+    measureStepFrame("seabed:warm-up", startedAt, "second picture");
   }
   /**
    * Draws one batch where nobody sees it: its objects (and their hidden parents) shown, and in an isolated batch every
@@ -1194,7 +1264,15 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       object.visible = wasVisible;
     });
     // On the page's timeline (scripts/perf/windows-frame-pacing.ts lists the slow ones), with what the batch drew.
-    performance.measure("seabed:warm-up", { start: startedAt, detail: batch.objects.map((object) => `${object.type} ${object.name}`.trim()).join(", ") });
+    const detail = batch.objects.map((object) => `${object.type} ${object.name}`.trim()).join(", ");
+    performance.measure("seabed:warm-up", { start: startedAt, detail });
+    measureStepFrame("seabed:warm-up", startedAt, detail);
+  }
+  // A one-off step's whole frame, closed by the next frame as "<name>-frame": it also counts the GPU work the step
+  // queued, which holds the next frame (a pipeline compile) and which the step's own measure cannot see.
+  let stepFrameStart: { name: string; startedAt: number; detail: string } | null = null;
+  function measureStepFrame(name: string, startedAt: number, detail: string) {
+    stepFrameStart = { name, startedAt, detail };
   }
   // When the replay moment, the reader's input and the overview's camera last changed (performance.now ms), for the
   // warm-up, and where the camera last stood.
@@ -1257,6 +1335,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         isDisposed = true;
         frameListeners.clear();
         secondView = null;
+        closeSecondPicture();
         cancelAnimationFrame(frameHandle);
         cancelAnimationFrame(completionHandle);
         if (switchTimer !== null) clearTimeout(switchTimer);

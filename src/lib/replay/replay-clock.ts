@@ -1,5 +1,7 @@
 // The replay's single source of time. The timeline reads it through useSyncExternalStore; the 3D view reads
-// getSnapshot() inside its own render loop, so neither drives the other and React never re-renders the scene.
+// getSnapshot() inside its own render loop, so React never re-renders the scene. The view's loop runs before the
+// clock's own frame callback, so it moves the clock to its frame's time first (advanceTo): read a frame late, a long
+// frame drew one step and the next frame two, and the ship jerked against the follow camera.
 
 export type ReplaySnapshot = { progress: number; isPlaying: boolean };
 
@@ -15,6 +17,11 @@ export type ReplayClock = {
   pause: () => void;
   toggle: () => void;
   seek: (progress: number) => void;
+  /**
+   * Moves a playing clock up to `frameMs`, an animation frame's timestamp, so a reader drawing in that frame draws its
+   * moment whichever frame callback runs first. The clock's own callback for the same frame then adds nothing.
+   */
+  advanceTo: (frameMs: number) => void;
   dispose: () => void;
 };
 
@@ -53,10 +60,10 @@ export function createReplayClock({ durationSeconds, scheduler, readPace = runAt
     lastFrameMs = null;
   }
 
-  function advance(timeMs: number) {
-    frameHandle = null;
-    const stepSeconds = lastFrameMs === null ? 0 : Math.min(MAX_FRAME_STEP_SECONDS, (timeMs - lastFrameMs) / 1000);
-    lastFrameMs = timeMs;
+  /** Steps the replay to `timeMs`; false once it reached the end (and stopped). */
+  function stepTo(timeMs: number): boolean {
+    const stepSeconds = lastFrameMs === null ? 0 : Math.min(MAX_FRAME_STEP_SECONDS, Math.max(0, timeMs - lastFrameMs) / 1000);
+    lastFrameMs = Math.max(lastFrameMs ?? timeMs, timeMs);
     const pace = readPace(snapshot.progress);
     // A pace that is not a positive number would stall the clock or run it backward: such a stretch plays at normal speed.
     const safePace = Number.isFinite(pace) && pace > 0 ? Math.min(1, pace) : 1;
@@ -64,10 +71,15 @@ export function createReplayClock({ durationSeconds, scheduler, readPace = runAt
     if (progress >= 1) {
       stopFrames();
       publish({ progress: 1, isPlaying: false });
-      return;
+      return false;
     }
     publish({ progress, isPlaying: true });
-    frameHandle = scheduler.request(advance);
+    return true;
+  }
+
+  function advance(timeMs: number) {
+    frameHandle = null;
+    if (stepTo(timeMs)) frameHandle = scheduler.request(advance);
   }
 
   function play() {
@@ -93,6 +105,10 @@ export function createReplayClock({ durationSeconds, scheduler, readPace = runAt
     toggle: () => (snapshot.isPlaying ? pause() : play()),
     seek(progress) {
       publish({ progress: clampProgress(progress), isPlaying: snapshot.isPlaying });
+    },
+    advanceTo(frameMs) {
+      // Before the clock's first frame after play() there is no start time to step from: that frame starts it.
+      if (snapshot.isPlaying && lastFrameMs !== null && frameMs > lastFrameMs) stepTo(frameMs);
     },
     dispose() {
       stopFrames();

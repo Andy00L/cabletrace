@@ -4,23 +4,31 @@ import { SKETCH_HEIGHT, SKETCH_WIDTH, type CaseSketch } from "@/lib/cases/case-s
 import { describeTrackEvidenceBriefly } from "@/lib/cases/case-view";
 import type { SeabedLineKind } from "@/lib/seabed/seabed-data";
 
-// Line widths in sketch units (the sketch is 640 wide, drawn about 540 px on a desktop card).
+// Line widths in screen px, whatever size the sketch is drawn at (non-scaling strokes): it shows 112 px wide on a case
+// row, smaller in the case switcher and across the stage when the 3D view fails. In sketch units (640 wide) the lines
+// came out under half a pixel on a row.
 const LINE_STYLES: Record<SeabedLineKind, { className: string; width: number }> = {
-  power: { className: "stroke-cable", width: 1.6 },
-  telecom: { className: "stroke-cable", width: 1.2 },
-  pipeline: { className: "stroke-pipeline", width: 1.8 },
+  power: { className: "stroke-cable", width: 1.4 },
+  telecom: { className: "stroke-cable", width: 1 },
+  pipeline: { className: "stroke-pipeline", width: 1.6 },
 };
-const TRACK_WIDTH = 2;
-const DRAG_WIDTH = 3;
+const TRACK_WIDTH = 1.6;
+const DRAG_WIDTH = 2.4;
 // Every data line sits on a white casing this much wider (docs/UI_DESIGN_SYSTEM.md, Data).
-const CASING_EXTRA_WIDTH = 2.5;
+const CASING_EXTRA_WIDTH = 1.5;
+// The cut marker in screen px: an alarm ring, a white disc and an alarm centre, drawn as round dots of these widths.
+const CUT_MARKER_DOTS = [
+  { className: "stroke-alarm", width: 9 },
+  { className: "stroke-card", width: 5.4 },
+  { className: "stroke-alarm", width: 2.6 },
+];
 
 /** Draws a path twice: a white casing under the data-colored line. */
 function CasedPath({ path, className, width }: { path: string; className: string; width: number }) {
   return (
     <>
-      <path d={path} fill="none" className="stroke-card" strokeOpacity={0.9} strokeWidth={width + CASING_EXTRA_WIDTH} strokeLinecap="round" strokeLinejoin="round" />
-      <path d={path} fill="none" className={className} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" />
+      <path d={path} fill="none" className="stroke-card" strokeOpacity={0.9} strokeWidth={width + CASING_EXTRA_WIDTH} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <path d={path} fill="none" className={className} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
     </>
   );
 }
@@ -34,11 +42,13 @@ export function CaseSketchMap({ sketch, vesselName }: { sketch: CaseSketch; vess
         <CasedPath key={index} path={line.path} className={LINE_STYLES[line.kind].className} width={LINE_STYLES[line.kind].width} />
       ))}
       <CasedPath path={sketch.trackPath} className="stroke-ink" width={TRACK_WIDTH} />
-      {sketch.dragPath && <path d={sketch.dragPath} fill="none" className="stroke-alarm" strokeWidth={DRAG_WIDTH} strokeLinecap="round" strokeLinejoin="round" />}
+      {sketch.dragPath && <path d={sketch.dragPath} fill="none" className="stroke-alarm" strokeWidth={DRAG_WIDTH} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+      {/* A zero-length stroke with round caps is a dot of its width in screen px, at any size of the sketch. */}
       {sketch.cuts.map((cut) => (
         <g key={cut.label}>
-          <circle cx={cut.x} cy={cut.y} r={6} className="fill-card stroke-alarm" strokeWidth={2.2} />
-          <circle cx={cut.x} cy={cut.y} r={2.2} className="fill-alarm" />
+          {CUT_MARKER_DOTS.map((dot) => (
+            <path key={dot.width} d={`M${cut.x} ${cut.y}h0`} className={dot.className} strokeWidth={dot.width} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          ))}
         </g>
       ))}
     </svg>

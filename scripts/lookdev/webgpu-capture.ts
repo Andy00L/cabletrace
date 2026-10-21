@@ -71,6 +71,13 @@ export type AgentConfig = {
  */
 export type FrameScene = { name: string; startedAtMs: number; fps: number; drawnFps: number; p50Ms: number; p95Ms: number; p99Ms: number; maxMs: number; over25: number; over50: number; topScripts: string[]; topSelf: string[]; topTotal: string[] };
 
+/**
+ * One frame the 3D view drew, as the `frame-pacing` agent read it after the draw: the animation frame's time (ms), the
+ * replay moment drawn (ms), the camera's position (scene km), and where the vessel and the anchor land on the canvas
+ * (CSS px, null when off screen or not in the scene).
+ */
+export type MotionSample = { frameMs: number; atMs: number; camera: [number, number, number] | null; vessel: [number, number] | null; anchor: [number, number] | null };
+
 /** One timed click in the `case-click` mode, in ms from the click. */
 export type CaseClickTiming = { slug: string; readyMs: number; firstFrameMs: number | null; renderer: string; steps: string };
 
@@ -94,6 +101,10 @@ export type AgentReport = {
   frameScenes: FrameScene[];
   /** The `frame-pacing` mode's scene start times and the viewer's slow one-off steps, as lines to print. */
   slowSteps: string[];
+  /** The `frame-pacing` mode's motion summary (recordMotion), as lines to print; empty unless it played in the Vessel view. */
+  motionLines: string[];
+  /** One row per frame the 3D view drew while it played in the Vessel view (MotionSample); empty otherwise. */
+  motionSeries: MotionSample[];
   /** The viewport when the agent reported: the screenshot's, or the report does not describe the screenshot. */
   viewportWidth: number;
   viewportHeight: number;
@@ -143,14 +154,28 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
   // in three (the resize waits behind the scene's staged shader compile, most likely).
   const releaseThenReport = async (buildReport: () => Record<string, unknown>, needsNewFrame: boolean) => {
     const isAtScreenshotSize = () => innerWidth === config.viewportWidth && innerHeight === config.viewportHeight;
-    const wasAtScreenshotSize = isAtScreenshotSize();
-    const countAtRelease = readCanvas()?.dataset.frameCount;
+    // The viewer sizes its canvas to its container in a ResizeObserver callback, which runs after the animation frames
+    // of the frame the window grew in: a frame drawn in that one is drawn, and its probes placed, at the old size
+    // (every WebGPU colour probe missed its line on 21 Oct 2026). So the new frame must come after the canvas fitted.
+    const isCanvasFitted = () => {
+      const canvas = readCanvas();
+      const container = canvas?.parentElement;
+      return !canvas || !container || (canvas.clientWidth === container.clientWidth && canvas.clientHeight === container.clientHeight);
+    };
+    const wasAtScreenshotSize = isAtScreenshotSize() && isCanvasFitted();
+    let countBeforeFit = readCanvas()?.dataset.frameCount;
     release();
     const deadline = performance.now() + 20000;
     while (performance.now() < deadline) {
       await nextFrame();
-      const hasNewFrame = wasAtScreenshotSize || !needsNewFrame || readCanvas()?.dataset.frameCount !== countAtRelease;
-      if (isAtScreenshotSize() && hasNewFrame) break;
+      const count = readCanvas()?.dataset.frameCount;
+      // A report that needs no new frame (the turntable, frame pacing) only waits for the window: Chrome may shoot and
+      // quit soon after the load, before a canvas that never fills its parent would fit.
+      if (!isAtScreenshotSize() || (needsNewFrame && !isCanvasFitted())) {
+        countBeforeFit = count;
+        continue;
+      }
+      if (wasAtScreenshotSize || !needsNewFrame || count !== countBeforeFit) break;
     }
     log(buildReport());
   };
@@ -328,6 +353,91 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
       topTotal: topOf(inclusiveTotals, 30),
     };
   };
+  /**
+   * Records the replay's motion while `act` runs: after each frame the 3D view drew, the moment it drew, its camera and
+   * where the vessel and the anchor landed (the lookdev hooks, turned on for this recording only), then summarises how
+   * even the steps were. Judder shows as frames with no new moment, uneven replay steps, or the ship jumping on screen
+   * while the camera follows it.
+   */
+  const recordMotion = async (act: () => Promise<void>) => {
+    const canvas = readCanvas();
+    const series: { frameMs: number; atMs: number; camera: [number, number, number] | null; vessel: [number, number] | null; anchor: [number, number] | null }[] = [];
+    if (!canvas) return { lines: ["no canvas"], series };
+    canvas.dataset.lookdev = "on";
+    let lastFrameCount = canvas.dataset.frameCount ?? "";
+    let isRecording = true;
+    const readJson = (text: string | undefined): unknown => {
+      try {
+        return text ? JSON.parse(text) : null;
+      } catch {
+        return null;
+      }
+    };
+    const readPoint = (subjects: unknown, name: string): [number, number] | null => {
+      if (!Array.isArray(subjects)) return null;
+      const subject: unknown = subjects.find((candidate: unknown) => typeof candidate === "object" && candidate !== null && Reflect.get(candidate, "name") === name);
+      if (typeof subject !== "object" || subject === null) return null;
+      const x: unknown = Reflect.get(subject, "x");
+      const y: unknown = Reflect.get(subject, "y");
+      return typeof x === "number" && typeof y === "number" ? [x, y] : null;
+    };
+    const onFrame = (frameMs: number) => {
+      if (!isRecording) return;
+      const data = canvas.dataset;
+      if (data.frameCount !== lastFrameCount) {
+        lastFrameCount = data.frameCount ?? "";
+        const pose = readJson(data.cameraPose);
+        const position: unknown = typeof pose === "object" && pose !== null ? Reflect.get(pose, "position") : null;
+        const camera: [number, number, number] | null = Array.isArray(position) && position.length === 3 ? [Number(position[0]), Number(position[1]), Number(position[2])] : null;
+        const subjects = readJson(data.subjects);
+        series.push({ frameMs, atMs: Number(data.drawnAtMs ?? 0), camera, vessel: readPoint(subjects, "vessel"), anchor: readPoint(subjects, "anchor") });
+      }
+      requestAnimationFrame(onFrame);
+    };
+    requestAnimationFrame(onFrame);
+    await act();
+    isRecording = false;
+    delete canvas.dataset.lookdev;
+    const percentile = (values: number[], share: number) => {
+      const sorted = [...values].sort((first, second) => first - second);
+      return Math.round((sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))] ?? 0) * 100) / 100;
+    };
+    const describe = (values: number[]) => `median ${percentile(values, 0.5)}, p95 ${percentile(values, 0.95)}, max ${percentile(values, 1)}`;
+    // Replay ms drawn per ms of frame time, frame to frame; and the change between neighbours as a share of them.
+    const rates = series.slice(1).map((sample, index) => (sample.atMs - (series[index]?.atMs ?? sample.atMs)) / Math.max(1, sample.frameMs - (series[index]?.frameMs ?? sample.frameMs)));
+    const rateChanges = rates.slice(1).map((rate, index) => {
+      const previous = rates[index] ?? rate;
+      const mean = (rate + previous) / 2;
+      return mean > 0 ? Math.abs(rate - previous) / mean : 0;
+    });
+    const stalls = rates.filter((rate) => rate === 0).length;
+    // On screen: the step between frames, and how much each step differs from the one before (px).
+    const describeTrack = (pick: (sample: (typeof series)[number]) => [number, number] | null) => {
+      const points = series.map(pick);
+      const steps: number[] = [];
+      const jerks: number[] = [];
+      points.forEach((point, index) => {
+        const previous = points[index - 1];
+        const beforePrevious = points[index - 2];
+        if (point && previous) steps.push(Math.hypot(point[0] - previous[0], point[1] - previous[1]));
+        if (point && previous && beforePrevious) jerks.push(Math.hypot(point[0] - 2 * previous[0] + beforePrevious[0], point[1] - 2 * previous[1] + beforePrevious[1]));
+      });
+      return steps.length > 0 ? `step px ${describe(steps)}; step change px ${describe(jerks)}` : "not on screen";
+    };
+    const cameraSteps = series.slice(1).flatMap((sample, index) => {
+      const previous = series[index]?.camera;
+      return sample.camera && previous ? [Math.hypot(sample.camera[0] - previous[0], sample.camera[1] - previous[1], sample.camera[2] - previous[2]) * 1000] : [];
+    });
+    return {
+      lines: [
+        `${series.length} drawn frames; replay ms per ms ${describe(rates)}; frames with no new moment ${stalls}; rate change between frames ${describe(rateChanges.map((change) => change * 100))} %`,
+        `vessel: ${describeTrack((sample) => sample.vessel)}`,
+        `anchor: ${describeTrack((sample) => sample.anchor)}`,
+        `camera step m: ${describe(cameraSteps)}`,
+      ],
+      series,
+    };
+  };
   // On a case page, once the 3D view is ready and its refinement shown: the replay idling, playing, moving between
   // views, and scrubbed, as a reader does; each scene's frame pacing goes into the report.
   const runFramePacing = async () => {
@@ -344,11 +454,18 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
     };
     const scenes: Awaited<ReturnType<typeof recordScene>>[] = [];
     scenes.push(await recordScene("idle 3 s", () => pause(3000)));
+    // A page opened in the Vessel view (a link naming view=vessel) also records the motion while it plays.
+    const isMotionRecorded = readCanvas()?.dataset.drawnView === "vessel";
+    let motion: Awaited<ReturnType<typeof recordMotion>> = { lines: [], series: [] };
+    const playEightSeconds = async () => {
+      clickButton('[data-testid="replay-play"]');
+      await pause(8000);
+      clickButton('[data-testid="replay-play"]');
+    };
     scenes.push(
-      await recordScene("playing 8 s", async () => {
-        clickButton('[data-testid="replay-play"]');
-        await pause(8000);
-        clickButton('[data-testid="replay-play"]');
+      await recordScene(isMotionRecorded ? "playing 8 s (Vessel view, lookdev hooks on)" : "playing 8 s", async () => {
+        if (isMotionRecorded) motion = await recordMotion(playEightSeconds);
+        else await playEightSeconds();
       }),
     );
     await pause(500);
@@ -381,7 +498,7 @@ function runLookdevAgent(config: AgentConfig, resultPrefix: string, releaseUrl: 
       .map((entry) => `${entry.name} at ${Math.round(entry.startTime)} ms: ${Math.round(entry.duration)} ms${entry instanceof PerformanceMeasure && entry.detail ? ` (${String(entry.detail)})` : ""}`);
     const sceneTimes = scenes.map((scene) => `${scene.name} from ${Math.round(scene.startedAtMs)} ms`);
     const canvas = readCanvas();
-    await releaseThenReport(() => ({ error: null, renderer: canvas?.dataset.renderer ?? "unknown", adapterName: "", devicePixelRatio: window.devicePixelRatio, readyMs: 0, viewRect: null, canvasRect: null, colorProbes: [], seabedProbes: [], scrubFrameMs: null, frameScenes: scenes, slowSteps: [...sceneTimes, ...slowSteps] }), false);
+    await releaseThenReport(() => ({ error: null, renderer: canvas?.dataset.renderer ?? "unknown", adapterName: "", devicePixelRatio: window.devicePixelRatio, readyMs: 0, viewRect: null, canvasRect: null, colorProbes: [], seabedProbes: [], scrubFrameMs: null, frameScenes: scenes, slowSteps: [...sceneTimes, ...slowSteps], motionLines: motion.lines, motionSeries: motion.series }), false);
   };
   const run = async () => {
     if (config.mode === "turntable") return runTurntable();
@@ -479,7 +596,7 @@ export function startLookdevProxy(
         const filePath = path.join(turntableDirectory, fileName);
         if (!existsSync(filePath)) return new Response("not found", { status: 404 });
         if (!fileName.endsWith(".html") || agentConfig === null) return new Response(Bun.file(filePath));
-        return new Response(injectAgent(await Bun.file(filePath).text()), { headers: { "content-type": "text/html; charset=utf-8" } });
+        return new Response(injectAgent(await Bun.file(filePath).text()), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
       }
       if (url.pathname === RELEASE_PATH) {
         const token = url.searchParams.get("token") ?? "";
@@ -504,6 +621,10 @@ export function startLookdevProxy(
       const headers = new Headers(upstreamResponse.headers);
       headers.delete("content-length");
       headers.delete("content-encoding");
+      // Each run's page carries its own agent (mode, CSS, hold token): a case page the app lets browsers keep came back
+      // from Chrome's cache in the next run of the same shot, so the bare-canvas run ran the look run's agent and its
+      // labels stayed over the probes (21 Oct 2026).
+      headers.set("cache-control", "no-store");
       // The frame-pacing agent samples the page's JavaScript; Chrome offers the profiler only to a document that asks.
       if (agentConfig.mode === "frame-pacing") headers.set("Document-Policy", "js-profiling");
       return new Response(html, { status: upstreamResponse.status, headers });
@@ -595,6 +716,30 @@ function readFrameScenes(value: unknown): FrameScene[] {
   });
 }
 
+/** The `frame-pacing` motion rows in a parsed report, keeping only well-formed entries. */
+function readMotionSeries(value: unknown): MotionSample[] {
+  if (!Array.isArray(value)) return [];
+  const readTuple = (field: unknown, length: number): number[] | null => (Array.isArray(field) && field.length === length && field.every((entry: unknown) => typeof entry === "number") ? field.map(Number) : null);
+  return value.flatMap((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const frameMs: unknown = Reflect.get(entry, "frameMs");
+    const atMs: unknown = Reflect.get(entry, "atMs");
+    if (typeof frameMs !== "number" || typeof atMs !== "number") return [];
+    const camera = readTuple(Reflect.get(entry, "camera"), 3);
+    const vessel = readTuple(Reflect.get(entry, "vessel"), 2);
+    const anchor = readTuple(Reflect.get(entry, "anchor"), 2);
+    return [
+      {
+        frameMs,
+        atMs,
+        camera: camera ? [camera[0] ?? 0, camera[1] ?? 0, camera[2] ?? 0] : null,
+        vessel: vessel ? [vessel[0] ?? 0, vessel[1] ?? 0] : null,
+        anchor: anchor ? [anchor[0] ?? 0, anchor[1] ?? 0] : null,
+      },
+    ];
+  });
+}
+
 /** The `case-click` timings in a parsed report, keeping only well-formed entries. */
 function readClickTimings(value: unknown): CaseClickTiming[] {
   if (!Array.isArray(value)) return [];
@@ -650,6 +795,8 @@ export function parseAgentReport(stderr: string): Result<AgentReport> {
       clickTimings: readClickTimings(Reflect.get(parsed, "clickTimings")),
       frameScenes: readFrameScenes(Reflect.get(parsed, "frameScenes")),
       slowSteps: readStrings(Reflect.get(parsed, "slowSteps")),
+      motionLines: readStrings(Reflect.get(parsed, "motionLines")),
+      motionSeries: readMotionSeries(Reflect.get(parsed, "motionSeries")),
       viewportWidth: readNumber("viewportWidth") ?? 0,
       viewportHeight: readNumber("viewportHeight") ?? 0,
     },

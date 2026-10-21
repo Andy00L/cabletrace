@@ -3,6 +3,7 @@ import type { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import type { RendererKind } from "@/lib/diagnostics/webgl-renderer";
 import type { TerrainLighting } from "@/lib/seabed/scene/terrain-material";
 import type { WaterSurfaceOptions } from "@/lib/seabed/scene/water-surface";
+import type { Result } from "@/lib/result";
 import type { KelvinWakeShape } from "@/lib/ships/kelvin-wake";
 
 // The seam between the 3D replay's scene code and the renderer that draws it. The scene (overview.ts, close-up.ts, the
@@ -82,6 +83,18 @@ export type SceneMaterialKit = {
 };
 
 /** The drawing backend of the 3D replay: one canvas, one renderer, the kit that matches it. */
+/** A second picture of the scene in a canvas of its own (SceneRenderer.openSecondPicture). */
+export type SecondPicture = {
+  /**
+   * Where it goes in a frame: WebGPU draws it after the stage (it reuses the stage's passes of that frame), WebGL
+   * before (it borrows a corner of the stage's canvas, which the stage's frame then clears).
+   */
+  isDrawnAfterStage: boolean;
+  /** Draws `scene` from `camera` (whose aspect the caller sets to the window's) at the window's size in CSS px. */
+  draw: (scene: THREE.Scene, camera: THREE.PerspectiveCamera, widthPx: number, heightPx: number) => void;
+  dispose: () => void;
+};
+
 export type SceneRenderer = {
   tier: RenderTierName;
   canvas: HTMLCanvasElement;
@@ -93,6 +106,13 @@ export type SceneRenderer = {
   /** Sizes the canvas in CSS px. */
   setSize: (widthPx: number, heightPx: number) => void;
   draw: (scene: THREE.Scene, camera: THREE.PerspectiveCamera) => void;
+  /**
+   * Opens a second picture of the scene in `canvas`, the anchor cam's window. WebGPU draws into that canvas directly
+   * (three's CanvasTarget), through a scene pass sized to it that shares the stage pass's materials; WebGL draws into
+   * a corner of its own canvas at the window's size and copies it out before the main frame. Either way the pass
+   * costs the window's pixels, not the stage's, so the window can follow every frame.
+   */
+  openSecondPicture: (canvas: HTMLCanvasElement) => Result<SecondPicture>;
   /**
    * Compiles the materials under `objects` with `scene`'s lights and settings (hidden objects included when the caller
    * shows them while it is called: the walk happens at once). Resolves when every program can draw, the page free

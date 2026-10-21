@@ -91,6 +91,26 @@ describe("createReplayClock", () => {
     expect(clock.getSnapshot().progress).toBeCloseTo(0.62, 6);
   });
 
+  test("advanceTo moves a playing clock to a frame's time once, whichever frame callback runs first", () => {
+    const frames = createManualScheduler();
+    const clock = createReplayClock({ durationSeconds: 1, scheduler: frames.scheduler });
+    clock.advanceTo(500);
+    expect(clock.getSnapshot().progress).toBe(0);
+    clock.play();
+    frames.runFrameAt(1000);
+    // A reader drawing at 1,050 ms gets that moment before the clock's own callback for the frame runs.
+    clock.advanceTo(1050);
+    expect(clock.getSnapshot().progress).toBeCloseTo(0.05, 5);
+    frames.runFrameAt(1050);
+    expect(clock.getSnapshot().progress).toBeCloseTo(0.05, 5);
+    // An older time never moves it back.
+    clock.advanceTo(1020);
+    expect(clock.getSnapshot().progress).toBeCloseTo(0.05, 5);
+    clock.pause();
+    clock.advanceTo(2000);
+    expect(clock.getSnapshot().progress).toBeCloseTo(0.05, 5);
+  });
+
   test("pause and dispose cancel the pending frame", () => {
     const frames = createManualScheduler();
     const clock = createReplayClock({ durationSeconds: 10, scheduler: frames.scheduler });

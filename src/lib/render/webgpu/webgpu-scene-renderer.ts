@@ -3,8 +3,8 @@ import type * as THREE from "three";
 import { ao } from "three/addons/tsl/display/GTAONode.js";
 import { SimplexNoise } from "three/addons/math/SimplexNoise.js";
 import { denoise } from "three/addons/tsl/display/DenoiseNode.js";
-import { context, convertToTexture, mrt, normalView, pass, screenUV, texture, toneMapping, vec4 } from "three/tsl";
-import { Color, DataTexture, NeutralToneMapping, RepeatWrapping, NoToneMapping, PCFShadowMap, RenderPipeline, WebGPUBackend, WebGPURenderer, type Material, type Node, type NodeBuilder } from "three/webgpu";
+import { context, convertToTexture, float, mix, mrt, normalView, pass, renderGroup, screenUV, texture, toneMapping, uniform, vec4 } from "three/tsl";
+import { CanvasTarget, Color, DataTexture, DirectionalLight, NeutralToneMapping, PointLight, RepeatWrapping, NoToneMapping, PCFShadowMap, RenderPipeline, Scene, SpotLight, WebGPUBackend, WebGPURenderer, type LightShadow, type Material, type Node, type NodeBuilder } from "three/webgpu";
 import { SCENE_EXPOSURE, type SceneRenderer } from "@/lib/render/scene-renderer";
 import type { DrawingBudget } from "@/lib/render/webgl-scene-renderer";
 import { encodeSrgb } from "@/lib/render/webgpu/srgb-nodes";
@@ -65,7 +65,16 @@ function createDenoiseNoise(): DataTexture {
   return noiseTexture;
 }
 
-type ScenePipeline = { render: () => void; setAoRadius: (radius: number) => void; dispose: () => void };
+type ScenePipeline = {
+  render: () => void;
+  /**
+   * A second picture of the scene (openSecondPicture), drawn after `render` in the same frame: a scene pass of its
+   * own, sized to the current canvas target, with the stage pass's context, no AO, and the shadow maps `render` drew.
+   */
+  renderSecond: () => void;
+  setAoRadius: (radius: number) => void;
+  dispose: () => void;
+};
 
 type GetAoContext = { material: Material };
 
@@ -103,11 +112,21 @@ function buildScenePipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera
   const denoised = denoise(aoPass.getTextureNode(), prePassDepth, prePassNormal, camera);
   denoised.noiseNode = texture(denoiseNoise);
   const aoTexture = convertToTexture(denoised);
+  // 1 on the stage, 0 in a second picture, which runs no AO passes of its own.
+  const aoShare = uniform(1).setGroup(renderGroup);
   const scenePass = pass(scene, camera);
-  scenePass.contextNode = createSceneContext(aoTexture.sample(screenUV).r);
+  scenePass.contextNode = createSceneContext(mix(float(1), aoTexture.sample(screenUV).r, aoShare));
   const pipeline = new RenderPipeline(renderer, scenePass);
   // The scene pass already holds encoded colours (createSceneContext).
   pipeline.outputColorTransform = false;
+  // The second picture's scene pass keeps the stage pass's context node: a context of its own rebuilt every material
+  // on each switch between the two (5 fps), and an MRT of its own changed the shader code, so every GPU pipeline
+  // compiled again (stalls of seconds). It renders one render call deeper instead: three keys render contexts by
+  // formats, MRT and call depth, so its render objects (and their uniform buffers) are its own, while the materials'
+  // builds and the GPU pipelines are the stage's. Sharing the stage's render objects left the stage drawn with the
+  // window's sizes (lookdev, 21 Oct 2026). Its AO sample reads the stage's AO of this frame at a share of 0. Built at
+  // the first second picture.
+  let secondPass: { scenePass: ReturnType<typeof pass>; pipeline: RenderPipeline; nesting: Scene } | null = null;
   // three runs these passes once per browser frame, keyed on each node's update reference, so a second draw in the
   // same frame (the anchor cam's, then the main view) reused the first one's pictures: the main view showed the anchor
   // cam (lookdev, 21 Oct 2026). Each draw hands them new references (onReference), so they run once per draw; once,
@@ -115,16 +134,51 @@ function buildScenePipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera
   const passNodes = [prePass, aoPass, denoised, aoTexture, scenePass];
   let drawReferences = passNodes.map(() => ({}));
   passNodes.forEach((passNode, index) => passNode.onReference(() => drawReferences[index]));
+  // three redraws a light's shadow map in every render call that meets it (its once per camera and frame check reads a
+  // frame id each render call moves on), so the second picture drew the whole scene's shadows again: each draw asks
+  // for one update instead, and the second picture uses that map. The lights are the scene's shadow casters at its
+  // first frame.
+  const shadows: LightShadow[] = [];
+  scene.traverse((object) => {
+    if ((object instanceof DirectionalLight || object instanceof SpotLight || object instanceof PointLight) && object.castShadow) shadows.push(object.shadow);
+  });
+  shadows.forEach((shadow) => {
+    shadow.autoUpdate = false;
+  });
   return {
     render() {
       drawReferences = passNodes.map(() => ({}));
+      shadows.forEach((shadow) => {
+        shadow.needsUpdate = true;
+      });
       pipeline.render();
+    },
+    renderSecond() {
+      if (!secondPass) {
+        const secondScenePass = pass(scene, camera);
+        secondScenePass.contextNode = scenePass.contextNode;
+        const secondPipeline = new RenderPipeline(renderer, secondScenePass);
+        secondPipeline.outputColorTransform = false;
+        // An empty scene whose render runs the pipeline from inside it: one call deeper, and it draws nothing itself.
+        const nesting = new Scene();
+        nesting.onBeforeRender = () => secondPipeline.render();
+        secondPass = { scenePass: secondScenePass, pipeline: secondPipeline, nesting };
+      }
+      const autoClear = renderer.autoClear;
+      // The outer, empty render must not clear what the pipeline drew; the passes inside clear their own targets.
+      renderer.autoClear = false;
+      aoShare.value = 0;
+      renderer.render(secondPass.nesting, camera);
+      aoShare.value = 1;
+      renderer.autoClear = autoClear;
     },
     setAoRadius(radius) {
       aoPass.radius.value = radius;
     },
     dispose() {
       pipeline.dispose();
+      secondPass?.pipeline.dispose();
+      secondPass?.scenePass.dispose();
       aoPass.dispose();
       prePass.dispose();
       scenePass.dispose();
@@ -170,6 +224,14 @@ export async function createWebGpuSceneRenderer(options: { device: GPUDevice; bu
     return built;
   }
 
+  /** Runs `drawPicture` with the scene's colour background swapped for its encoded value (a clear, which no material encodes). */
+  function withEncodedBackground(scene: THREE.Scene, drawPicture: () => void) {
+    const background = scene.background;
+    if (background instanceof Color) scene.background = encodedBackground.copy(background).convertLinearToSRGB();
+    drawPicture();
+    scene.background = background;
+  }
+
   return {
     ok: true,
     value: {
@@ -182,11 +244,28 @@ export async function createWebGpuSceneRenderer(options: { device: GPUDevice; bu
       draw(scene, camera) {
         const scenePipeline = readPipeline(scene, camera);
         scenePipeline.setAoRadius(Math.max(AO_MIN_RADIUS, Math.abs(camera.position.y) * AO_RADIUS_PER_HEIGHT));
-        // A colour background is a clear, which no material encodes: it is cleared with its encoded value instead.
-        const background = scene.background;
-        if (background instanceof Color) scene.background = encodedBackground.copy(background).convertLinearToSRGB();
-        scenePipeline.render();
-        scene.background = background;
+        withEncodedBackground(scene, () => scenePipeline.render());
+      },
+      openSecondPicture(windowCanvas) {
+        const windowTarget = new CanvasTarget(windowCanvas);
+        return {
+          ok: true,
+          value: {
+            // It reads the stage's AO and shadow maps of this frame (renderSecond).
+            isDrawnAfterStage: true,
+            draw(scene, camera, widthPx, heightPx) {
+              const stageTarget = renderer.getCanvasTarget();
+              // Current first, so a resize reaches the renderer and the window's buffers follow it.
+              renderer.setCanvasTarget(windowTarget);
+              if (windowTarget.getPixelRatio() !== renderer.getPixelRatio()) windowTarget.setPixelRatio(renderer.getPixelRatio());
+              if (windowTarget.domElement.width !== Math.floor(widthPx * windowTarget.getPixelRatio()) || windowTarget.domElement.height !== Math.floor(heightPx * windowTarget.getPixelRatio())) windowTarget.setSize(widthPx, heightPx, false);
+              const scenePipeline = readPipeline(scene, camera);
+              withEncodedBackground(scene, () => scenePipeline.renderSecond());
+              renderer.setCanvasTarget(stageTarget);
+            },
+            dispose: () => windowTarget.dispose(),
+          },
+        };
       },
       compile: async (objects, camera, scene) => {
         // WebGPU builds its pipelines asynchronously; compileAsync walks the objects at once (the renderer is ready).

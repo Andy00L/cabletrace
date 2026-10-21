@@ -59,7 +59,7 @@ export type SecondView = {
   readPose: () => CameraPose | null;
 };
 
-/** What the viewer needs of the second view's canvas (an HTMLCanvasElement in the page): its pixel size and 2D context. */
+/** The second view's canvas: an HTMLCanvasElement in the page, which the viewer hands to its renderer. Typed by shape, so the director's tests need no page. */
 export type SecondViewCanvas = { width: number; height: number; getContext: (contextId: "2d") => CanvasRenderingContext2D | null };
 
 /** One frame the viewer is about to draw: the replay moment and the wall clock (performance.now() ms). */

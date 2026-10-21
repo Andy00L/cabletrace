@@ -220,7 +220,14 @@ export type OverviewScene = {
   readPickables: () => ScenePickable[];
   /** Hides the land and pipeline names on a narrow view, keeping the vessel and cut labels. */
   setCompactLabels: (isCompact: boolean) => void;
+  /** Moves the scene to a moment (the ship, its wake, the chain, the cuts, the silt), then dresses it for the camera (applyCamera). */
   update: (atMs: number, deltaSeconds: number, nowSeconds: number) => void;
+  /**
+   * Dresses the scene for the camera as it is placed now, at the moment last updated: under the surface or not, chain
+   * links or the hairline, each line as a tube or as the thing it is. A second camera in the same frame (the anchor
+   * cam) calls it alone, and again once the main camera is back.
+   */
+  applyCamera: () => void;
   /** Points on the data lines drawn at the last updated moment, seen from `cameraPosition`, for the lookdev colour check. */
   readColorProbes: (cameraPosition: THREE.Vector3) => ColorProbe[];
   /** Points of level open seabed in sight of `cameraPosition`, nearer than the haze starts, and their palette colours, for the lookdev seabed check. */
@@ -1043,7 +1050,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     isAnchorDrawn = located !== null;
     anchor.visible = isAnchorDrawn && !isAnchorHidden;
     chain.visible = located !== null;
-    chainLinks.mesh.visible = false;
+    areChainLinksCurrent = false;
     if (located) {
       // The anchor lies where the chain's layback puts it, shank pointing along the chain toward the hawse.
       hawseWorld.copy(shipModel.hawseLocal).applyMatrix4(ship.matrixWorld);
@@ -1054,18 +1061,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       anchor.updateMatrixWorld();
       shackleWorld.copy(anchorShackleLocal).applyMatrix4(anchor.matrixWorld);
       writeChain(located.span);
-      // Links where the camera is close enough to see them; the hairline otherwise.
-      const isChainClose = camera.position.distanceTo(anchor.position) < CHAIN_LINK_VIEW_KM;
-      chainLinks.mesh.visible = isChainClose;
-      if (isChainClose) chainLinks.update(chainPositions, CHAIN_POINT_COUNT);
     }
-
-    // A camera under the surface (the anchor cam) sees the inside of the water and no map labels.
-    const isUnderwater = camera.position.y < 0;
-    underwaterLook.apply(scene, camera, isUnderwater);
-    water.group.visible = !isUnderwater;
-    camera.layers.set(0);
-    camera.layers.enable(isUnderwater ? UNDERWATER_LABEL_LAYER : LABEL_LAYER);
 
     for (const cutSwitch of cutSwitches) {
       const isCut = atMs >= cutSwitch.cut.atMs;
@@ -1074,15 +1070,6 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
         piece.isShown = isCut;
       });
     }
-    // Close to the seabed's lines (the Vessel view) each is drawn as the thing it is, carrying its tracer; from the map's
-    // height, as the crisp data-coloured tube. The signal's halo belongs to the map.
-    const isClose = isCloseToLines(camera.position);
-    for (const dataLine of dataTubes) {
-      // Until the refinement brings the physical twins, the map tube stands in for them up close.
-      dataLine.tube.mesh.visible = dataLine.isShown && (!isClose || !dataLine.physical);
-      if (dataLine.physical) dataLine.physical.group.visible = dataLine.isShown && isClose;
-    }
-    for (const cutSwitch of cutSwitches) if (cutSwitch.halo) cutSwitch.halo.visible = cutSwitch.intact.isShown && !isClose;
     for (const cutMarker of cutMarkers) {
       const isCut = atMs >= cutMarker.cut.atMs;
       cutMarker.marker.visible = isCut;
@@ -1132,6 +1119,35 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
       plumePositions[index * 3 + 2] = (plumePositions[index * 3 + 2] ?? 0) + drift.z * deltaSeconds;
     }
     plume.markMoved();
+    applyCamera();
+  }
+
+  // Whether the chain's links follow the chain written at the last updated moment (they are written only for a camera
+  // close enough to see them).
+  let areChainLinksCurrent = false;
+  function applyCamera() {
+    // Links where the camera is close enough to see them; the hairline otherwise.
+    const isChainClose = chain.visible && camera.position.distanceTo(anchor.position) < CHAIN_LINK_VIEW_KM;
+    chainLinks.mesh.visible = isChainClose;
+    if (isChainClose && !areChainLinksCurrent) {
+      chainLinks.update(chainPositions, CHAIN_POINT_COUNT);
+      areChainLinksCurrent = true;
+    }
+    // A camera under the surface (the anchor cam) sees the inside of the water and no map labels.
+    const isUnderwater = camera.position.y < 0;
+    underwaterLook.apply(scene, camera, isUnderwater);
+    water.group.visible = !isUnderwater;
+    camera.layers.set(0);
+    camera.layers.enable(isUnderwater ? UNDERWATER_LABEL_LAYER : LABEL_LAYER);
+    // Close to the seabed's lines (the Vessel view) each is drawn as the thing it is, carrying its tracer; from the map's
+    // height, as the crisp data-coloured tube. The signal's halo belongs to the map.
+    const isClose = isCloseToLines(camera.position);
+    for (const dataLine of dataTubes) {
+      // Until the refinement brings the physical twins, the map tube stands in for them up close.
+      dataLine.tube.mesh.visible = dataLine.isShown && (!isClose || !dataLine.physical);
+      if (dataLine.physical) dataLine.physical.group.visible = dataLine.isShown && isClose;
+    }
+    for (const cutSwitch of cutSwitches) if (cutSwitch.halo) cutSwitch.halo.visible = cutSwitch.intact.isShown && !isClose;
   }
 
   /**
@@ -1445,6 +1461,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     readPickables,
     setCompactLabels,
     update,
+    applyCamera,
     readColorProbes,
     readSeabedProbes,
     prepareRefinement,

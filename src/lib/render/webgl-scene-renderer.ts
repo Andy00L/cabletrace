@@ -95,6 +95,9 @@ export function createWebGlSceneRenderer(kind: RendererKind, budget: DrawingBudg
   renderer.toneMappingExposure = SCENE_EXPOSURE;
   renderer.shadowMap.enabled = budget.shadows;
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  // three draws the shadow maps in every render call: the stage's draw asks for them, and a second picture, drawn just
+  // before the stage in the same frame, uses the last frame's (the anchor cam drew the whole scene's shadows again).
+  renderer.shadowMap.autoUpdate = false;
   // The software tier draws at a lower pixel ratio and the browser scales the canvas up. Scaled smoothly, a 2 px data
   // line would blend into the seabed and lose its exact colour; scaled by nearest pixel it keeps it (and the tier has
   // no antialiasing to lose).
@@ -108,7 +111,42 @@ export function createWebGlSceneRenderer(kind: RendererKind, budget: DrawingBudg
       maxAnisotropy: renderer.capabilities.getMaxAnisotropy(),
       readPixelRatio: () => renderer.getPixelRatio(),
       setSize: (widthPx, heightPx) => renderer.setSize(widthPx, heightPx),
-      draw: (scene, camera) => renderer.render(scene, camera),
+      draw(scene, camera) {
+        renderer.shadowMap.needsUpdate = true;
+        renderer.render(scene, camera);
+      },
+      openSecondPicture(windowCanvas) {
+        const windowContext = windowCanvas.getContext("2d");
+        if (!windowContext) return { ok: false, reason: "the window's canvas gave no 2D context" };
+        const stageSize = new THREE.Vector2();
+        return {
+          ok: true,
+          value: {
+            isDrawnAfterStage: false,
+            draw(scene, camera, widthPx, heightPx) {
+              // three's viewport counts CSS px from the bottom left: the picture lands in that corner, the main frame
+              // clears it afterwards.
+              renderer.getSize(stageSize);
+              const cornerWidthPx = Math.min(widthPx, stageSize.x);
+              const cornerHeightPx = Math.min(heightPx, stageSize.y);
+              renderer.setViewport(0, 0, cornerWidthPx, cornerHeightPx);
+              renderer.setScissor(0, 0, cornerWidthPx, cornerHeightPx);
+              renderer.setScissorTest(true);
+              renderer.render(scene, camera);
+              renderer.setScissorTest(false);
+              renderer.setViewport(0, 0, stageSize.x, stageSize.y);
+              const pixelRatio = renderer.getPixelRatio();
+              const pictureWidth = Math.max(1, Math.round(cornerWidthPx * pixelRatio));
+              const pictureHeight = Math.max(1, Math.round(cornerHeightPx * pixelRatio));
+              if (windowCanvas.width !== pictureWidth) windowCanvas.width = pictureWidth;
+              if (windowCanvas.height !== pictureHeight) windowCanvas.height = pictureHeight;
+              const stageCanvas = renderer.domElement;
+              windowContext.drawImage(stageCanvas, 0, stageCanvas.height - pictureHeight, pictureWidth, pictureHeight, 0, 0, pictureWidth, pictureHeight);
+            },
+            dispose() {},
+          },
+        };
+      },
       compile: (objects, camera, scene) => compileProgramByProgram(renderer, objects, camera, scene),
       dispose() {
         renderer.dispose();

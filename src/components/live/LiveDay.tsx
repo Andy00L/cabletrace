@@ -938,7 +938,7 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
         {isWide && (
           // The rail scrolls as a whole when the ship card and the detections outgrow the stage's height.
           <div
-            className="absolute top-4 right-4 bottom-4 z-(--layer-panel) flex flex-col gap-3 overflow-y-auto rounded-row [scrollbar-width:thin]"
+            className="absolute top-4 right-4 bottom-4 z-(--layer-panel) flex flex-col gap-3 overflow-y-auto rounded-row"
             style={{ width: RAIL_WIDTH_PX }}
             data-overlays-stage="true"
           >
