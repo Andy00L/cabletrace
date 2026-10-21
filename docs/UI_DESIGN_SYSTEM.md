@@ -285,7 +285,7 @@ Directly under the first screen, Fig 1 (`src/components/landing/AnchorFigure.tsx
 - **WebGL.** Only the silt thrown up behind the flukes is a shader (`anchor-figure-plume.ts`), in the figure's own camera, ink on paper with normal alpha. Without WebGL, and under reduced motion, a stipple of dots draws the same cloud; reduced motion holds the figure still at the moment after a cut and still answers the control.
 - **Weight.** The server draws the resting frame; the motion (about 12 KB compressed) loads only when the figure is actually on screen and stops when it leaves, so a visit that never scrolls to it does not pay for it.
 
-The ink pills press to 0.97 and their chevron slides 2 px on hover (80 ms press, 140 ms slide, `ease-standard`); the pill itself never moves on hover.
+The ink pills press to 0.97 and their chevron slides 2 px on hover (80 ms press, 140 ms slide, `ease-standard`); the pill itself never moves on hover. The on-file figures link where the recorder's counts are read without signing in (`/api/health`).
 
 ## Live globe
 

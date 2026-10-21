@@ -24,6 +24,8 @@ const EVIDENCE_CUT_LABEL = "C-Lion1";
 // slides the chevron 2 px, the pill itself never moves.
 const INK_PILL_CLASS =
   "group flex h-12 items-center justify-center gap-1 rounded-full bg-ink pr-5 pl-6 text-label text-card transition-[background-color,transform] duration-80 ease-standard hover:bg-ink-hover active:scale-[0.97]";
+// Where the recorder figures are counted, readable without signing in (src/proxy.ts, isPublicRoute).
+const HEALTH_PATH = "/api/health";
 const CONTENT_CLASS = "mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-20";
 // The hero block the sticky bar watches: once it has scrolled away, the bar brings its action back (LandingStickyBar).
 const HERO_BLOCK_ID = "landing-hero";
@@ -36,9 +38,9 @@ function buildProofFigures(cablesWatched: number | null, positionsLastHour: numb
   const sourceCount = CABLE_CASES.reduce((total, cableCase) => total + cableCase.sources.length, 0);
   return [
     { value: String(CABLE_CASES.length), label: "cases on file", detail: `${sourceCount} sources, each quote linked to its page and an archived copy` },
-    { value: cablesWatched === null ? "-" : cablesWatched.toLocaleString("en-US"), label: "cables and pipelines watched", detail: `OpenStreetMap and EMODnet lines in ${REGIONS.length} regions` },
-    { value: String(REGIONS.length), label: "regions recorded every minute", detail: `Digitraffic in the Gulf of Finland, aisstream.io in all ${REGIONS.length}` },
-    { value: positionsLastHour === null ? "-" : positionsLastHour.toLocaleString("en-US"), label: "positions in the last hour", detail: "every ship within 3 km of a watched line" },
+    { value: cablesWatched === null ? "-" : cablesWatched.toLocaleString("en-US"), label: "cables and pipelines watched", detail: `OpenStreetMap and EMODnet lines in ${REGIONS.length} regions`, source: { href: HEALTH_PATH, label: "live count" } },
+    { value: String(REGIONS.length), label: "regions recorded every minute", detail: `Digitraffic in the Gulf of Finland, aisstream.io in all ${REGIONS.length}`, source: { href: HEALTH_PATH, label: "recorder status" } },
+    { value: positionsLastHour === null ? "-" : positionsLastHour.toLocaleString("en-US"), label: "positions in the last hour", detail: "every ship within 3 km of a watched line", source: { href: HEALTH_PATH, label: "live count" } },
   ];
 }
 
