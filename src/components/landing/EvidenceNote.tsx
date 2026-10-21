@@ -15,11 +15,17 @@ export function EvidenceNote({ cableCase, cut }: { cableCase: CableCase; cut: Ca
   const source = citation ? cableCase.sources.find((candidate) => candidate.id === citation.sourceId) : undefined;
   return (
     <div className="paper-halo flex flex-col gap-2" data-testid="landing-evidence">
-      <p className="flex items-center gap-2 border-b border-ink/20 pb-2 text-caption text-muted">
-        <span className="relative flex size-3 flex-none items-center justify-center rounded-full border-2 border-alarm" aria-hidden="true">
+      {/* Two deliberate lines, the cut then its moment, so the caption never breaks at whatever width the water allows. */}
+      <p className="flex items-start gap-2 border-b border-ink/20 pb-2 text-caption text-muted">
+        <span className="relative mt-0.5 flex size-3 flex-none items-center justify-center rounded-full border-2 border-alarm" aria-hidden="true">
           <span className="size-1 rounded-full bg-alarm" />
         </span>
-        {cut.label} cut, {formatLongDate(cut.atUtc)}, {cut.atUtc.slice(11, 16)} UTC
+        <span className="flex flex-col">
+          <span>{cut.label} cut</span>
+          <span className="tabular-nums">
+            {formatLongDate(cut.atUtc)}, {cut.atUtc.slice(11, 16)} UTC
+          </span>
+        </span>
       </p>
       <h2 className="pt-1 text-heading">How a position is placed</h2>
       {citation && <blockquote className="text-body">&ldquo;{citation.translation ?? citation.quote}&rdquo;</blockquote>}
