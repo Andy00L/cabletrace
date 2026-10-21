@@ -15,7 +15,16 @@ import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/gl
 import { findFaultRipples, type FaultRipple } from "@/lib/globe/fault-ripples";
 import { pairShipFrames } from "@/lib/globe/frame-pairing";
 import type { FrameSource } from "@/lib/globe/frame-source";
-import { isGlobeTier, TIER_CAMERA_DISTANCE, type DistanceTier, type GlobeTier, type WatchedRegionOutline } from "@/lib/globe/globe-tier";
+import {
+  describeShipTierRefusal,
+  isGlobeTier,
+  SHIP_TIER_DISTANCE,
+  TIER_CAMERA_DISTANCE,
+  type DistanceTier,
+  type GlobeTier,
+  type ShipTierRefusal,
+  type WatchedRegionOutline,
+} from "@/lib/globe/globe-tier";
 import type { GlobePick, GlobeSeaLabel, GlobeView, GlobeViewer } from "@/lib/globe/globe-viewer";
 import type { GlobeIncident } from "@/lib/globe/incidents";
 import { addFrameToPassageScan, createPassageScan, summarizePassages, type LinePassage, type PassageScan } from "@/lib/globe/line-passages";
@@ -124,8 +133,6 @@ const INCIDENT_FOCUS_DISTANCE = 1.3;
 const SEAS_URL = "/globe/seas.json";
 // The globe names at most this many seas at the Planet tier, busiest first; the label placer drops the ones that collide.
 const SEA_LABEL_COUNT = 30;
-// The Ship tier flies this close to the picked ship, about 250 km up.
-const SHIP_TIER_DISTANCE = 1.04;
 // A hop between tiers takes as long as a flight to a ship (FOCUS_MOVE_MS, src/lib/globe/globe-viewer.ts).
 const TIER_MOVE_MS = 900;
 // A watched region is listed under every sea holding at least a fifth of its box (the Danish straits under the Baltic
@@ -135,14 +142,18 @@ const REGION_SEA_SHARE = 0.2;
 const TIER_PARAM = "tier";
 const AT_PARAM = "at";
 
-/** Where the camera is: its tier, the named sea under the stage's centre (-1 inland) and the watched region there. */
-type GlobePlace = { tier: DistanceTier; seaIndex: number; regionId: string | null };
+/**
+ * Where the camera is: its tier, the named sea under the stage's centre (-1 inland), the watched region there, and the
+ * ship the camera follows (the Ship tier).
+ */
+type GlobePlace = { tier: DistanceTier; seaIndex: number; regionId: string | null; followedMmsi: number | null };
 
 function readPlace(view: GlobeView, areas: SeaAreas | null, regions: readonly WatchedRegionOutline[]): GlobePlace {
   return {
     tier: view.tier,
     seaIndex: areas ? findSeaIndex(areas, view.longitude, view.latitude) : -1,
     regionId: regions.find((region) => isInsideBox(region.box, view.longitude, view.latitude))?.id ?? null,
+    followedMmsi: view.followedMmsi,
   };
 }
 
@@ -262,12 +273,12 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
   // A ship to fly to once the frames of the moment it was picked at are on the globe.
   const pendingFocusRef = useRef<number | null>(null);
   const pairKeysRef = useRef<{ applied: string | null; requested: string | null }>({ applied: null, requested: null });
-  // The tiers: the named seas once their file lands, where the camera is, and whether the Ship tier was asked for.
+  // The tiers: the named seas once their file lands, where the camera is, and why the last press on Ship did not fly.
   const [seaAreas, setSeaAreas] = useState<SeaAreas | null>(null);
   const seaAreasRef = useRef<SeaAreas | null>(null);
-  const [place, setPlace] = useState<GlobePlace>({ tier: "planet", seaIndex: -1, regionId: null });
+  const [place, setPlace] = useState<GlobePlace>({ tier: "planet", seaIndex: -1, regionId: null, followedMmsi: null });
   const lastViewRef = useRef<GlobeView | null>(null);
-  const [isOnShip, setIsOnShip] = useState(false);
+  const [shipTierRefusal, setShipTierRefusal] = useState<ShipTierRefusal | null>(null);
   // What the globe last got, handed again to a rebuilt viewer.
   const densityRef = useRef<ShipDensity | null>(null);
   const seaLabelsRef = useRef<readonly GlobeSeaLabel[]>([]);
@@ -482,12 +493,16 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
     [clock, entries, incidents, startMs, spanMs, watchedRegions],
   );
 
-  /** Called after every frame the camera moved in: sets state only when the tier, the sea or the region changes. */
+  /** Called after every frame the camera moved in: sets state only when the tier, the sea, the region or the follow changes. */
   const handleViewChange = useCallback(
     (view: GlobeView) => {
       lastViewRef.current = view;
       const nextPlace = readPlace(view, seaAreasRef.current, watchedRegions);
-      setPlace((previous) => (previous.tier === nextPlace.tier && previous.seaIndex === nextPlace.seaIndex && previous.regionId === nextPlace.regionId ? previous : nextPlace));
+      setPlace((previous) =>
+        previous.tier === nextPlace.tier && previous.seaIndex === nextPlace.seaIndex && previous.regionId === nextPlace.regionId && previous.followedMmsi === nextPlace.followedMmsi
+          ? previous
+          : nextPlace,
+      );
     },
     [watchedRegions],
   );
@@ -696,16 +711,22 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
     viewerRef.current?.setSeaLabels(seaLabels);
   }, [seaLabels]);
 
-  /** The ladder and the breadcrumb: flies to a tier over what the stage centres on. */
+  /**
+   * The ladder and the breadcrumb: flies to a tier over what the stage centres on. Ship flies to the picked ship and
+   * follows it; when there is none, or the frames on screen do not hold it, the stage says so instead.
+   */
   const flyToTier = useCallback(
     (tier: GlobeTier) => {
       const viewer = viewerRef.current;
       if (!viewer) return;
       if (tier === "ship") {
-        if (selectedRef.current !== null && viewer.focusShip(selectedRef.current, SHIP_TIER_DISTANCE)) setIsOnShip(true);
+        const mmsi = selectedRef.current;
+        if (mmsi === null) setShipTierRefusal({ kind: "no-ship" });
+        else if (viewer.followShip(mmsi, SHIP_TIER_DISTANCE)) setShipTierRefusal(null);
+        else setShipTierRefusal({ kind: "not-in-frames", mmsi, minuteLabel: formatUtcClock(startMs + clock.getSnapshot().progress * spanMs) });
         return;
       }
-      setIsOnShip(false);
+      setShipTierRefusal(null);
       const centre = viewer.readCentre();
       const areas = seaAreasRef.current;
       const sea = tier === "sea" && areas ? (areas.seas[findSeaIndex(areas, centre.longitude, centre.latitude)] ?? findNearestSea(areas, centre)) : undefined;
@@ -713,11 +734,10 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
       const target = sea ? { longitude: sea.longitude, latitude: sea.latitude } : region ? boxCentre(region) : centre;
       void viewer.flyTo({ ...target, distance: TIER_CAMERA_DISTANCE[tier], durationMs: TIER_MOVE_MS });
     },
-    [watchedRegions],
+    [clock, spanMs, startMs, watchedRegions],
   );
 
   const flyToSea = useCallback((entry: SeaCount) => {
-    setIsOnShip(false);
     void viewerRef.current?.flyTo({ longitude: entry.sea.longitude, latitude: entry.sea.latitude, distance: TIER_CAMERA_DISTANCE.sea, durationMs: TIER_MOVE_MS });
   }, []);
 
@@ -725,7 +745,6 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
     (regionId: string) => {
       const region = watchedRegions.find((candidate) => candidate.id === regionId);
       if (!region) return;
-      setIsOnShip(false);
       void viewerRef.current?.flyTo({ ...boxCentre(region), distance: TIER_CAMERA_DISTANCE.strait, durationMs: TIER_MOVE_MS });
     },
     [watchedRegions],
@@ -737,8 +756,9 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
   const selectedIncident = incidents.find((incident) => incident.slug === selectedIncidentSlug);
   const selectedLine = selectedLineId === null ? undefined : globeLines.lines.find((line) => line.id === selectedLineId);
 
-  // The Ship tier holds while the camera stays close on the picked ship; zooming out hands back to the distance tiers.
-  const tier: GlobeTier = isOnShip && selectedMmsi !== null && place.tier === "strait" ? "ship" : place.tier;
+  // The Ship tier holds while the camera follows the picked ship; a drag, a flight or a zoom out hands back to the
+  // distance tiers (GlobeViewer.followShip).
+  const tier: GlobeTier = selectedMmsi !== null && place.followedMmsi === selectedMmsi ? "ship" : place.tier;
   const currentSea = seaAreas && place.seaIndex >= 0 ? seaAreas.seas[place.seaIndex] : undefined;
   const currentRegion = watchedRegions.find((region) => region.id === place.regionId);
   const shipName = detailsState.kind === "loaded" && detailsState.details?.name ? detailsState.details.name : selectedMmsi === null ? "" : `MMSI ${selectedMmsi}`;
@@ -746,6 +766,7 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
   if (tier !== "planet") crumbs.push({ tier: "sea", label: currentSea?.name ?? "Inland" });
   if (tier === "strait" || tier === "ship") crumbs.push({ tier: "strait", label: currentRegion?.name ?? "Close up" });
   if (tier === "ship") crumbs.push({ tier: "ship", label: shipName });
+  const shipTierNote = describeShipTierRefusal({ refusal: shipTierRefusal, selectedMmsi, minuteLabel, shipName });
   const seaRegions =
     seaAreas && currentSea
       ? watchedRegions
@@ -756,7 +777,7 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
 
   const tierLadder = (
     <div className="pointer-events-auto rounded-full bg-card p-1 shadow-row" data-testid="live-tier" data-tier={tier}>
-      <TierLadder tier={tier} hasShip={selectedMmsi !== null} onSelect={flyToTier} />
+      <TierLadder tier={tier} onSelect={flyToTier} />
     </div>
   );
 
@@ -833,6 +854,11 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
           {/* From orbit the breadcrumb would only say "World", which the ladder already does. */}
           {tier !== "planet" && <TierBreadcrumb crumbs={crumbs} onSelect={flyToTier} />}
           {isWide && tierLadder}
+          {shipTierNote && (
+            <p className="rounded-row bg-card px-4 py-2 text-small shadow-row" role="status" data-testid="live-ship-tier-note">
+              {shipTierNote}
+            </p>
+          )}
           {frameProblem && (
             <p className="rounded-row bg-card px-4 py-2 text-small shadow-row" role="status">
               {frameProblem}
