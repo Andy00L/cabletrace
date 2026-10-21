@@ -10,6 +10,7 @@ import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedC
 import type { SeabedDetail } from "@/lib/console/console-state";
 import { LAND_CREDIT } from "@/lib/seabed/scene-credits";
 import { CLOSE_UP_SCALE_NOTES, describeOverviewScale, type SceneExaggeration } from "@/lib/seabed/scene-scales";
+import { planViewReset } from "@/lib/seabed/scene/director/view-reset";
 import type { SeabedViewName } from "@/lib/seabed/scene/viewer";
 
 const VIEW_OPTIONS: readonly SegmentOption<SeabedViewName>[] = [
@@ -68,13 +69,20 @@ type StageOverlaysProps = {
   sceneSummary: SceneSummary | null;
 };
 
-function CameraButton({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) {
+// The reset button's tooltip while the director holds the camera, and on the follow camera, which has nothing to undo.
+const RESET_TITLE_DIRECTED = "Stop the director and frame this view as it opens";
+const RESET_TITLE_FOLLOW = "The Vessel view follows the ship: nothing to reset";
+
+function CameraButton({ icon, label, onClick, title, isDisabled = false, testId }: { icon: IconName; label: string; onClick: () => void; title?: string; isDisabled?: boolean; testId?: string }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="grid size-9 place-items-center rounded-full text-ink transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]"
+      title={title}
+      disabled={isDisabled}
+      data-testid={testId}
+      className="grid size-9 place-items-center rounded-full text-ink transition-colors duration-140 ease-standard enabled:hover:bg-page enabled:active:scale-[0.97] disabled:text-faint"
     >
       <Icon name={icon} />
     </button>
@@ -83,7 +91,7 @@ function CameraButton({ icon, label, onClick }: { icon: IconName; label: string;
 
 /** The controls that belong to the picture, inset 16 px inside the stage (board 6). */
 export function StageOverlays({ stageElement, isCompact, isRailFloating, railWidthPx, onResetView, onShowRail, showRailTopPx, sceneSummary }: StageOverlaysProps) {
-  const { view, setView, detail, setDetail, isDirectorOn, setDirectorOn } = useConsole();
+  const { view, setView, detail, setDetail, isDirectorOn, setDirectorOn, shipCamera, setShipCamera } = useConsole();
   const [isFullScreen, setIsFullScreen] = useState(false);
   const isCloseUp = view === "closeup";
   const { depth, cables, pipelines, exaggeration } = sceneSummary ?? DEFAULT_SCENE_SUMMARY;
@@ -91,6 +99,7 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
   // At the cut, both modes' sentences show, the current one first, so neither needs a switch to read.
   const otherCloseUpNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail === "measured" ? "illustrated" : "measured"] : null;
   const clearRight = isRailFloating ? railWidthPx : 16;
+  const viewReset = planViewReset({ view, isDirectorOn, shipCamera });
   const sceneCredits = [`Depth: ${depth}.`, LAND_CREDIT, `Cables: ${cables}. Pipelines: ${pipelines}. OpenStreetMap data is under the ODbL.`];
 
   // Tracks the browser's full-screen state, which React does not own (Esc can leave it too).
@@ -106,6 +115,15 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
       return;
     }
     stageElement?.requestFullscreen().catch((error: unknown) => console.error(`[StageOverlays] full screen refused: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  // The view goes back to its preset only once nothing else holds the camera (planViewReset); the director's and the
+  // ship camera's release reach the camera driver before its next frame (React flushes a click's effects at once).
+  function resetView() {
+    if (viewReset.kind === "nothing-to-reset") return;
+    if (viewReset.releasesDirector) setDirectorOn(false);
+    if (viewReset.releasesShipCamera) setShipCamera?.("follow");
+    onResetView();
   }
 
   return (
@@ -201,7 +219,14 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
           <Icon name="director" size={18} />
           Director
         </button>
-        <CameraButton icon="reset" label="Reset the view" onClick={onResetView} />
+        <CameraButton
+          icon="reset"
+          label="Reset the view"
+          onClick={resetView}
+          title={viewReset.kind === "nothing-to-reset" ? RESET_TITLE_FOLLOW : viewReset.releasesDirector ? RESET_TITLE_DIRECTED : undefined}
+          isDisabled={viewReset.kind === "nothing-to-reset"}
+          testId="reset-view"
+        />
         <CameraButton icon={isFullScreen ? "exitFullscreen" : "fullscreen"} label={isFullScreen ? "Leave full screen" : "Full screen"} onClick={toggleFullScreen} />
       </div>
     </>

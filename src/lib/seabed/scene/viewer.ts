@@ -162,7 +162,11 @@ export type SceneProjection = { kind: "not-drawn" } | { kind: "off-view" } | { k
 export type SeabedViewer = {
   setView: (view: SeabedViewName) => void;
   setIllustrated: (isIllustrated: boolean) => void;
-  /** Moves the camera back to the current view's preset, undoing any orbit or zoom. */
+  /**
+   * Moves the camera back to the current view's preset, undoing any orbit or zoom. A pose or orbit the director port
+   * holds is let go first, since it is drawn over any preset; the caller stops the director (or the ship camera)
+   * driving it too (planViewReset), else the next directed frame takes the camera again.
+   */
   resetView: () => void;
   /**
    * Width in CSS px of a panel floating over the view's right edge. The picture shifts left by half of it, so the
@@ -1309,6 +1313,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     });
   });
 
+  const directorPort = createDirectorPort();
   return {
     ok: true,
     value: {
@@ -1320,6 +1325,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
         markDirty();
       },
       resetView() {
+        directorPort.setCameraPose(null);
+        directorPort.setCloseUpOrbit(null);
         applyView(activeView);
       },
       setRightInset(insetPx) {
@@ -1330,7 +1337,7 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       },
       projectTarget,
       centerOnTarget,
-      director: createDirectorPort(),
+      director: directorPort,
       dispose() {
         isDisposed = true;
         frameListeners.clear();

@@ -28,12 +28,12 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
     });
     // Counts down only while playing: paused, the latest event and the status say enough.
     const minutesToNext = snapshot.isPlaying ? readMinutesToNextEvent(eventTimesMs, atMs) : null;
-    return `${describeAnchorStatus(input, atMs).kind}|${latestIndex}|${minutesToNext ?? ""}`;
+    // The text, not only the kind: a case without a drag says when the ship is held at one point.
+    const status = describeAnchorStatus(input, atMs);
+    return `${status.kind}|${status.text}|${latestIndex}|${minutesToNext ?? ""}`;
   };
   const key = useSyncExternalStore(clock.subscribe, readKey, readKey);
-  const [statusKind, latestIndexText, minutesToNextText] = key.split("|");
-  const atMs = progressToTimeMs(input, clock.getSnapshot().progress);
-  const status = describeAnchorStatus(input, atMs);
+  const [statusKind, statusText, latestIndexText, minutesToNextText] = key.split("|");
   const latestEvent = consoleCase.events[Number(latestIndexText)] ?? null;
   const isDragging = statusKind === "dragging";
   const minutesToNext = minutesToNextText ? Number(minutesToNextText) : null;
@@ -57,7 +57,7 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
           {isDragging && <span className="size-2 flex-none rounded-full bg-alarm" aria-hidden="true" />}
           {/* Short of room, the status gives way, never the dot or the chevron: clipped, they read as a broken pill. */}
           <span aria-live="polite" className="min-w-0 truncate">
-            {status.text}
+            {statusText}
           </span>
           {/* Read by eye, not announced: a live region ticking every replay minute would drown the status. Under
               640 px the pill has no room for both, and the status wins; the timeline sits right under the stage.

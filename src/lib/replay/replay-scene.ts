@@ -57,8 +57,35 @@ export function positionAtTime(track: readonly TimedPosition[], atMs: number): {
 }
 
 /**
+ * A run of the track whose positions all sit on one point (Hai Hong Gong 66 at the wreck, 11:00 to 18:00 UTC). The
+ * replay holds the ship still there, and the status and the vessel's labels say so, so a still ship never reads as a
+ * frozen replay. `firstIndex` and `lastIndex` are the run's first and last positions in the track.
+ */
+export type HeldStretch = { fromMs: number; toMs: number; firstIndex: number; lastIndex: number };
+
+function isSamePoint(first: TimedPosition, second: TimedPosition): boolean {
+  return first.longitude === second.longitude && first.latitude === second.latitude;
+}
+
+/** The held run around a moment; null outside one, and before the first or after the last position, where no two positions bound it. */
+export function findHeldStretch(track: readonly TimedPosition[], atMs: number): HeldStretch | null {
+  const startIndex = track.findIndex((position, index) => {
+    const next = track[index + 1];
+    return next !== undefined && position.atMs <= atMs && atMs <= next.atMs && isSamePoint(position, next);
+  });
+  const start = track[startIndex];
+  if (!start) return null;
+  let firstIndex = startIndex;
+  let lastIndex = startIndex + 1;
+  while (firstIndex > 0 && isSamePoint(track[firstIndex - 1] ?? start, start)) firstIndex -= 1;
+  while (lastIndex < track.length - 1 && isSamePoint(track[lastIndex + 1] ?? start, start)) lastIndex += 1;
+  return { fromMs: track[firstIndex]?.atMs ?? start.atMs, toMs: track[lastIndex]?.atMs ?? start.atMs, firstIndex, lastIndex };
+}
+
+/**
  * The note under the vessel's name at a moment: the recorded speed while it sails between two AIS positions,
- * "reconstructed position" whenever either end of its current stretch was placed from statements.
+ * "reconstructed position" whenever either end of its current stretch was placed from statements, and
+ * "reconstructed, held at one point" when the placed positions around the moment sit on one point.
  */
 export function describeVesselPosition(track: readonly TimedPosition[], atMs: number): string {
   const laterIndex = track.findIndex((position) => position.atMs > atMs);
@@ -67,6 +94,6 @@ export function describeVesselPosition(track: readonly TimedPosition[], atMs: nu
   const next = track[nextIndex] ?? previous;
   const previousSpeed = previous?.recordedSpeedKnots ?? null;
   const nextSpeed = next?.recordedSpeedKnots ?? null;
-  if (previousSpeed === null || nextSpeed === null) return "reconstructed position";
+  if (previousSpeed === null || nextSpeed === null) return findHeldStretch(track, atMs) ? "reconstructed, held at one point" : "reconstructed position";
   return `AIS position, ${previousSpeed.toFixed(1)} knots`;
 }
