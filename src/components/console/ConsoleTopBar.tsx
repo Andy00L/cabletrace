@@ -2,7 +2,7 @@
 
 import * as Popover from "@radix-ui/react-popover";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { CaseSketchMap } from "@/components/cases/CaseCard";
 import { useConsole } from "@/components/console/console-context";
@@ -10,10 +10,11 @@ import { Icon } from "@/components/icons/Icon";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
 import { WatchButton } from "@/components/watchlist/WatchButton";
 import type { CaseSketch } from "@/lib/cases/case-sketch";
+import { fetchCaseSketches } from "@/lib/cases/case-sketches-api";
 import type { ConsoleMode } from "@/lib/console/console-state";
 
-/** One case in the switcher: its sketch (null when the seabed files were missing at build time) and its names. */
-export type CaseSwitcherItem = { slug: string; title: string; subtitle: string; vesselName: string; sketch: CaseSketch | null };
+/** One case in the switcher, by its names; its sketch arrives from /cases/sketches when the switcher is reached for. */
+export type CaseSwitcherItem = { slug: string; title: string; subtitle: string; vesselName: string };
 
 const MODE_OPTIONS: readonly SegmentOption<ConsoleMode>[] = [
   { value: "replay", label: "Replay" },
@@ -29,6 +30,21 @@ type CopyState = { kind: "idle" } | { kind: "copied" } | { kind: "failed" };
 export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherItem[] }) {
   const { consoleCase, mode, setMode, openLayer } = useConsole();
   const [copyState, setCopyState] = useState<CopyState>({ kind: "idle" });
+  // The switcher's sketches, fetched once on the first hover, focus or open; until then the rows show their names only.
+  const [sketches, setSketches] = useState<ReadonlyMap<string, CaseSketch | null> | null>(null);
+  const hasRequestedSketchesRef = useRef(false);
+  function loadSketches() {
+    if (hasRequestedSketchesRef.current) return;
+    hasRequestedSketchesRef.current = true;
+    void fetchCaseSketches().then((outcome) => {
+      if (!outcome.ok) {
+        console.error(`[ConsoleTopBar] ${outcome.reason}`);
+        hasRequestedSketchesRef.current = false;
+        return;
+      }
+      setSketches(outcome.value);
+    });
+  }
 
   // Hides the copy note after a moment: a timer, which React does not own.
   useEffect(() => {
@@ -53,8 +69,15 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
         <BrandMark size={28} />
         <span className="hidden text-card-title xl:inline">CableTrace</span>
       </Link>
-      <Popover.Root>
-        <Popover.Trigger className="flex h-10 min-w-0 items-center gap-1.5 rounded-full bg-soft pr-2.5 pl-3.5 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page data-[state=open]:bg-card data-[state=open]:shadow-selected" data-testid="case-switcher">
+      <Popover.Root
+        onOpenChange={(isOpen) => {
+          if (isOpen) loadSketches();
+        }}
+      >
+        <Popover.Trigger
+          onPointerEnter={loadSketches}
+          onFocus={loadSketches}
+          className="flex h-10 min-w-0 items-center gap-1.5 rounded-full bg-soft pr-2.5 pl-3.5 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page data-[state=open]:bg-card data-[state=open]:shadow-selected" data-testid="case-switcher">
           <span className="truncate">{consoleCase.title}</span>
           <Icon name="chevronDown" size={18} className="flex-none text-muted" />
         </Popover.Trigger>
@@ -68,6 +91,7 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
             <p className="px-3 pt-2 pb-1 text-caption text-muted">Cases</p>
             {switcherCases.map((item) => {
               const isCurrent = item.slug === consoleCase.slug;
+              const sketch = sketches?.get(item.slug) ?? null;
               return (
                 <Link
                   key={item.slug}
@@ -75,7 +99,9 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
                   aria-current={isCurrent ? "page" : undefined}
                   className={`grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3.5 rounded-field p-2 transition-colors duration-140 ease-standard hover:bg-page ${isCurrent ? "bg-page" : ""}`}
                 >
-                  <span className="block aspect-video overflow-hidden rounded-chip bg-depth-40">{item.sketch && <CaseSketchMap sketch={item.sketch} vesselName={item.vesselName} />}</span>
+                  <span className="block aspect-video overflow-hidden rounded-chip bg-depth-40">
+                    {sketch && <CaseSketchMap sketch={sketch} vesselName={item.vesselName} />}
+                  </span>
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate text-label">{item.title}</span>
                     <span className="truncate text-caption font-normal text-muted">{item.subtitle}</span>
