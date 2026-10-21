@@ -226,7 +226,9 @@ async function measureScrubFrameMs(page: Page): Promise<number | null> {
 // Hides everything but the 3D view (and, for the colour probes, its labels too), so the rail and the stage controls
 // do not enter the frame and DOM text in a data colour cannot pass for a drawn line.
 const LOOK_ONLY_CSS = `body * { visibility: hidden !important; } [data-testid="seabed-view"], [data-testid="seabed-view"] * { visibility: visible !important; }`;
-const CANVAS_ONLY_CSS = `[data-testid="seabed-view"] canvas ~ div, [data-testid="seabed-view"] canvas ~ div * { visibility: hidden !important; }`;
+// The bare canvas: everything in the 3D view but the renderer's canvas and the boxes around it, in either order (on
+// WebGPU the canvas arrives after the label layers, and "canvas ~ div" left the labels over the data lines' probes).
+const CANVAS_ONLY_CSS = `[data-testid="seabed-view"] :not(canvas[data-renderer]):not(:has(canvas[data-renderer])) { visibility: hidden !important; }`;
 
 type ProbePoint = { tone: DataTone; x: number; y: number; isCased?: boolean };
 

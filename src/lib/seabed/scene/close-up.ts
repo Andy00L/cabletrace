@@ -519,7 +519,8 @@ export function buildCloseUp(options: CloseUpOptions): CloseUpScene {
   scene.add(cutLabel);
   const anchorLabel = makeStackedLabel("Anchor", "illustrated").object;
   anchor.group.add(anchorLabel);
-  anchorLabel.position.set(0, 1.8 / ANCHOR_UNITS_PER_METRE, 0);
+  // Clear of the model: at 1.8 m the label sat on the shank in the home view, its dark steel under the text.
+  anchorLabel.position.set(0, 3.4 / ANCHOR_UNITS_PER_METRE, 0);
 
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 420);
   const controls = new OrbitControls(camera, options.domElement);

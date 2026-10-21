@@ -169,6 +169,7 @@ baselines were rewritten for that choice on 20 Oct 2026, 27 per tier, 81 in all:
 | All 24 frames of each tier that existed before | Look C's sampled palette (each area the nearest sampled region's values), water B (`#3F7E86` body, `#D8E3E5` sky), the white casings under every tube, the track and the furrow, the olive land contours (`#60634A`), the 24 px cut ring and its 60 px beam, and what the merged ship branch brought: the detailed hulls with their real paint, the anchor rig and the sea |
 | `eagle-s-2024-overview-1026`, `eagle-s-2024-vessel-1040`, `eagle-s-2024-vessel-1150` | New shots from the ship branch (the approach, the drag, the ship leaving), first baselines |
 | WebGPU: nine overviews and `eagle-s-2024-after-drag`, rewritten again the same day | They had been taken before the refinement appeared. The refinement counted as a pending asset only once its compile started, two frames after the first, so a capture could settle on the first frame and miss the vessel, the wakes and the water. It now counts from the first frame. Against the hardware frames of the same run the new WebGPU frames differ by 0.21 to 1.87% of pixels, the old ones by 2.0 to 14.3% (Hong Tai 58 the most: the old frame had no ship) |
+| Software: `eagle-s-2024-top`, `newnew-polar-bear-2023-overview`, rewritten 21 Oct 2026 with Andy's approval | The map's tubes became polyline tubes (PR 63): their edges rasterise a little differently on SwiftShader, 0.56% and 0.65% of pixels along the tubes. The hardware and WebGPU frames did not move |
 
 A change that moves them needs his approval again before `--update` (plan: ambition pass, 4.4). The harness never
 grades its own renders.
@@ -235,7 +236,16 @@ from WSL, so Playwright cannot drive it. `scripts/lookdev/webgpu-capture.ts` dri
 - Headless Chrome on Windows lays the page out at 1,422 x 748 and resizes it to the 1,440 x 900 window right after the
   load event. The agent releases the load, waits (up to 20 s) for that resize and the viewer's next frame, and only
   then reports, so the probes and boxes it reports are the screenshot's; the harness refuses a report made at any
-  other size. 5 s was too short on two runs in three once the case page drew on WebGPU from its first frame.
+  other size. 5 s was too short on two runs in three once the case page drew on WebGPU from its first frame. The
+  frame it waits for must also come after the canvas took its container's new size (the viewer resizes it in a
+  ResizeObserver callback, after the animation frames of the frame the window grew in): a frame drawn in between
+  placed the probes for the old 1,390 x 450 canvas, and on 21 Oct 2026 every WebGPU frame that judges colours failed
+  them, on main as on the branch, while the pictures matched their baselines.
+- The proxy marks every page it rewrites `no-store`. The profile keeps Chrome's HTTP cache between runs, and the case
+  page came back from it in the next run of the same shot: the bare-canvas run ran the look run's agent, so the labels
+  stayed over the drag track's probes (0 of 21 exact on Minlianyu 60138's overview, 21 of 21 once fixed). The bare
+  canvas hides every element of the 3D view but the renderer's canvas and the boxes around it, in either order: on
+  WebGPU the canvas arrives after the label layers, which "canvas ~ div" never reached.
 - The case page asks for the WebGPU adapter before it opens a WebGL context, not alongside it
   (`src/components/replay/SeabedView.tsx`), and a browser with a WebGPU device opens no WebGL context it would close
   unused. Even so, a direct load in Windows Chrome blocks the page's main thread for 2.8 to 3.3 s in one go just after

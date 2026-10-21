@@ -22,6 +22,10 @@ const AisSignalCard = dynamic(() => import("@/components/console/AisSignalStrip"
 });
 
 const CARD_CLASS = "flex flex-col gap-3 rounded-row bg-card px-5 py-4.5 shadow-card";
+// Each mode's rail scrolls inside itself on a short stage. Its 24 px foot lets the last card scroll clear of the edge.
+// No fade mask on it: over the 3D view a mask is composited again every frame, 5 fps on Windows Chrome's integrated
+// GPU (57 to 52 fps playing, 21 Oct 2026).
+const RAIL_SCROLL_CLASS = "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-6";
 const ROW_BUTTON_CLASS = "grid w-full items-center gap-x-3 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-page";
 
 function ShipSample() {
@@ -76,13 +80,16 @@ function ShipHeading({ onHide }: { onHide: (() => void) | null }) {
   );
 }
 
-/** Replay mode: who the ship is, in three lines, and the minute-by-minute list. */
+/**
+ * Replay mode: who the ship is, in three lines, and the minute-by-minute list. The list keeps room for a few rows; on
+ * a short stage (a 720 px tall laptop) the rail scrolls instead of squeezing it to its title.
+ */
 function ReplayRail({ onHide }: { onHide: (() => void) | null }) {
   const { consoleCase, setMode } = useConsole();
   const { vessel } = consoleCase;
   return (
-    <>
-      <section className={CARD_CLASS} aria-label="The ship">
+    <div className={RAIL_SCROLL_CLASS}>
+      <section className={`${CARD_CLASS} flex-none`} aria-label="The ship">
         <ShipHeading onHide={onHide} />
         <p className="text-small">
           {vessel.type}, {vessel.flag} flag
@@ -96,7 +103,7 @@ function ReplayRail({ onHide }: { onHide: (() => void) | null }) {
         </p>
       </section>
       <CaseEventList />
-    </>
+    </div>
   );
 }
 
@@ -107,7 +114,7 @@ function ReplayRail({ onHide }: { onHide: (() => void) | null }) {
 function ShipRail({ onHide, showsCharts }: { onHide: (() => void) | null; showsCharts: boolean }) {
   const { series } = useConsole();
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+    <div className={RAIL_SCROLL_CLASS}>
       <section className={`${CARD_CLASS} flex-none`} aria-label="Vessel inspector" data-testid="ship-card">
         <ShipHeading onHide={onHide} />
         <VesselInspector />
@@ -130,7 +137,7 @@ function EvidenceRail({ onHide }: { onHide: (() => void) | null }) {
   const { consoleCase, openLayer, focusTarget, layer, caseFileSha256 } = useConsole();
   const { recordedTrack } = consoleCase;
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+    <div className={RAIL_SCROLL_CLASS}>
       <section className={CARD_CLASS} data-testid="placement-card">
         <div className="flex items-center gap-3">
           <h2 className="text-card-title">How the track is placed</h2>

@@ -4,10 +4,14 @@
 // `frame-pacing`) with motion allowed: the case page idles 3 s, plays 8 s, moves through four views and is scrubbed.
 // Usage: bun scripts/perf/windows-frame-pacing.ts <baseUrl> [--slug eagle-s-2024] [--runs 2] [--scale 1.25]
 //        [--size 1440x900] [--webgl] [--windows-chrome <path>] [--port 3329]
+// A slug carrying a query that opens the Vessel view (--slug "eagle-s-2024?t=2024-12-25T16:24Z&view=vessel") also
+// records the motion while it plays: per drawn frame the replay moment, the camera and the ship's and anchor's place
+// on screen, summarised in the output and saved as .scratch/windows-frame-pacing/motion-run-N.json.
 // --webgl hands the page Chrome's CPU WebGPU adapter (--use-webgpu-adapter=swiftshader), which the app refuses as a
 // fallback, so it draws on WebGL on the GPU, as Safari and Firefox do. --profile prints each scene's busiest functions.
 // --chrome-arg <flag> passes one more flag to Chrome (repeatable), for example --disable-frame-rate-limit.
 // Exit codes: 0 measured, 2 could not measure.
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createSessionTokenSource } from "../lookdev/session-token";
 import { canRunWindowsChrome, captureWithWindowsChrome, DEFAULT_PROXY_PORT, DEFAULT_WINDOWS_CHROME, startLookdevProxy } from "../lookdev/webgpu-capture";
@@ -74,6 +78,13 @@ async function main(): Promise<number> {
       const { report } = captured.value;
       console.log(`[windowsFramePacing] run ${runIndex + 1}: ${slug} on ${report.renderer}, ${viewport.width}x${viewport.height} at DPR ${report.devicePixelRatio}`);
       report.slowSteps.forEach((line) => console.log(`  ${line}`));
+      report.motionLines.forEach((line) => console.log(`  motion: ${line}`));
+      if (report.motionSeries.length > 0) {
+        const motionPath = path.join(".scratch", "windows-frame-pacing", `motion-run-${runIndex + 1}.json`);
+        mkdirSync(path.dirname(motionPath), { recursive: true });
+        writeFileSync(motionPath, JSON.stringify(report.motionSeries));
+        console.log(`  motion: ${report.motionSeries.length} frames saved to ${motionPath}`);
+      }
       for (const scene of report.frameScenes) {
         console.log(`  ${scene.name}: ${scene.fps} fps, drawn ${scene.drawnFps}/s, p50 ${scene.p50Ms} p95 ${scene.p95Ms} p99 ${scene.p99Ms} max ${scene.maxMs} ms, over 25 ms ${scene.over25}, over 50 ms ${scene.over50}`);
         scene.topScripts.forEach((script) => console.log(`      ${script}`));

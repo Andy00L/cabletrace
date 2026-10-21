@@ -385,6 +385,71 @@ second full pass of the pipeline; the room's reflections (0.1 to 1.5 s) and the 
 in one go each, on quiet frames too; an earlier WebGL run saw one program link on its first use during a scrub (main
 shows the same 683 ms frame); and the console's React updates take about 2 ms a frame while playing.
 
+## Smooth playback (21 Oct 2026, evening)
+
+Andy, on the live site: pressing Play looked shaky, and the anchor cam was not smooth. With a link that opens the
+Vessel view, `scripts/perf/windows-frame-pacing.ts` now also records the motion while the replay plays: after each
+frame the 3D view draws, the moment it drew, the camera, and where the ship and the anchor land on the canvas
+(`recordMotion` in `scripts/lookdev/webgpu-capture.ts`, the lookdev hooks on for that scene), saved per frame in
+`.scratch/windows-frame-pacing/motion-run-N.json`:
+
+```bash
+bun scripts/perf/windows-frame-pacing.ts http://localhost:3150 --runs 1 --slug "eagle-s-2024?t=2024-12-25T16:24Z&view=vessel&mode=evidence"
+```
+
+**The shake: every frame drew the moment before.** The replay clock and the 3D view each run on their own animation
+frame, and the view's runs first, so it read the clock before the clock moved. After a frame of 33 ms the next frame
+drew one step and the one after it two, while the follow camera eased on real time: the ship jerked back and forth on
+screen. On main, in a run that dropped 20 frames, the replay step changed by 99% between frames (p95) and the ship's
+step on screen by 0.71 px; on the branch, in a run that dropped 17, by 4.8% and 0.22 px. The view now moves the clock
+to its own frame's time before reading it (`ReplayClock.advanceTo`), and the warm-up stops while the replay plays
+(it used to draw a 0.2 to 0.4 s batch on the first frame after Play, before the clock had moved).
+
+**The anchor cam: 8 pictures a second.** It was a second pass over the whole stage, so it ran every 125 ms at most. It
+is now drawn at the window's own size (`SceneRenderer.openSecondPicture`) every frame, skipping one after a frame over
+20 ms but never under 20 a second. WebGL draws it in a corner of its canvas and copies it out before the stage's frame.
+WebGPU draws it straight into the window's canvas (three's `CanvasTarget`) through a scene pass that keeps the stage
+pass's context node and runs one render call deeper, after the stage's frame, reading the stage's AO of that frame at
+a share of 0. Three tries before that one, measured:
+
+| Second pass | What happened |
+| --- | --- |
+| Its own context (AO of its own) | Every material rebuilt on each switch between the two contexts: 5 fps |
+| Its own MRT node | Its own render objects, but new shader code: every GPU pipeline compiled again, stalls of seconds |
+| The stage pass's render objects | No builds, but the stage was then drawn with the window's sizes (lookdev: three vessel frames moved 16 to 23%) |
+| One render call deeper (shipped) | Its own render objects and uniform buffers; the stage's material builds and GPU pipelines |
+
+**What the extra picture cost, and the fixes.** Drawn every frame like that, the anchor cam took the Vessel link on
+WebGPU from 57.2 and 53.3 fps on main (anchor cam at 8 a second) to 36.3, 41.5 and 47 fps, runs alternating on the
+same machine. Two things in it were not needed:
+
+- The viewer ran the whole scene update again for the anchor cam's camera, and once more to put the main camera
+  back: the wake, the chain's catenary, the silt, each a buffer upload. Only the dressing reads the camera (under
+  the surface or not, chain links or the hairline, a line as a tube or as the thing it is), so that part is
+  `OverviewScene.applyCamera` now, and the anchor cam calls it alone: 51.4 and 50.5 fps.
+- three draws a light's shadow map again in every render call that meets it (its once per camera and frame check
+  reads a frame id each render call moves on), so the anchor cam's pass drew the whole scene's shadows a second
+  time. Each stage draw now asks for one update (`shadow.autoUpdate` off, `needsUpdate` set by the draw): on WebGPU
+  the anchor cam, drawn after the stage, uses that frame's map; on WebGL, drawn before it, the last frame's.
+
+A third cost came from the UI pass: a fade mask on the rail, which floats over the 3D view, took the overview from
+57 to 52 fps playing (the UI changes set aside: 54.7 and 56.9; the mask alone removed: 57.1 and 56.6). The browser
+composites a masked layer again on every frame of the canvas under it, so the rail scrolls without one.
+
+The branch as merged, two runs of each link, Windows Chrome on WebGPU:
+
+| Link, playing 8 s | main | branch |
+| --- | --- | --- |
+| Overview (`eagle-s-2024`), fps | 56.8, 58.3 | 56.3, 58.9 |
+| Overview, frames over 25 ms | 20, 9 | 7, 6 |
+| Vessel view, anchor down, fps | 57.2, 53.3 (anchor cam 8 a second) | 57.5, 56.4 (anchor cam every frame) |
+| Vessel view, frames over 25 ms | 18, 50 | 0, 6 |
+| Replay step's change between frames, p95 | 70%, 120% | 4.2%, 4.0% |
+| Ship's step change on screen, p95 | 0.61, 0.82 px | 0.22, 0.22 px |
+
+On WebGL on the same GPU (`--webgl`), the Vessel view with the anchor cam every frame played at 59.7 fps, one frame
+over 25 ms.
+
 ## Not measured
 
 - Mobile devices and GPUs other than one: the 3D figures above are SwiftShader, the lookdev's hardware tier ran on

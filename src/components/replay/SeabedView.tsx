@@ -120,6 +120,8 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
         scene: loaded.value,
         input,
         readTimeMs: () => progressToTimeMs(input, clock.getSnapshot().progress),
+        advanceTimeTo: (frameMs) => clock.advanceTo(frameMs),
+        readIsPlaying: () => clock.getSnapshot().isPlaying,
         prefersReducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
         onTargetPick: (target) => onTargetPickRef.current(target),
         webGpuDevice,

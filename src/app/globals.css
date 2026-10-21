@@ -168,6 +168,21 @@ body {
   text-shadow: 0 0 2px var(--color-paper), 0 0 6px var(--color-paper), 0 0 14px var(--color-paper);
 }
 
+/* Panels that scroll inside themselves (the rail, sheets, cards) keep a thin scrollbar in the faint tone: Windows
+   otherwise draws its grey bar with arrow buttons inside the cards. The colour inherits; the width does not. */
+:root {
+  scrollbar-color: var(--color-faint) transparent;
+}
+* {
+  scrollbar-width: thin;
+}
+
+/* The reader's avatar keeps to the house style, where the only colour on screen is data: Clerk's default avatar is
+   purple. Clerk gives each element a cl- class. */
+.cl-userButtonAvatarBox {
+  filter: grayscale(1);
+}
+
 /* One focus treatment for every interactive element (docs/UI_DESIGN_SYSTEM.md, focus-ring). */
 :focus-visible {
   outline: none;

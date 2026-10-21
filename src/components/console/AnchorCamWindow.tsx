@@ -64,7 +64,8 @@ export function AnchorCamWindow({ driver, port, presentation }: AnchorCamWindowP
     const picture = pictureRef.current;
     const canvas = canvasRef.current;
     if (!isOpen || !picture || !canvas) return;
-    const register = () => driver.setAnchorWindow({ canvas, widthPx: Math.max(1, picture.clientWidth), heightPx: Math.max(1, picture.clientHeight) });
+    // A window with no size (hidden, or the screenshot harness's overlays off) draws nothing.
+    const register = () => driver.setAnchorWindow(picture.clientWidth > 0 && picture.clientHeight > 0 ? { canvas, widthPx: picture.clientWidth, heightPx: picture.clientHeight } : null);
     register();
     const resizeObserver = new ResizeObserver(register);
     resizeObserver.observe(picture);
@@ -118,7 +119,8 @@ export function AnchorCamWindow({ driver, port, presentation }: AnchorCamWindowP
           )}
         </div>
       </div>
-      <dl className={`grid gap-2 bg-card px-4 pt-3 pb-3.5 ${presentation === "phone" ? "grid-cols-2" : "grid-cols-4"}`}>
+      {/* The cable's name is the one long label: its column takes the room the three short figures leave. */}
+      <dl className={`grid gap-x-4 gap-y-2 bg-card px-4 pt-3 pb-3.5 ${presentation === "phone" ? "grid-cols-2" : "grid-cols-[auto_auto_minmax(0,1fr)_auto]"}`}>
         {(readouts ?? []).map((readout) => (
           <div key={readout.id} className="flex min-w-0 flex-col" data-testid={`anchor-cam-${readout.id}`}>
             <dt className="truncate text-micro font-normal text-muted" title={readout.label}>

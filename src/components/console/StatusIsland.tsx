@@ -43,23 +43,26 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
       {/* One shape grows from pill to card: width and height transition between their auto sizes where the
           browser can (interpolate-size), and snap where it cannot; the corner radius follows. */}
       <div
-        className={`pointer-events-auto flex w-max max-w-[min(380px,calc(100vw-48px))] flex-col overflow-hidden bg-card shadow-row transition-[width,height,border-radius] duration-220 ease-enter [interpolate-size:allow-keywords] ${isOpen ? "rounded-row" : "rounded-full"}`}
+        className={`pointer-events-auto flex w-max max-w-[min(440px,calc(100vw-48px))] flex-col overflow-hidden bg-card shadow-row transition-[width,height,border-radius] duration-220 ease-enter [interpolate-size:allow-keywords] ${isOpen ? "rounded-row" : "rounded-full"}`}
         data-label-blocker="true"
       >
         <button
           type="button"
           onClick={() => setIsOpen((wasOpen) => !wasOpen)}
           aria-expanded={isOpen}
-          className="flex h-10 items-center gap-2.5 self-center pr-3.5 pl-4 text-small font-medium whitespace-nowrap text-ink"
+          className="flex h-10 w-full min-w-0 items-center justify-center gap-2.5 pr-3.5 pl-4 text-small font-medium whitespace-nowrap text-ink"
           data-testid="replay-anchor-status"
           data-state={statusKind}
         >
           {isDragging && <span className="size-2 flex-none rounded-full bg-alarm" aria-hidden="true" />}
-          <span aria-live="polite">{status.text}</span>
+          {/* Short of room, the status gives way, never the dot or the chevron: clipped, they read as a broken pill. */}
+          <span aria-live="polite" className="min-w-0 truncate">
+            {status.text}
+          </span>
           {/* Read by eye, not announced: a live region ticking every replay minute would drown the status. Under
               640 px the pill has no room for both, and the status wins; the timeline sits right under the stage. */}
           {minutesToNext !== null && (
-            <span className="hidden text-muted tabular-nums sm:inline" data-testid="event-countdown" data-minutes={minutesToNext}>
+            <span className="hidden flex-none text-muted tabular-nums sm:inline" data-testid="event-countdown" data-minutes={minutesToNext}>
               next event {formatCountdown(minutesToNext)}
             </span>
           )}
