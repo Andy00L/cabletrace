@@ -1,10 +1,12 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { CitationButtons } from "@/components/console/CitationButtons";
 import { useConsole } from "@/components/console/console-context";
 import { describeCourse, describeNearestLineByName, describeSpeed, NumberGrid, ReplayMinute, useMomentSample } from "@/components/console/MomentNumbers";
 import { ANCHOR_STATE_LABELS, formatMetres, useVesselAnchor, VesselProfile } from "@/components/console/VesselProfile";
 import type { AnchorState, VesselAnchor } from "@/lib/console/vessel-profile";
+import { findHeldStretch, progressToTimeMs, type HeldStretch } from "@/lib/replay/replay-scene";
 
 const KG_PER_TONNE = 1000;
 const ANCHOR_DOT_CLASS: Record<AnchorState, string> = { stowed: "bg-faint", "let-go": "border-2 border-alarm bg-card", dragging: "bg-alarm" };
@@ -26,6 +28,15 @@ function describeChainOut(anchor: VesselAnchor): string {
   return `${formatMetres(chain.nominalPaidOutMetres)}, ${chain.chainDiameterMm} mm${share}`;
 }
 
+/** The run of positions on one point at the replay moment (findHeldStretch); re-renders only when one starts or ends. */
+function useHeldStretch(): HeldStretch | null {
+  const { input, clock } = useConsole();
+  const readFirstIndex = () => findHeldStretch(input.track, progressToTimeMs(input, clock.getSnapshot().progress))?.firstIndex ?? -1;
+  const firstIndex = useSyncExternalStore(clock.subscribe, readFirstIndex, readFirstIndex);
+  const firstPosition = input.track[firstIndex];
+  return firstPosition ? findHeldStretch(input.track, firstPosition.atMs) : null;
+}
+
 /**
  * The vessel inspector in Ship mode (style board, board 23), under the ship's name in the rail: identity, the side
  * profile with the anchor and chain to scale, and the figures at the replay moment. Every figure comes from the
@@ -40,6 +51,10 @@ export function VesselInspector() {
   const isAnchorOut = reading.state !== "stowed";
   const basis = sample?.basis ?? "no-position";
   const depthMetres = sample?.depthMetres ?? null;
+  const held = useHeldStretch();
+  const heldPositions = held ? consoleCase.positions.slice(held.firstIndex, held.lastIndex + 1) : [];
+  const heldFrom = heldPositions[0];
+  const heldTo = heldPositions[heldPositions.length - 1];
   return (
     <div className="flex flex-col gap-2" data-testid="vessel-inspector" data-state={reading.state}>
       <p className="text-caption font-normal text-muted">
@@ -61,6 +76,13 @@ export function VesselInspector() {
           <NumberGrid numbers={[describeSpeed(sample), describeCourse(sample), describeNearestLineByName(sample, input.cuts)]} testIdPrefix="vessel-number" state={basis} />
         ) : (
           <p className="text-small text-muted">No position for the ship at this moment: the track starts later or has ended.</p>
+        )}
+        {/* A still ship is the record, not a stalled replay: the sources place it on one point for the whole run. */}
+        {heldFrom && heldTo && (
+          <p className="text-small" data-testid="vessel-held">
+            {`Held at one point from ${heldFrom.timeLabel} to ${heldTo.timeLabel} UTC, as the sources place it: ${heldFrom.place}. `}
+            <CitationButtons citations={heldPositions.flatMap((position) => position.citations)} />
+          </p>
         )}
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-small">
           <dt className="text-muted">Chain out</dt>
