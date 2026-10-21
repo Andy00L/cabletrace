@@ -22,6 +22,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fromFile, type GeoTIFFImage } from "geotiff";
+import { measureSeabedFileVersions, SEABED_FILE_VERSIONS_PATH, writeSeabedFileVersionsModule } from "./seabed-file-versions";
 import { EE_S1_TRACED, TDM2_PLACED, TM3_DONGYIN_PLACED, TP3_PLACED, type Coordinate, type TracedLine } from "./traced-routes";
 
 type Region = { west: number; east: number; south: number; north: number };
@@ -612,6 +613,8 @@ async function main() {
     },
   };
   await writeFile(path.join(outDir, `${areaName}-seabed.json`), JSON.stringify(features));
+  // The browser fetches both files at content-versioned URLs (src/lib/seabed/seabed-urls.ts): new contents, new versions.
+  await writeFile(SEABED_FILE_VERSIONS_PATH, writeSeabedFileVersionsModule(measureSeabedFileVersions()));
   console.log(`[main] ${areaName} terrain ${terrain.width}x${terrain.height}, ${deepest / 10} m to ${highest / 10} m, land share ${terrain.landShare.toFixed(3)}`);
   console.log(`[main] ${lines.length} line runs: ${[...new Set(lines.map((line) => line.name))].join(", ")}`);
   console.log(`[main] done in ${Math.round(performance.now() - startedAt)} ms`);
