@@ -15,6 +15,7 @@ import { BottomSheet } from "@/components/ui/BottomSheet";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
 import type { ConsoleCase } from "@/lib/cases/case-console";
 import type { CaseSeries } from "@/lib/cases/case-series";
+import type { CaseSketch } from "@/lib/cases/case-sketch";
 import { formatConsoleState, parseConsoleState, shouldWriteReplayTime, type ConsoleContext, type ConsoleLayer, type ConsoleMode, type SeabedDetail } from "@/lib/console/console-state";
 import { classifyKeyTarget, type KeyTargetKind } from "@/lib/console/keyboard-target";
 import { createReplayClock } from "@/lib/replay/replay-clock";
@@ -58,6 +59,8 @@ type ReplayConsoleProps = {
   consoleCase: ConsoleCase;
   series: CaseSeries | null;
   switcherCases: CaseSwitcherItem[];
+  /** This case's sketch: the 3D view's still when WebGL fails. */
+  caseSketch: CaseSketch | null;
   /** The area's credits and exaggeration, from its seabed file; null when it could not be read. */
   sceneSummary: SceneSummary | null;
   caseFileSha256: string | null;
@@ -94,7 +97,7 @@ function readKeyTargetKind(target: EventTarget | null): KeyTargetKind {
  * of cards over the stage's right edge, the dock with the clock, the timeline and the charts, and the layers that
  * open over them. Owns the replay clock and keeps view, mode, open layer and time in the URL.
  */
-export function ReplayConsole({ input, consoleCase, series, switcherCases, sceneSummary, caseFileSha256 }: ReplayConsoleProps) {
+export function ReplayConsole({ input, consoleCase, series, switcherCases, caseSketch, sceneSummary, caseFileSha256 }: ReplayConsoleProps) {
   const searchParams = useSearchParams();
   const urlContext = useMemo<ConsoleContext>(
     () => ({
@@ -330,7 +333,6 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
 
   const isPhone = !hasFloatingRail;
   const isRailFloating = hasFloatingRail && isRailOpen;
-  const caseSketch = switcherCases.find((item) => item.slug === consoleCase.slug)?.sketch ?? null;
   // The 3D picture frames its subject in the part the floating rail leaves visible.
   const rightInsetPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
 

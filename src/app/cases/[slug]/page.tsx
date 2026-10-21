@@ -33,19 +33,15 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
   if (!cableCase) notFound();
 
   const input = toReplaySceneInput(cableCase);
-  const [series, sketches, seabedSummary, caseFile] = await Promise.all([
+  // Only this case's sketch travels with the page (the 3D view's still if WebGL fails); the switcher fetches the
+  // others from /cases/sketches when a reader reaches for it.
+  const [series, caseSketch, seabedSummary, caseFile] = await Promise.all([
     loadCaseSeries(input),
-    Promise.all(CABLE_CASES.map((oneCase) => loadCaseSketch(toReplaySceneInput(oneCase)))),
+    loadCaseSketch(input),
     loadSeabedSummary(input.seabedArea),
     loadCaseFileExport(cableCase.slug),
   ]);
-  const switcherCases = CABLE_CASES.map((oneCase, index) => ({
-    slug: oneCase.slug,
-    title: oneCase.title,
-    subtitle: oneCase.subtitle,
-    vesselName: oneCase.vessel.name,
-    sketch: sketches[index] ?? null,
-  }));
+  const switcherCases = CABLE_CASES.map((oneCase) => ({ slug: oneCase.slug, title: oneCase.title, subtitle: oneCase.subtitle, vesselName: oneCase.vessel.name }));
 
   return (
     <main>
@@ -55,6 +51,7 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
           consoleCase={toConsoleCase(cableCase)}
           series={series}
           switcherCases={switcherCases}
+          caseSketch={caseSketch}
           sceneSummary={
             seabedSummary
               ? {
