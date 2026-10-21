@@ -27,7 +27,7 @@ export type SignedInState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 /**
  * Signs the tools' test reader in once on `browser` (scripts/auth/sign-in-test-user.ts, about 5 s) and returns the
  * session, so each shot's fresh context starts signed in: every page but the landing sits behind sign-in
- * (src/proxy.ts). Clerk refreshes the short-lived session cookie from the stored client cookies on the next request.
+ * (src/proxy.ts). The proxy refreshes the hour-long access token from the stored refresh token when it runs out.
  */
 export async function signInOnce(browser: Browser, baseUrl: string): Promise<Result<SignedInState>> {
   const context = await browser.newContext();

@@ -1,33 +1,29 @@
 {
- "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
- "type": "frontend",
- "name": "Open the console from the front page, sign in, land in the console",
- "description": "A signed-out reader clicks the ink button Open the console, is sent to sign in, signs in with an email code, and arrives in the Eagle S replay console.",
- "priority": "p0",
- "planSteps": [
-  {
-   "type": "action",
-   "description": "Navigate to the front page /"
-  },
-  {
-   "type": "action",
-   "description": "Click the button Open the console (data-testid open-console)"
-  },
-  {
-   "type": "assertion",
-   "description": "Assert the URL path is /sign-in and the form shows a Continue with Google button and an Email address field"
-  },
-  {
-   "type": "action",
-   "description": "Type testsprite+clerk_test@example.com into the \"Email address\" field and click Continue"
-  },
-  {
-   "type": "action",
-   "description": "On the verification code screen, type 424242; if a Continue button is still shown after the sixth digit, click it"
-  },
-  {
-   "type": "assertion",
-   "description": "Assert that within 30 seconds the URL path is /cases/eagle-s-2024 and the replay console (data-testid replay-console) is shown"
-  }
- ]
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "Open the console from the front page, sign in, land in the console",
+  "description": "A signed-out reader clicks the ink button Open the console, is sent to sign in, signs in with email and password, and arrives in the Eagle S replay console.",
+  "priority": "p0",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to the front page /"
+    },
+    {
+      "type": "action",
+      "description": "Click the button Open the console (data-testid open-console)"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /sign-in and the form (data-testid account-form) shows an Email field, a Password field and a Sign in button"
+    },
+    {
+      "type": "action",
+      "description": "In the sign-in form (data-testid account-form), type testsprite@example.com in the Email field and cabletrace-testsprite-2026 in the Password field, then click Sign in"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert that within 30 seconds the URL path is /cases/eagle-s-2024 and the replay console (data-testid replay-console) is shown"
+    }
+  ]
 }

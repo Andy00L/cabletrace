@@ -296,7 +296,7 @@ threw away, because the area was warmed at the GPU tier's step before the tier w
 and builds only the step asked for: the first 3D frame moved from 7.1 to 8.2 s to 4.0 to 5.3 s in the same probe at a
 load of 6 to 10.
 
-**The tools measure a cold cache now.** The perf tool used to sign in on a tab of the measured context, and Clerk sends
+**The tools measure a cold cache now.** The perf tool used to sign in on a tab of the measured context, and the sign-in form sends
 the reader to `/cases/eagle-s-2024` after signing in, so the measured load found the case page's scripts and the Baltic
 seabed files already cached. The tool signs in once per browser now (`signInOnce`, `scripts/lookdev/tier-launch.ts`)
 and starts each measured context from that session, with an empty cache. That also made it sign in once per run
@@ -433,7 +433,7 @@ The landing replaced the home page, and every page but the landing now sits behi
 | Measure | Old home (18 Oct baseline) | Landing |
 | --- | --- | --- |
 | Desktop `/` LCP | 388 ms (240-536), live site | 536 ms (424-872): pass |
-| Desktop `/` JS | 195.7 KB | 185.5 KB: pass (Clerk's script never loads on the landing) |
+| Desktop `/` JS | 195.7 KB | 185.5 KB: pass (no account script loads on the landing) |
 | 3G phone `/` first screen (LCP) | 1,260 ms, 80.1 KB before it | 2,140 ms (2,120-2,176), 39.4 KB before it: pass |
 | 3G phone `/` CLS | 0.302 in two of three runs | 0.004: pass |
 
@@ -445,10 +445,8 @@ against loaded). The live card's data is read at most once a minute into the cac
 it costs the visitor nothing at request time.
 
 **Signing in.** The perf tool, the console checks (`scripts/checks/console-page.ts`) and the lookdev harness sign in
-as `cabletrace-tools+clerk_test@example.com` before opening a page behind the gate (`scripts/auth/sign-in-test-user.ts`,
-about 5 s). The perf tool and the lookdev harness sign in once per browser, unthrottled and outside the measured
+as `cabletrace-tools@example.com` before opening a page behind the gate (`scripts/auth/sign-in-test-user.ts`: the real
+form with `TOOLS_TEST_PASSWORD` from `.env.local`). The perf tool and the lookdev harness sign in once per browser, unthrottled and outside the measured
 load, and start each measured context from that session with an empty cache (section "Case page load"). The lookdev harness's WebGPU tier drives Windows Chrome, which
-cannot fill the form: its proxy sends a session token made through Clerk's Backend API instead
-(`scripts/lookdev/session-token.ts`). Clerk test addresses and Backend API sessions are for the development instance;
-a production instance needs another route in for these tools.
+cannot fill the form: its proxy sends the same reader's session cookies instead (`scripts/lookdev/session-cookie.ts`).
 

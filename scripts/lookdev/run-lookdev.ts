@@ -16,7 +16,7 @@ import { resolveChromiumPath } from "../perf/chromium-path";
 import { collectRingPixels, compareImages, downscaleImage, findMedianColor, formatHexColor, hasColorNear, matchColorNear, measureContrastRatio, parseHexColor, type RgbColor } from "./compare";
 import { decodePng, encodePng, type RgbaImage } from "./png";
 import { listLookdevShots, type LookdevShot } from "./shots";
-import { createSessionTokenSource } from "./session-token";
+import { createSessionCookieSource } from "./session-cookie";
 import { signInOnce, TIER_LAUNCH, type PlaywrightTierName, type SignedInState } from "./tier-launch";
 import { buildTurntablePage, buildWebGpuTurntablePage } from "./turntable";
 import { canRunWindowsChrome, captureWithWindowsChrome, cropToBox, DEFAULT_PROXY_PORT, DEFAULT_WINDOWS_CHROME, startLookdevProxy, TURNTABLE_PATH, type AgentConfig, type CaptureMode, type WindowsCapture } from "./webgpu-capture";
@@ -586,13 +586,13 @@ async function runWebGpuTier(shots: readonly LookdevShot[], isTurntableIncluded:
     console.error(`[runLookdev] the WebGPU ship turntable did not bundle: ${turntableDirectory.reason}`);
     return { outcomes, hasRenderFailure: true };
   }
-  // This Chrome cannot sign in through the form, so the proxy signs its requests with a session token instead.
-  const sessionTokens = createSessionTokenSource();
-  if (!sessionTokens.ok) {
-    console.error(`[runLookdev] webgpu: cannot sign in: ${sessionTokens.reason}`);
+  // This Chrome cannot sign in through the form, so the proxy sends the test reader's session cookies instead.
+  const sessionCookies = createSessionCookieSource();
+  if (!sessionCookies.ok) {
+    console.error(`[runLookdev] webgpu: cannot sign in: ${sessionCookies.reason}`);
     return { outcomes, hasRenderFailure: true };
   }
-  const proxy = startLookdevProxy(options.baseUrl, turntableDirectory?.ok ? turntableDirectory.value : null, options.webGpuProxyPort, sessionTokens.value);
+  const proxy = startLookdevProxy(options.baseUrl, turntableDirectory?.ok ? turntableDirectory.value : null, options.webGpuProxyPort, sessionCookies.value);
   const session: WebGpuSession = { chromePath: available.value, proxyOrigin: `http://localhost:${proxy.port}`, setAgentConfig: proxy.setAgentConfig, releaseAll: proxy.releaseAll };
   let hasRenderFailure = false;
   try {

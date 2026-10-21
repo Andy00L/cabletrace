@@ -34,9 +34,11 @@ describe("parseWatchItemRow", () => {
 });
 
 describe("isWatchUserId", () => {
-  test("accepts Clerk's user ids only", () => {
-    expect(isWatchUserId("user_2abcDEF123")).toBe(true);
-    expect(isWatchUserId("user_2abc&user_id=eq.other")).toBe(false);
+  test("accepts Supabase Auth's UUID user ids only", () => {
+    expect(isWatchUserId("3f1c2a9e-5b7d-4e21-9c0a-8d6f4b2e1a07")).toBe(true);
+    // A query-string trick and an id from the Clerk days are both refused.
+    expect(isWatchUserId("3f1c2a9e-5b7d-4e21-9c0a-8d6f4b2e1a07&user_id=eq.other")).toBe(false);
+    expect(isWatchUserId("user_2abcDEF123")).toBe(false);
     expect(isWatchUserId("")).toBe(false);
   });
 });

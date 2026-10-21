@@ -35,9 +35,9 @@ Unit tests for the PNG codec, the image checks and the WebGPU tier's log reading
 in once per browser (`signInOnce` in `scripts/lookdev/tier-launch.ts`, through `scripts/auth/sign-in-test-user.ts`,
 about 5 s) and opens every shot in a fresh context that starts from that session; `cut-sequence.ts` and
 `line-continuity.ts` do the same. Windows Chrome, which the WebGPU tier drives from the command line, cannot fill the
-form, so its proxy sends a Clerk session token as `Authorization: Bearer` with every request it forwards
-(`scripts/lookdev/session-token.ts`: a session for the same reader opened through Clerk's Backend API with
-`CLERK_SECRET_KEY` from `.env.local`, which Bun loads; development instance only). The key is never printed.
+form, so its proxy sends the same reader's session cookies with every request it forwards
+(`scripts/lookdev/session-cookie.ts`: a session opened with Supabase's own server client and the reader's password,
+`TOOLS_TEST_PASSWORD` from `.env.local`, which Bun loads; a new one every 30 minutes). Nothing secret is printed.
 
 ## What it renders
 

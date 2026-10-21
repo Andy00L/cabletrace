@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { UserButton } from "@clerk/nextjs";
-import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { RemoveWatchButton } from "@/components/watchlist/RemoveWatchButton";
 import { CABLE_CASES } from "@/data/cases";
+import { signOut } from "@/lib/auth/account-actions";
+import { buildSignInPath } from "@/lib/auth/next-path";
+import { readSignedInReader } from "@/lib/auth/session";
 import { fetchRecentDetections, type DetectionSummary } from "@/lib/globe/live-api";
 import { formatUtcClock, formatUtcDay } from "@/lib/replay/format-utc";
 import type { WatchItem, WatchKind } from "@/lib/watchlist/watch-items";
@@ -13,6 +15,7 @@ import { listWatchItems } from "@/lib/watchlist/watch-store";
 
 export const metadata: Metadata = { title: "Watchlist", description: "The cases, cables and ships you follow, and the detector's findings on them." };
 
+const WATCHLIST_PATH = "/watchlist";
 const CARD_CLASS = "flex flex-col gap-3 rounded-row bg-card px-5 py-4.5 shadow-card";
 const KIND_LABELS: Record<WatchKind, string> = { case: "Case", cable: "Cable", ship: "Ship" };
 
@@ -82,9 +85,10 @@ function AlertRow({ watched }: { watched: WatchedDetection }) {
 
 /** The reader's items and the alerts on them; reads the session, so it renders per request behind a skeleton. */
 async function WatchlistContent() {
-  const { userId, redirectToSignIn } = await auth();
-  if (!userId) return redirectToSignIn();
-  const [listed, detections] = await Promise.all([listWatchItems(userId), fetchRecentDetections()]);
+  const reader = await readSignedInReader();
+  // The proxy lets only signed-in readers through; a session that ended since then goes back to the form.
+  if (reader === null) redirect(buildSignInPath(WATCHLIST_PATH));
+  const [listed, detections] = await Promise.all([listWatchItems(reader.id), fetchRecentDetections()]);
   if (!listed.ok) console.error(`[WatchlistContent] ${listed.reason}`);
   if (!detections.ok) console.error(`[WatchlistContent] ${detections.reason}`);
   const items = listed.ok ? listed.value : [];
@@ -128,6 +132,19 @@ async function WatchlistContent() {
   );
 }
 
+/** Who is signed in, and the way out: ends this browser's session and returns to the landing. */
+async function AccountControls() {
+  const reader = await readSignedInReader();
+  return (
+    <form action={signOut} className="flex items-center gap-1">
+      {reader?.email && <span className="hidden max-w-[240px] truncate text-caption font-normal text-muted sm:block">{reader.email}</span>}
+      <button type="submit" className="flex h-11 items-center rounded-full px-4 text-label text-ink transition-colors duration-140 ease-standard hover:bg-ink/5" data-testid="sign-out">
+        Sign out
+      </button>
+    </form>
+  );
+}
+
 function WatchlistSkeleton() {
   return (
     <div className="grid gap-5 lg:grid-cols-2" aria-busy="true">
@@ -149,8 +166,8 @@ export default function WatchlistPage() {
             <p className="text-body text-muted">The cases, cables and ships you follow, and the detector&apos;s findings on them.</p>
           </div>
           <span className="ml-auto flex-none">
-            <Suspense fallback={<span className="block size-7 rounded-full bg-soft" />}>
-              <UserButton />
+            <Suspense fallback={<span className="block h-11 w-24" />}>
+              <AccountControls />
             </Suspense>
           </span>
         </div>

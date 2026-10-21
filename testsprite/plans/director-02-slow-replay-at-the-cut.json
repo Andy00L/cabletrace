@@ -11,11 +11,7 @@
     },
     {
       "type": "action",
-      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
-    },
-    {
-      "type": "action",
-      "description": "Type 424242 in the verification code field"
+      "description": "In the sign-in form (data-testid account-form), type testsprite@example.com in the Email field and cabletrace-testsprite-2026 in the Password field, then click Sign in"
     },
     {
       "type": "action",

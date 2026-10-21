@@ -1,6 +1,3 @@
-/* Clerk's styles sit in their own layer under the utilities, so the account form takes our classes
-   (src/components/account/ClerkAppProvider.tsx, cssLayerName). */
-@layer theme, base, clerk, components, utilities;
 @import "tailwindcss";
 
 /*

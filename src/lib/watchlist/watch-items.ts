@@ -15,8 +15,8 @@ const MAX_LABEL_LENGTH = 200;
 // A case is referenced by its slug, a ship by its nine-digit MMSI, a cable by its name as the seabed files spell it.
 const CASE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MMSI_PATTERN = /^\d{9}$/;
-// Clerk user ids: "user_" then letters and digits (the table checks the same pattern).
-const USER_ID_PATTERN = /^user_[A-Za-z0-9]{1,60}$/;
+// Supabase Auth user ids: lowercase UUIDs (supabase/migrations/20261021100000_watch_items_supabase_users.sql).
+const USER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 // C0 control characters end at U+001F; U+007F is DEL. Neither belongs in a name or a label.
 const LAST_C0_CONTROL = 0x1f;
 const DELETE_CHARACTER = 0x7f;
@@ -45,7 +45,7 @@ function checkText(value: unknown, name: string, maxLength: number): Result<stri
   return { ok: true, value: trimmed };
 }
 
-/** True for a Clerk user id the store accepts. */
+/** True for a Supabase Auth user id, the only kind the store accepts. */
 export function isWatchUserId(userId: string): boolean {
   return USER_ID_PATTERN.test(userId);
 }

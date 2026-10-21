@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Icon } from "@/components/icons/Icon";
+import { buildSignInPath } from "@/lib/auth/next-path";
 import type { WatchKind } from "@/lib/watchlist/watch-items";
 
 type WatchState = "idle" | "saving" | "watching" | "limit-reached" | "failed";
@@ -40,7 +41,7 @@ export function WatchButton({ kind, watchRef, label, testId }: { kind: WatchKind
       return;
     }
     if (response.status === 401) {
-      router.push(`/sign-in?redirect_url=${encodeURIComponent(window.location.href)}`);
+      router.push(buildSignInPath(`${window.location.pathname}${window.location.search}`));
       return;
     }
     if (response.status === 201 || response.status === 200) setState("watching");

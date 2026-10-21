@@ -3,28 +3,14 @@ import type { ReactNode } from "react";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { ArtPicture } from "@/components/landing/ArtPicture";
 
-// Clerk's development tier: production keys need a domain of our own, which *.vercel.app is not (plan/decision-log.md).
-const ACCOUNTS_NOTE = "Accounts run on Clerk's development tier during the hackathon: at most 100 readers, and the form says Development mode.";
+// Supabase Auth's built-in mailer reaches only the project's team (src/lib/auth/account-actions.ts), so no email is
+// sent and there is no password reset yet.
+const ACCOUNTS_NOTE = "No email is sent: an account opens as soon as it is created. There is no password reset yet.";
 
-// Clerk's own elements, restyled to sit on the paper like the landing's plates (board 16): Google first, as the one ink
-// action, the email code under it. Class names reach Clerk's DOM, so Tailwind sees them here.
-export const ACCOUNT_FORM_APPEARANCE = {
-  elements: {
-    rootBox: "w-full",
-    cardBox: "w-full rounded-card border border-ink/20 bg-paper shadow-raised",
-    card: "bg-paper px-8 pt-8 pb-6 shadow-none",
-    // Clerk paints its footer with a gradient, so the whole background is replaced, not only its colour.
-    footer: "[background:var(--color-paper)]",
-    headerTitle: "text-heading text-ink",
-    headerSubtitle: "text-small text-muted",
-    socialButtonsBlockButton: "h-12 rounded-full border-0 bg-ink text-card hover:bg-ink-hover",
-    socialButtonsBlockButtonText: "text-label text-card",
-    dividerText: "text-caption text-muted",
-    formFieldInput: "h-11 rounded-field border-0 bg-card",
-    formButtonPrimary: "h-11 rounded-full bg-soft text-label text-ink shadow-none hover:bg-ink/10",
-  },
-  layout: { socialButtonsPlacement: "top", socialButtonsVariant: "blockButton" },
-} as const;
+/** The form's plate, empty: holds the form's place while the page reads its query. */
+export function AccountFormPlate() {
+  return <div className="h-[460px] w-full rounded-card border border-ink/20 bg-paper shadow-raised" aria-busy="true" />;
+}
 
 /**
  * The sign-in and sign-up pages (board 16): the threads engraving rising from the bottom of the paper, the mark and

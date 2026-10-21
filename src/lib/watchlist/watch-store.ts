@@ -2,8 +2,8 @@ import type { Result } from "@/lib/result";
 import { isWatchUserId, MAX_WATCH_ITEMS, parseWatchItemRow, type WatchItem, type WatchRequest } from "@/lib/watchlist/watch-items";
 
 // Server-only access to public.watch_items through PostgREST with the Supabase secret key (the table has no policy
-// for the publishable key; supabase/migrations/20261019050000_watch_items.sql). Every call is scoped to one Clerk
-// user id, which the caller takes from the verified session, never from the request body.
+// for the publishable key; supabase/migrations/20261019050000_watch_items.sql). Every call is scoped to one
+// Supabase Auth user id, which the caller takes from the verified session, never from the request body.
 
 // A slow database must not hold a page or an API call for long.
 const STORE_TIMEOUT_MS = 8_000;

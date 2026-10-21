@@ -7,7 +7,7 @@ BASE_URL = "https://cabletrace.vercel.app"
 REQUEST_TIMEOUT_SECONDS = 30
 # sourceRef: the 401 body written by src/proxy.ts for an API call without a session.
 GATE_MESSAGE = {"error": "Sign in to read this."}
-# A browser's page request, which Clerk answers with a redirect toward sign-in instead of a 404.
+# A browser's page request, which the gate answers with a redirect toward sign-in instead of a 404.
 DOCUMENT_HEADERS = {"Accept": "text/html", "Sec-Fetch-Dest": "document"}
 
 
@@ -37,7 +37,9 @@ def test_pages_and_files_closed_signed_out() -> None:
     for path in ("/cases/eagle-s-2024", "/live"):
         page = requests.get(f"{BASE_URL}{path}", headers=DOCUMENT_HEADERS, allow_redirects=False, timeout=REQUEST_TIMEOUT_SECONDS)
         assert page.status_code in (302, 307), f"{path} answered {page.status_code} instead of a redirect"
-        assert "clerk" in page.headers.get("location", "") or "/sign-in" in page.headers.get("location", ""), page.headers.get("location")
+        location = page.headers.get("location", "")
+        # The gate sends the reader to sign in and back to this exact page afterwards (src/proxy.ts, next=).
+        assert location.startswith("/sign-in?next=") or "/sign-in?next=" in location, location
     print("[test_pages_and_files_closed_signed_out] case file 404, pages redirect toward sign-in")
 
 

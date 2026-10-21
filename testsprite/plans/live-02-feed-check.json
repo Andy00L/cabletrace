@@ -11,15 +11,11 @@
     },
     {
       "type": "action",
-      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+      "description": "In the sign-in form (data-testid account-form), type testsprite@example.com in the Email field and cabletrace-testsprite-2026 in the Password field, then click Sign in"
     },
     {
       "type": "action",
-      "description": "Wait until the code screen (\"Check your email\") shows \"Didn't receive a code?\", then type 424242; Clerk usually continues by itself after the 6th digit, so click Continue only if it is still shown"
-    },
-    {
-      "type": "action",
-      "description": "If Clerk answers \"You need to send a verification code before attempting to verify\", click Resend once it is enabled and type 424242 again; then wait up to 30 seconds until the URL is no longer under /sign-in"
+      "description": "Wait up to 30 seconds until the URL is no longer under /sign-in"
     },
     {
       "type": "action",

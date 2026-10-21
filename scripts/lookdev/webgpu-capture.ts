@@ -229,14 +229,14 @@ type LookdevProxy = { port: number; stop: () => void };
  * load gets its own hold token; `agentConfig` for the next page is set before each Chrome run.
  */
 /**
- * `readSessionToken` gives a Clerk session token the proxy sends upstream as `Authorization: Bearer`: the app sits
- * behind sign-in (src/proxy.ts), and this Chrome cannot sign in through the form (session-token.ts).
+ * `readSessionCookies` gives the test reader's session cookies, which the proxy sends upstream: the app sits behind
+ * sign-in (src/proxy.ts), and this Chrome cannot sign in through the form (session-cookie.ts).
  */
 export function startLookdevProxy(
   upstreamUrl: string,
   turntableDirectory: string | null,
   port: number,
-  readSessionToken: () => Promise<Result<string>>,
+  readSessionCookies: () => Promise<Result<string>>,
 ): LookdevProxy & { setAgentConfig: (config: AgentConfig) => void; releaseAll: () => void } {
   let agentConfig: AgentConfig | null = null;
   let nextToken = 0;
@@ -271,9 +271,9 @@ export function startLookdevProxy(
         holds.delete(token);
         return new Response("released");
       }
-      const sessionToken = await readSessionToken();
-      if (!sessionToken.ok) console.error(`[startLookdevProxy] no session token, the page will ask to sign in: ${sessionToken.reason}`);
-      const upstreamHeaders: Record<string, string> = { "accept-encoding": "identity", ...(sessionToken.ok ? { authorization: `Bearer ${sessionToken.value}` } : {}) };
+      const sessionCookies = await readSessionCookies();
+      if (!sessionCookies.ok) console.error(`[startLookdevProxy] no session, the page will ask to sign in: ${sessionCookies.reason}`);
+      const upstreamHeaders: Record<string, string> = { "accept-encoding": "identity", ...(sessionCookies.ok ? { cookie: sessionCookies.value } : {}) };
       const upstreamResponse = await fetch(`${upstreamUrl}${url.pathname}${url.search}`, { headers: upstreamHeaders, redirect: "manual" });
       const contentType = upstreamResponse.headers.get("content-type") ?? "";
       if (!contentType.includes("text/html") || agentConfig === null) return new Response(upstreamResponse.body, { status: upstreamResponse.status, headers: upstreamResponse.headers });

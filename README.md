@@ -68,7 +68,7 @@ one.
 - **Opens draft cases from fault signals.** `match-fault-signals` polls NGA navigational warnings and IODA internet
   outage alerts, matches each signal to a recorded cable and lists the ships recorded near it before the fault, ranked
   by the detector. Every draft says "Draft case", never a finding (`docs/FAULT_SIGNALS.md`).
-- **Keeps a watchlist.** Signed-in readers (Clerk) watch a ship, a cable or a case; `/watchlist` lists the detector's
+- **Keeps a watchlist.** Signed-in readers (Supabase Auth, email and password) watch a ship, a cable or a case; `/watchlist` lists the detector's
   alerts on them from the last 24 hours.
 - **Shows a recorded day of the world's ships.** Every 10 minutes a collector writes one compressed frame of every ship
   aisstream.io and Digitraffic heard; `/live` plays the last 24 hours on a globe with the world's submarine cables and
@@ -99,7 +99,7 @@ flowchart TD
     subgraph vercel["Vercel: Next.js 16"]
         cases["Case pages and case files<br>prerendered from src/data/cases"]
         frameRoute["/api/ship-frames<br>CDN cache, 2 days a frame"]
-        watchRoute["/watchlist, /api/watchlist<br>Clerk session"]
+        watchRoute["/watchlist, /api/watchlist<br>Supabase Auth session"]
     end
     subgraph browser["Browser: three.js"]
         replay["Replay console<br>/cases/slug"]
@@ -225,7 +225,8 @@ Open http://localhost:3000. The ten replays, the case files and the WebGL check 
 data is in the repository. The recorder card and `/live` need a Supabase project with the migrations in
 `supabase/migrations`, and `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and
 `SUPABASE_SECRET_KEY` in `.env.local`; without them the card reads "Unavailable" and `/live` says the day could not be
-loaded. The watchlist also needs a Clerk application (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`).
+loaded. Accounts use the same project's Supabase Auth (email provider on); the tools' and TestSprite's test readers
+come from `bun scripts/auth/ensure-test-readers.ts`, which also needs `TOOLS_TEST_PASSWORD` in `.env.local`.
 
 The checks a pull request passes:
 
@@ -286,8 +287,10 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
   The anchor model (IACS UR A1) gives Eagle S a 9.3 t anchor where the police statements say about 11 t.
 - **Fault signals are thin.** NGA's warning feed has published nothing newer than 10 May 2024. IODA publishes no terms
   for redisplay, so a signal shows only its title and a link. ENTSO-E power-link outages wait for an API token.
-- **Accounts run on Clerk's development instance.** A production instance needs a custom domain; the development tier
-  allows 100 users, and the sign-in form says "Development mode".
+- **Accounts skip the email check.** Supabase's built-in mailer reaches only the project's team, at 2 emails an hour,
+  so sign-up creates a confirmed account with the secret key and sends nothing: an address is never verified, and
+  there is no password reset. A mail provider (SMTP) would bring both back. Because sign-up runs on the server, the
+  per-IP limit Supabase puts on its public sign-up (30 every 5 minutes) does not apply to it.
 - **The whole app sits behind sign-in.** Only the front page, the sign-in pages and `/api/health` are public, so a case
   file is downloaded signed in (the console's Case file row) and checked from the saved file.
 - **The WebGPU tier was tested on one adapter.** It ran on an AMD GCN 5 laptop GPU through Windows Chrome; other GPUs
@@ -322,7 +325,7 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 | `live-03` | Zoom by sea: Planet, a sea, back up, a link to the Baltic, the Gulf of Finland | The busiest seas ranked, each tier's card, breadcrumb and address |
 | `landing-01` | The front page signed out | The live watch, its region states and crossings, with no account |
 | `landing-02` | Open the console from the front page, sign in | The gate sending a reader to sign-in and back into the console |
-| `account-01` | The sign-in page | Google first and an email code, the gate's own wording |
+| `account-01` | The sign-in page | The email and password form, the no-email note, the link to create an account |
 | `account-02` | A shared replay link, signed out | The link surviving sign-in, minute and card included |
 | `account-03` | The watchlist signed in | The page opening for a reader with an account |
 | `director-01` | The director on, a view picked, the Director button | The camera following the story until the reader takes it, and giving it back |
@@ -333,12 +336,15 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 | `diagnostics-01` | WebGL check from the header, Measure again | The map and 3D probes rendering, the renderer and frame timings |
 | `routes-01` | `/api/health` signed out, then an unknown case signed in | The health contract and a 404 instead of a broken console |
 
-Every plan signs in with a Clerk test address (its code is always 424242 and no email is sent) before it opens an
-app page; `routes-01` reads `/api/health` signed out first. No plan depends on another, and each runs the same
+Every plan signs in as the TestSprite test reader, `testsprite@example.com`, whose password is in the plan text on
+purpose (anyone can create an account, and `scripts/auth/ensure-test-readers.ts` puts it back if it changes), before
+it opens an app page; `routes-01` reads `/api/health` signed out first. No plan depends on another, and each runs the same
 before and after the app goes behind sign-in. Each plan's steps and assertions were run with Playwright against
 cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both. The newer ones were
 walked the same way: `director-01` and `director-02` passed every step on production, `live-03` 7 of 7 checks on a
-local build of its branch, and the landing and account plans on the gate's preview. `testsprite/backend` holds two API tests in TestSprite's Python
+local build of its branch, and the landing and account plans on the gate's preview. On 21 Oct 2026 the sign-in steps
+moved from Clerk's email code to Supabase Auth's email and password; the new form path (sign-in, a wrong password, a
+deep link coming back, sign-up, sign-out) was walked with Playwright on a local build. `testsprite/backend` holds two API tests in TestSprite's Python
 format: the health contract, and the sign-in gate (only the front page and `/api/health` answer a signed-out caller,
 the APIs refuse it with 401, the pages redirect toward sign-in). Both pass with `python3 testsprite/backend/<file>.py`
 against the live app and wait for a TestSprite backend project, since this one is a frontend project. A manual run against any URL is `.github/workflows/testsprite.yml`,

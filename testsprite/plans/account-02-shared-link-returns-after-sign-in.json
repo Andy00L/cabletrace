@@ -1,29 +1,25 @@
 {
- "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
- "type": "frontend",
- "name": "A shared replay link survives sign-in",
- "description": "A signed-out reader opens a deep link to a replay minute and view, is sent to sign in, and comes back to that exact link with its moment restored.",
- "priority": "p0",
- "planSteps": [
-  {
-   "type": "action",
-   "description": "Navigate to /cases/eagle-s-2024?t=2024-12-25T16:44Z&view=closeup"
-  },
-  {
-   "type": "assertion",
-   "description": "Assert the URL path is /sign-in and its query contains redirect_url"
-  },
-  {
-   "type": "action",
-   "description": "Type testsprite+clerk_test@example.com into the \"Email address\" field and click Continue"
-  },
-  {
-   "type": "action",
-   "description": "On the verification code screen, type 424242; if a Continue button is still shown after the sixth digit, click it"
-  },
-  {
-   "type": "assertion",
-   "description": "Assert that within 30 seconds the URL path is /cases/eagle-s-2024 with t=2024-12-25T16:44Z and view=closeup in its query, the replay console (data-testid replay-console) is shown, and the clock reads 16:44"
-  }
- ]
+  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
+  "type": "frontend",
+  "name": "A shared replay link survives sign-in",
+  "description": "A signed-out reader opens a deep link to a replay minute and view, is sent to sign in, and comes back to that exact link with its moment restored.",
+  "priority": "p0",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Navigate to /cases/eagle-s-2024?t=2024-12-25T16:44Z&view=closeup"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert the URL path is /sign-in and its query has next=/cases/eagle-s-2024?t=2024-12-25T16:44Z&view=closeup (URL-encoded)"
+    },
+    {
+      "type": "action",
+      "description": "In the sign-in form (data-testid account-form), type testsprite@example.com in the Email field and cabletrace-testsprite-2026 in the Password field, then click Sign in"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert that within 30 seconds the URL path is /cases/eagle-s-2024 with t=2024-12-25T16:44Z and view=closeup in its query, the replay console (data-testid replay-console) is shown, and the clock reads 16:44"
+    }
+  ]
 }
