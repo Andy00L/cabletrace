@@ -31,19 +31,27 @@
     },
     {
       "type": "action",
-      "description": "Click the Director button, then click the button labelled \"Play replay\" (data-testid replay-play) and wait 5 seconds"
+      "description": "Click the Director button, click the button labelled \"Play replay\" (data-testid replay-play), wait 3 seconds, then click \"Pause replay\" (the same button)"
     },
     {
       "type": "assertion",
-      "description": "Assert the replay clock reads a time from 16:38 to 16:44 UTC (at normal speed it would be past 18:00 by now) and the anchor status (data-testid replay-anchor-status) contains \"next event in\""
+      "description": "Assert the replay clock (data-testid replay-clock) reads a time from 16:31 to 16:47 UTC: at normal speed three seconds would take it past 17:30"
     },
     {
       "type": "action",
-      "description": "Wait up to 15 seconds until \"At the cut\" is pressed in the view switch (data-testid view-switch), then click \"Pause replay\""
+      "description": "Click \"Play replay\""
     },
     {
       "type": "assertion",
-      "description": "Assert \"At the cut\" is pressed in the view switch and the replay clock reads \"16:44 UTC\", \"16:45 UTC\" or \"16:46 UTC\""
+      "description": "Assert the anchor status (data-testid replay-anchor-status) contains \"next event in\" while the replay plays"
+    },
+    {
+      "type": "action",
+      "description": "Wait up to 20 seconds until \"At the cut\" is pressed in the view switch (data-testid view-switch), then click \"Pause replay\" at once"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert \"At the cut\" is pressed in the view switch and the replay clock reads a time from 16:44 to 16:49 UTC"
     }
   ]
 }

@@ -39,9 +39,10 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
   const minutesToNext = minutesToNextText ? Number(minutesToNextText) : null;
 
   return (
-    // From 1280 px it sits centred in the top band, between the view switcher and the right column; the grown anchor
-    // cam (640 px) leaves no room there, so it keeps the row under the view switcher, as on narrower stages.
-    <div className={`pointer-events-none absolute left-4 z-(--layer-stage-controls) flex justify-center ${isAnchorCamExpanded ? "" : "xl:top-4 xl:left-1/2 xl:-translate-x-1/2"} ${isCloseUp ? "top-28" : "top-16"}`}>
+    // From 1400 px it sits centred in the top band, between the view switcher and the right column, where the status and
+    // the countdown (about 450 px of pill) fit; narrower, and beside the grown anchor cam (640 px), it keeps the row under
+    // the view switcher.
+    <div className={`pointer-events-none absolute left-4 z-(--layer-stage-controls) flex justify-center ${isAnchorCamExpanded ? "" : "min-[1400px]:top-4 min-[1400px]:left-1/2 min-[1400px]:-translate-x-1/2"} ${isCloseUp ? "top-28" : "top-16"}`}>
       {/* One shape grows from pill to card: width and height transition between their auto sizes where the
           browser can (interpolate-size), and snap where it cannot; the corner radius follows. */}
       <div
@@ -62,11 +63,9 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
             {statusText}
           </span>
           {/* Read by eye, not announced: a live region ticking every replay minute would drown the status. Under
-              640 px the pill has no room for both, and the status wins; the timeline sits right under the stage.
-              From 1280 px the pill is centred between the view switcher and the rail, and both fit only from
-              1400 px (about 450 px of pill). */}
+              640 px the pill has no room for both, and the status wins; the timeline sits right under the stage. */}
           {minutesToNext !== null && (
-            <span className="hidden flex-none text-muted tabular-nums sm:inline xl:max-[1399px]:hidden" data-testid="event-countdown" data-minutes={minutesToNext}>
+            <span className="hidden flex-none text-muted tabular-nums sm:inline" data-testid="event-countdown" data-minutes={minutesToNext}>
               next event {formatCountdown(minutesToNext)}
             </span>
           )}
