@@ -41,6 +41,12 @@ function warmWebGpuDevice() {
   earlyWebGpuDevice = requestWebGpuDevice();
 }
 
+// The viewer's code (three.js and the scene, the page's largest script): its download and parse start while the console
+// renders, not when the effect runs. import() keeps one module per page, so asking again is free.
+function loadViewerCode() {
+  return import("@/lib/seabed/scene/viewer");
+}
+
 /** The adapter check started early, or a new one. */
 function takeWebGpuDevice(): Promise<Result<WebGpuDevice>> {
   const taken = earlyWebGpuDevice ?? requestWebGpuDevice();
@@ -65,6 +71,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
   // warms what the effect awaits.
   warmSeabedArea(input.seabedArea);
   warmWebGpuDevice();
+  if (typeof window !== "undefined") void loadViewerCode();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SeabedViewer | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading", step: "seabed" });
@@ -85,7 +92,7 @@ export function SeabedView({ input, clock, view, isIllustrated, rightInsetPx, on
     let viewer: SeabedViewer | null = null;
 
     async function startViewer(host: HTMLDivElement) {
-      const viewerCode = import("@/lib/seabed/scene/viewer");
+      const viewerCode = loadViewerCode();
       // While the seabed area and the viewer's code download: the WebGPU adapter check, then, when it finds no adapter,
       // the WebGL context the GPU tiers draw on, which also tells a CPU renderer from a GPU (the page's first context
       // takes up to a second on some machines: better spent now, webgl-canvas.ts). Not both at once: on Windows Chrome
