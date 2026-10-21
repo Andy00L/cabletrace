@@ -17,6 +17,7 @@ import { measureLevelIrradiance, type TerrainLighting } from "@/lib/seabed/scene
 import { createPhysicalLine, createSeabedLineMaterials, type PhysicalLine } from "@/lib/seabed/scene/seabed-lines";
 import { buildWaterBody, createWaterDepthMap, WATER_ABSORPTION, WATER_LOOK } from "@/lib/seabed/scene/water-surface";
 import { buildPolylineTube } from "@/lib/seabed/scene/polyline-tube";
+import { yieldToPage } from "@/lib/render/yield-to-page";
 import { FULL_WIDTH_DISTANCE_KM, MIN_WIDTH_SHARE, readThinnedTubeMiddle } from "@/lib/seabed/scene/tube-thinning";
 import { createWake } from "@/lib/seabed/scene/wake";
 import type { SeabedFeatures } from "@/lib/seabed/seabed-data";
@@ -32,6 +33,8 @@ const BLOCK_BASE_THICKNESS_KM = 2.6;
 const LINE_STEP_KM = 0.3;
 // Faces around each map tube (and its casing and the signal's halo).
 const TUBE_RADIAL_SEGMENTS = 8;
+// Physical lines built in one task after the first frame (prepareRefinement), so the page answers between batches.
+const PHYSICAL_LINES_PER_TASK = 6;
 // Points on each side used to even out a line's height along the seabed.
 const LINE_HEIGHT_SMOOTHING_POINTS = 4;
 const POWER_CABLE_RADIUS_KM = 0.13;
@@ -1131,16 +1134,21 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
    * shaders in the background, then calls revealRefinement.
    */
   async function prepareRefinement(environment: THREE.Texture | null): Promise<void> {
+    // One piece per task, so the page answers between them (on a phone the whole refinement was one 1.4 s task).
     shipModel.addHull();
+    await yieldToPage();
     anchor.add(buildAnchorModel(anchorMaterial).group);
     try {
       const { addShipDetail } = await shipDetailCode;
+      await yieldToPage();
       addShipDetail(shipModel, input.vessel.name);
     } catch (error) {
       console.error(`[prepareRefinement] the ship's detail level did not load: ${error instanceof Error ? error.message : String(error)}`);
     }
+    await yieldToPage();
     const lineMaterials = createSeabedLineMaterials();
-    for (const dataLine of dataTubes) {
+    for (const [lineIndex, dataLine] of dataTubes.entries()) {
+      if (lineIndex % PHYSICAL_LINES_PER_TASK === 0) await yieldToPage();
       const { tone, radius, tube } = dataLine;
       const physical = createPhysicalLine({ restingPoints: tube.restingPoints, radiusKm: radius * MIN_WIDTH_SHARE, kind: tone === "pipeline" ? "pipeline" : "cable", hex: tone === "pipeline" ? WEBGL_COLORS.pipeline : WEBGL_COLORS.cable, materials: lineMaterials, kit, sampleSeabedHeight });
       physical.group.visible = false;
