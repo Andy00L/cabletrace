@@ -6,6 +6,8 @@ import type { ConsoleCase } from "@/lib/cases/case-console";
 import type { ConsoleLayer, ConsoleMode, SeabedDetail } from "@/lib/console/console-state";
 import type { ReplayClock } from "@/lib/replay/replay-clock";
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
+import type { ShipCamera } from "@/lib/seabed/scene/director/camera-driver";
+import type { DirectorViewerPort } from "@/lib/seabed/scene/director/viewer-port";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
 import type { SeabedViewName } from "@/lib/seabed/scene/viewer";
 
@@ -21,6 +23,12 @@ export type ConsoleController = {
   isDirectorOn: boolean;
   /** Hands the camera to the director, or takes it back where the director left it. */
   setDirectorOn: (isOn: boolean) => void;
+  /** The ship camera the vessel card picked (Follow, Bridge view, Anchor cam), drawn in the Vessel view. */
+  shipCamera: ShipCamera;
+  /** Picks a ship camera and moves to the Vessel view; null until the 3D view can draw them. */
+  setShipCamera: ((camera: ShipCamera) => void) | null;
+  /** The 3D view's port, for the readouts drawn from it (hover, the anchor cam's figures); null until it draws. */
+  directorPort: DirectorViewerPort | null;
   mode: ConsoleMode;
   detail: SeabedDetail;
   layer: ConsoleLayer;

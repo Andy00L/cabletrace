@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CaseStill } from "@/components/cases/CaseStill";
+import { ANCHOR_CAM_HEIGHT_PX, ANCHOR_CAM_WIDTH_PX, AnchorCamWindow } from "@/components/console/AnchorCamWindow";
 import { ConsoleControllerContext, type ConsoleController } from "@/components/console/console-context";
 import { ConsoleDock } from "@/components/console/ConsoleDock";
 import { ConsoleLayers } from "@/components/console/ConsoleLayers";
@@ -19,6 +20,8 @@ import { formatConsoleState, parseConsoleState, shouldWriteReplayTime, type Cons
 import { classifyKeyTarget, type KeyTargetKind } from "@/lib/console/keyboard-target";
 import { createReplayClock } from "@/lib/replay/replay-clock";
 import { progressToTimeMs, timeMsToProgress, type ReplaySceneInput } from "@/lib/replay/replay-scene";
+import { describeAnchorStatus } from "@/lib/replay/anchor-status";
+import type { CameraDriver, CameraMode, SafeInsets, ShipCamera } from "@/lib/seabed/scene/director/camera-driver";
 import { readReplayPace } from "@/lib/seabed/scene/director/replay-pace";
 import { buildShotList, pickShotAt, readShotView } from "@/lib/seabed/scene/director/shots";
 import type { SceneTarget } from "@/lib/seabed/scene/overview";
@@ -30,6 +33,11 @@ const REPLAY_DURATION_SECONDS = 40;
 // A press on the 3D view that moves further than this (CSS px) is the user taking the camera, which stops the director.
 // The same slop tells a click from an orbit in the viewer (src/lib/seabed/scene/viewer.ts, CLICK_SLOP_PX).
 const CAMERA_GRAB_SLOP_PX = 6;
+// Where the stage's own controls reach in from its edges (StageOverlays: 16 px inset, 44 px controls, 12 px of air),
+// which the director keeps its subjects clear of; on a phone the anchor status sits on a second row under the views.
+const CONTROLS_BAND_PX = 72;
+const PHONE_TOP_BAND_PX = 112;
+const STAGE_INSET_PX = 16;
 // The rail's width and its inset from the stage edge (docs/UI_DESIGN_SYSTEM.md, Console, Layout), in CSS px.
 const RAIL_WIDTH_PX = 360;
 const RAIL_INSET_PX = 16;
@@ -135,6 +143,13 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   const [hasFloatingRail, setHasFloatingRail] = useState(() => matchesMedia(FLOATING_RAIL_QUERY));
   const [stageElement, setStageElement] = useState<HTMLElement | null>(null);
   const [viewer, setViewer] = useState<SeabedViewer | null>(null);
+  const [driver, setDriver] = useState<CameraDriver | null>(null);
+  const [shipCamera, setShipCameraState] = useState<ShipCamera>("follow");
+  // What the controls and cards cover at the stage's edges, read by the camera driver every frame.
+  const safeInsetsRef = useRef<SafeInsets>({ left: STAGE_INSET_PX, top: CONTROLS_BAND_PX, right: STAGE_INSET_PX, bottom: CONTROLS_BAND_PX });
+  // The anchor is on the seabed (the drag window): the anchor cam has something to show.
+  const readIsAnchorDown = useCallback(() => describeAnchorStatus(input, progressToTimeMs(input, clock.getSnapshot().progress)).kind === "dragging", [input, clock]);
+  const isAnchorDown = useSyncExternalStore(clock.subscribe, readIsAnchorDown, readIsAnchorDown);
   // The state as last written, so two changes made in one handler (a new mode, then a closed card) both land.
   const uiRef = useRef(ui);
 
@@ -176,6 +191,14 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
       if (!isOn) updateUi({ view: readDirectedView() }, "replace");
     },
     [isDirectorOn, updateUi, readDirectedView],
+  );
+  // A ship camera is drawn in the Vessel view; picking one takes the camera from the director like any view.
+  const setShipCamera = useCallback(
+    (camera: ShipCamera) => {
+      setShipCameraState(camera);
+      setView("vessel");
+    },
+    [setView],
   );
   const setMode = useCallback(
     (mode: ConsoleMode) => {
@@ -292,6 +315,38 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
     };
   }, [stageElement, isDirectorOn, setDirectorOn]);
 
+  // Runs the cameras through the viewer's port once the 3D view draws: syncs with the viewer, which React does not own.
+  // The driver's code (with three.js's math) loads after the viewer, never before the first frame.
+  useEffect(() => {
+    if (!viewer) return;
+    let isCancelled = false;
+    let created: CameraDriver | null = null;
+    void import("@/lib/seabed/scene/director/camera-driver").then(({ createCameraDriver }) => {
+      if (isCancelled) return;
+      created = createCameraDriver({
+        port: viewer.director,
+        shots,
+        prefersReducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        cutLabels: input.cuts.map((cut) => cut.label),
+        readSafeInsets: () => safeInsetsRef.current,
+      });
+      setDriver(created);
+    });
+    return () => {
+      isCancelled = true;
+      created?.dispose();
+      setDriver(null);
+    };
+  }, [viewer, shots, input]);
+
+  // Tells the driver who holds the camera: the director, a ship camera of the vessel card, or the view's own camera.
+  const cameraModeKey = isDirectorOn ? "director" : drawnView === "vessel" && shipCamera !== "follow" ? shipCamera : "user";
+  useEffect(() => {
+    if (!driver) return;
+    const mode: CameraMode = cameraModeKey === "director" ? { kind: "director" } : cameraModeKey === "user" ? { kind: "user" } : { kind: "ship", camera: cameraModeKey };
+    driver.setMode(mode);
+  }, [driver, cameraModeKey]);
+
   // Keyboard shortcuts (the shortcuts dialog lists them). Listens on the window, which React does not own.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -332,10 +387,39 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   const isRailFloating = hasFloatingRail && isRailOpen;
   // The 3D picture frames its subject in the part the floating rail leaves visible.
   const rightInsetPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
+  const isAnchorCamShown = driver !== null && viewer !== null && isAnchorDown && drawnView !== "closeup";
+  // The rail starts under the anchor cam when both stand at the stage's right edge.
+  const railTopPx = isAnchorCamShown && !isPhone ? STAGE_INSET_PX + ANCHOR_CAM_HEIGHT_PX + 12 : STAGE_INSET_PX;
+  const rightColumnPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : isAnchorCamShown && !isPhone ? ANCHOR_CAM_WIDTH_PX + RAIL_INSET_PX * 2 : STAGE_INSET_PX;
+  // Hands the new insets to the camera driver, which reads them every frame outside React (a ref, so a change costs no
+  // render of its own).
+  useEffect(() => {
+    safeInsetsRef.current = { left: STAGE_INSET_PX, top: isPhone ? PHONE_TOP_BAND_PX : CONTROLS_BAND_PX, right: rightColumnPx, bottom: CONTROLS_BAND_PX };
+  }, [isPhone, rightColumnPx]);
 
   const controller = useMemo<ConsoleController>(
-    () => ({ input, consoleCase, series, clock, ...ui, view: drawnView, isDirectorOn, setDirectorOn, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256 }),
-    [input, consoleCase, series, clock, ui, drawnView, isDirectorOn, setDirectorOn, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256],
+    () => ({
+      input,
+      consoleCase,
+      series,
+      clock,
+      ...ui,
+      view: drawnView,
+      isDirectorOn,
+      setDirectorOn,
+      shipCamera,
+      setShipCamera: driver ? setShipCamera : null,
+      directorPort: viewer?.director ?? null,
+      setView,
+      setMode,
+      setDetail,
+      openLayer,
+      closeLayer,
+      seekTo,
+      focusTarget,
+      caseFileSha256,
+    }),
+    [input, consoleCase, series, clock, ui, drawnView, isDirectorOn, setDirectorOn, shipCamera, driver, setShipCamera, viewer, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256],
   );
 
   return (
@@ -378,12 +462,15 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
                 railWidthPx={hasFloatingRail ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : 0}
                 onResetView={() => viewer?.resetView()}
                 onShowRail={hasFloatingRail && !isRailOpen ? () => setIsRailOpen(true) : null}
+                showRailTopPx={railTopPx}
                 sceneSummary={sceneSummary}
               />
+              {isAnchorCamShown && driver && viewer && <AnchorCamWindow driver={driver} port={viewer.director} presentation={isPhone ? "phone" : "desktop"} />}
               {isRailFloating && (
                 <div
-                  className="absolute top-4 right-4 bottom-4 z-(--layer-panel) flex flex-col gap-3"
-                  style={{ width: RAIL_WIDTH_PX }}
+                  className="absolute right-4 bottom-4 z-(--layer-panel) flex flex-col gap-3"
+                  style={{ width: RAIL_WIDTH_PX, top: railTopPx }}
+                  data-label-blocker="true"
                   data-overlays-stage="true"
                 >
                   <ConsoleRail onHide={() => setIsRailOpen(false)} showsCharts={!isWide} />

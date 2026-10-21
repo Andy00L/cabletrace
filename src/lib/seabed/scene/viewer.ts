@@ -8,8 +8,10 @@ import { createWebGlSceneRenderer, type DrawingBudget } from "@/lib/render/webgl
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
 import type { Result } from "@/lib/result";
 import { clampValue, easeOutCubic } from "@/lib/seabed/math";
-import { hideOverlappingLabels } from "@/lib/seabed/scene/labels";
+import { hideOverlappingLabels, type LabelRoom } from "@/lib/seabed/scene/labels";
 import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
+import { findNearestCable, findNearestPass, sampleTrack, type CableRun, type TrackSample } from "@/lib/seabed/scene/director/hover-readout";
+import type { CameraPose, DirectorSubjects, DirectorViewerPort, SecondView, ViewerFrame } from "@/lib/seabed/scene/director/viewer-port";
 import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneSubject, type SceneTarget } from "@/lib/seabed/scene/overview";
 import { chooseScenePalette } from "@/lib/seabed/scene/scene-look";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
@@ -55,6 +57,13 @@ const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
 const MIN_PROBED_WIDTH_DEVICE_PX = 2;
 // A close-up subject counts as hidden when the seabed is hit this much (units) before reaching it.
 const CLOSE_UP_HIDDEN_MARGIN = 0.3;
+// The anchor cam's picture is a second pass over the whole canvas, so it is drawn less often than the main view (ms of
+// wall time between its frames): at most 8 times a second on a GPU (measured on the hardware tier here, 1,440 x 900:
+// every frame took the replay from 23 to 15.5 frames a second), and as a still refreshed every 10 s on a CPU renderer,
+// where a frame already takes 0.3 to 0.5 s.
+const SECOND_VIEW_INTERVAL_MS: Record<"gpu" | "cpu", number> = { gpu: 125, cpu: 10_000 };
+// Labels keep this far inside the stage's edges (CSS px), so a name is never cut by the stage's rounded frame.
+const LABEL_EDGE_ROOM_PX = 8;
 
 /**
  * Lookdev camera override (explore/natural-look storyboard): a page agent writes `data-camera-override` on the canvas
@@ -146,6 +155,8 @@ export type SeabedViewer = {
   projectTarget: (target: SceneTarget) => SceneProjection;
   /** Slides the overview camera sideways until the target sits in the middle of the clear part, keeping angle and zoom. */
   centerOnTarget: (target: SceneTarget) => void;
+  /** The camera director's hold on the cameras, the anchor cam and the hover readout (src/lib/seabed/scene/director). */
+  director: DirectorViewerPort;
   dispose: () => void;
 };
 
@@ -224,6 +235,8 @@ function createLabelLayer(container: HTMLElement): CSS2DRenderer {
   labels.domElement.style.position = "absolute";
   labels.domElement.style.inset = "0";
   labels.domElement.style.pointerEvents = "none";
+  // The renderer gives each label a z-index by depth; isolated, those stay inside the layer, under the stage's controls.
+  labels.domElement.style.isolation = "isolate";
   container.appendChild(labels.domElement);
   return labels;
 }
@@ -353,6 +366,19 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   /** The replay moment to draw: the lookdev override when one is set, the replay clock's otherwise. */
   const readDrawTimeMs = () => timeOverrideMs ?? readTimeMs();
 
+  // The camera director's hold on the cameras (the `director` port below): a pose for the overview camera, an angle for
+  // the close-up's, the anchor cam's second view, and the listeners told before each frame. All empty until used, so
+  // nothing here runs before the first frame.
+  let directedPose: CameraPose | null = null;
+  let closeUpOrbitDegrees: number | null = null;
+  let closeUpHome: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
+  let secondView: SecondView | null = null;
+  let lastSecondViewAt = Number.NEGATIVE_INFINITY;
+  const frameListeners = new Set<(frame: ViewerFrame) => void>();
+  function notifyFrame(atMs: number, nowMs: number) {
+    frameListeners.forEach((listener) => listener({ atMs, nowMs }));
+  }
+
   // The close-up takes 0.2 to 0.4 s to build on a slow machine, so it is built the first time it is shown.
   let closeUp: CloseUpScene | null = null;
   let isIllustrated = true;
@@ -375,6 +401,8 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     });
     built.setIllustrated(isIllustrated);
     built.controls.addEventListener("change", markDirty);
+    // The close-up's own camera as built: the director's orbit turns about this pose.
+    closeUpHome = { position: built.camera.position.clone(), target: built.controls.target.clone() };
     closeUp = built;
     resize();
     return built;
@@ -602,9 +630,20 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     if (canvasData.drawnAtMs !== drawnAt) canvasData.drawnAtMs = drawnAt;
   }
 
+  /** Turns the close-up's camera `degrees` about the vertical through its home target (the director's slow orbit). */
+  function applyCloseUpOrbit(closeUpScene: CloseUpScene, home: { position: THREE.Vector3; target: THREE.Vector3 }, degrees: number) {
+    const offset = home.position.clone().sub(home.target).applyAxisAngle(THREE.Object3D.DEFAULT_UP, degrees * RADIANS_PER_DEGREE);
+    closeUpScene.camera.position.copy(home.target).add(offset);
+    closeUpScene.controls.target.copy(home.target);
+    closeUpScene.camera.lookAt(home.target);
+  }
+
   function renderCloseUp(closeUpScene: CloseUpScene, nowSeconds: number, deltaSeconds: number) {
+    notifyFrame(readDrawTimeMs(), nowSeconds * 1000);
+    const isOrbitHeld = !cameraOverride && closeUpOrbitDegrees !== null && closeUpHome !== null;
     if (cameraOverride) applyCameraOverride(cameraOverride, closeUpScene.camera, closeUpScene.controls.target);
-    const hasCameraMoved = cameraOverride ? false : closeUpScene.controls.update();
+    else if (closeUpOrbitDegrees !== null && closeUpHome) applyCloseUpOrbit(closeUpScene, closeUpHome, closeUpOrbitDegrees);
+    const hasCameraMoved = cameraOverride || isOrbitHeld ? false : closeUpScene.controls.update();
     // The cut plays out on the replay's clock, so a new moment is a new frame.
     const atMs = readDrawTimeMs();
     const hasTimeChanged = atMs !== lastDrawnAtMs;
@@ -620,11 +659,15 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
 
   function renderOverview(now: number, elapsedSeconds: number, deltaSeconds: number) {
     const atMs = readDrawTimeMs();
+    // The director sets this frame's pose before the camera is placed (setCameraPose).
+    notifyFrame(atMs, now);
     const hasTimeChanged = atMs !== lastDrawnAtMs;
     let isCameraEasing = false;
-    const vesselFrame = activeView === "vessel" && !cameraOverride ? overview.readVesselFrame() : null;
+    const vesselFrame = activeView === "vessel" && !cameraOverride && !directedPose ? overview.readVesselFrame() : null;
     if (cameraOverride) {
       applyCameraOverride(cameraOverride, overview.camera, overview.controls.target);
+    } else if (directedPose) {
+      applyCameraOverride(directedPose, overview.camera, overview.controls.target);
     } else if (vesselFrame) {
       const { position, heading, drawnLengthKm } = vesselFrame;
       // While the anchor drags, the camera stands back, rises and tips down toward it, so the ship, its chain and the
@@ -653,19 +696,24 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     }
     // The follow camera owns the camera in the Vessel view: the orbit controls would pull it out to their minimum
     // distance (1.5 km), closer than a short hull's follow offset allows, and the two would fight every frame.
-    const hasCameraMoved = vesselFrame || cameraOverride ? false : overview.controls.update();
+    const hasCameraMoved = vesselFrame || cameraOverride || directedPose ? false : overview.controls.update();
     if (isCalm && !isDirty && !hasTimeChanged && !hasCameraMoved && !isCameraEasing) return;
     // A paused calm scene holds still: silt drifts only while the replay moves.
     overview.update(atMs, isCalm && !hasTimeChanged ? 0 : deltaSeconds, now / 1000);
     // The vessel moved with the replay, so the follow camera has a new target: one more frame after this one.
     isDirty = activeView === "vessel" && hasTimeChanged;
     lastDrawnAtMs = atMs;
+    // The anchor cam draws at its own, lower rate (SECOND_VIEW_INTERVAL_MS), and at once whenever it opens.
+    if (secondView && now - lastSecondViewAt >= SECOND_VIEW_INTERVAL_MS[isGpuTier ? "gpu" : "cpu"]) {
+      drawSecondView(secondView, atMs, now / 1000);
+      lastSecondViewAt = now;
+    }
     overview.followCamera(overview.camera.position, overview.camera.position.distanceTo(overview.controls.target));
     overview.camera.updateMatrixWorld();
     overview.fitScreenSizes(overview.camera, container.clientHeight);
     renderer.draw(overview.scene, overview.camera);
     overviewLabels.render(overview.scene, overview.camera);
-    hideOverlappingLabels(overviewLabels.domElement);
+    hideOverlappingLabels(overviewLabels.domElement, readLabelRoom());
     recordDrawnFrame(atMs);
     if (canvas.dataset.lookdev === "on") recordColorProbes();
     if (canvas.dataset.lookdevTraces === "request") recordLineTraces();
@@ -763,6 +811,155 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     recordStoryboardHooks(closeUpScene.camera, closeUpScene.controls.target, subjects);
   }
 
+  /**
+   * Where the overview's labels may sit: inside the stage, LABEL_EDGE_ROOM_PX from its edges, and off every control
+   * and card over it (the console marks those `data-label-blocker`: the stage controls, the rail, the anchor cam, cards).
+   */
+  function readLabelRoom(): LabelRoom {
+    const stageRect = container.getBoundingClientRect();
+    const bounds = { left: stageRect.left + LABEL_EDGE_ROOM_PX, top: stageRect.top + LABEL_EDGE_ROOM_PX, right: stageRect.right - LABEL_EDGE_ROOM_PX, bottom: stageRect.bottom - LABEL_EDGE_ROOM_PX };
+    const blockers = [...document.querySelectorAll<HTMLElement>("[data-label-blocker]")]
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0 && rect.right > stageRect.left && rect.left < stageRect.right && rect.bottom > stageRect.top && rect.top < stageRect.bottom);
+    return { bounds, blockers };
+  }
+
+  /**
+   * Draws the anchor cam: the overview scene from the second view's pose, into the whole canvas, copied (centre crop at
+   * the window's aspect) into the window's own 2D canvas before the main frame overwrites it. One extra pass, only
+   * while the window is open; the overview camera is borrowed and put back, so no second renderer or target exists.
+   */
+  function drawSecondView(view: SecondView, atMs: number, nowSeconds: number) {
+    const pose = view.readPose();
+    const context = view.canvas.getContext("2d");
+    if (!pose || !context) return;
+    const camera = overview.camera;
+    const pixelRatio = renderer.readPixelRatio();
+    const targetWidth = Math.max(1, Math.round(view.widthPx * pixelRatio));
+    const targetHeight = Math.max(1, Math.round(view.heightPx * pixelRatio));
+    if (view.canvas.width !== targetWidth) view.canvas.width = targetWidth;
+    if (view.canvas.height !== targetHeight) view.canvas.height = targetHeight;
+    const viewAspect = view.widthPx / view.heightPx;
+    const cropWidth = Math.min(canvas.width, canvas.height * viewAspect);
+    const cropHeight = cropWidth / viewAspect;
+    // The crop keeps the pose's vertical field of view: a canvas taller than the window's aspect widens the full frame's.
+    const fullFovDegrees = (2 * Math.atan(Math.tan((pose.fovDegrees / 2) * RADIANS_PER_DEGREE) * (canvas.height / cropHeight))) / RADIANS_PER_DEGREE;
+    const saved = { position: camera.position.clone(), quaternion: camera.quaternion.clone(), fov: camera.fov, view: camera.view ? { ...camera.view } : null, target: overview.controls.target.clone() };
+    camera.position.copy(pose.position);
+    camera.lookAt(pose.target);
+    camera.fov = fullFovDegrees;
+    camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+    // The scene reads the camera as it updates (under the surface or not, chain links or hairline, lines up close), so
+    // it is updated for this camera without moving on (no time step), and again for the main camera afterwards.
+    overview.update(atMs, 0, nowSeconds);
+    overview.followCamera(camera.position, camera.position.distanceTo(pose.target));
+    overview.fitScreenSizes(camera, container.clientHeight);
+    renderer.draw(overview.scene, camera);
+    context.clearRect(0, 0, targetWidth, targetHeight);
+    context.drawImage(canvas, (canvas.width - cropWidth) / 2, (canvas.height - cropHeight) / 2, cropWidth, cropHeight, 0, 0, targetWidth, targetHeight);
+    camera.position.copy(saved.position);
+    camera.quaternion.copy(saved.quaternion);
+    camera.fov = saved.fov;
+    if (saved.view?.enabled) camera.setViewOffset(saved.view.fullWidth, saved.view.fullHeight, saved.view.offsetX, saved.view.offsetY, saved.view.width, saved.view.height);
+    else camera.clearViewOffset();
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+    overview.controls.target.copy(saved.target);
+    overview.update(atMs, 0, nowSeconds);
+  }
+
+  // The hover readout's data, built on the first hover: the cables in scene km and the ship's track a minute apart.
+  let cableRuns: CableRun[] | null = null;
+  let trackSamples: TrackSample[] | null = null;
+  const groundRaycaster = new THREE.Raycaster();
+  const seaLevel = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const groundPoint = new THREE.Vector3();
+
+  /** The director's port: the subjects, cameras, second view and readouts it works with. */
+  function createDirectorPort(): DirectorViewerPort {
+    const cutPointNames = input.cuts.map((cut) => `${cut.label} cut point`);
+    return {
+      readSubjects(): DirectorSubjects {
+        const subjects = overview.readSubjects();
+        const named = (name: string) => subjects.find((subject) => subject.name === name)?.position ?? null;
+        const vesselFrame = overview.readVesselFrame();
+        const anchorPosition = named("anchor");
+        const hawse = named("hawse (chain top)");
+        const chainMiddle = named("chain middle");
+        return {
+          vessel: vesselFrame ? { position: vesselFrame.position.clone(), heading: new THREE.Vector3(vesselFrame.heading.x, 0, vesselFrame.heading.z).normalize(), drawnLengthKm: vesselFrame.drawnLengthKm } : null,
+          anchor: anchorPosition && hawse && chainMiddle ? { position: anchorPosition, hawse, chainMiddle } : null,
+          cutPoints: cutPointNames.map(named),
+          trackPoints: subjects.filter((subject) => subject.name.startsWith("track ")).map((subject) => subject.position),
+        };
+      },
+      isHiddenByRelief: (point, cameraPosition) => overview.isBehindRelief(point, cameraPosition),
+      projectToCanvas(point) {
+        projectedPoint.copy(point).applyMatrix4(overview.camera.matrixWorldInverse);
+        const isInFront = projectedPoint.z < -overview.camera.near;
+        projectedPoint.copy(point).project(overview.camera);
+        return { x: ((projectedPoint.x + 1) / 2) * container.clientWidth, y: ((1 - projectedPoint.y) / 2) * container.clientHeight, isInFront };
+      },
+      readCanvasSize: () => ({ widthPx: container.clientWidth, heightPx: container.clientHeight }),
+      readCameraPose: () => ({ position: overview.camera.position.clone(), target: overview.controls.target.clone(), fovDegrees: overview.camera.fov }),
+      readOverviewFovDegrees: () => fitOverviewFov(Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight)),
+      setCameraPose(pose) {
+        const isSame = pose !== null && directedPose !== null && pose.position.equals(directedPose.position) && pose.target.equals(directedPose.target) && pose.fovDegrees === directedPose.fovDegrees;
+        if (isSame || (pose === null && directedPose === null)) return;
+        const isRelease = pose === null;
+        directedPose = pose;
+        // Handed back: the view's own field of view and the rail's view offset return.
+        if (isRelease) resize();
+        markDirty();
+      },
+      setCloseUpOrbit(degrees) {
+        if (degrees === closeUpOrbitDegrees) return;
+        closeUpOrbitDegrees = degrees;
+        markDirty();
+      },
+      readAnchorFacts: (atMs) => overview.readAnchorFacts(atMs),
+      setSecondView(view) {
+        secondView = view;
+        // A window that opens or changes size draws at once, on every tier.
+        lastSecondViewAt = Number.NEGATIVE_INFINITY;
+        markDirty();
+      },
+      onBeforeFrame(listener) {
+        frameListeners.add(listener);
+        return () => frameListeners.delete(listener);
+      },
+      readGroundAt(clientX, clientY) {
+        if (activeView === "closeup") return null;
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return null;
+        const pointer = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, 1 - ((clientY - rect.top) / rect.height) * 2);
+        groundRaycaster.setFromCamera(pointer, overview.camera);
+        if (!groundRaycaster.ray.intersectPlane(seaLevel, groundPoint)) return null;
+        if (Math.abs(groundPoint.x) > projection.widthKm / 2 || Math.abs(groundPoint.z) > projection.depthKm / 2) return null;
+        cableRuns ??= features.lines
+          .filter((line) => line.kind !== "pipeline")
+          .map((line) => ({ name: line.name, points: line.points.map(([longitude, latitude]) => projection.toScene(longitude, latitude)) }));
+        trackSamples ??= sampleTrack(input.track, projection.toScene);
+        const point = { x: groundPoint.x, z: groundPoint.z };
+        const elevationMetres = sampleElevationMetres(point.x, point.z);
+        return { waterDepthMetres: elevationMetres < 0 ? -elevationMetres : null, nearestCable: findNearestCable(cableRuns, point), shipPass: findNearestPass(trackSamples, point) };
+      },
+      recordDirection(direction) {
+        if (!direction) {
+          delete canvas.dataset.directorShot;
+          delete canvas.dataset.directorSubjects;
+          delete canvas.dataset.safeArea;
+          return;
+        }
+        canvas.dataset.directorShot = direction.shotKind;
+        canvas.dataset.directorSubjects = JSON.stringify(direction.subjectNames);
+        canvas.dataset.safeArea = JSON.stringify(direction.safeArea);
+      },
+    };
+  }
+
   function renderFrame(now: number) {
     frameHandle = requestAnimationFrame(renderFrame);
     const elapsedSeconds = lastFrameAt === null ? 0 : (now - lastFrameAt) / 1000;
@@ -854,8 +1051,11 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       },
       projectTarget,
       centerOnTarget,
+      director: createDirectorPort(),
       dispose() {
         isDisposed = true;
+        frameListeners.clear();
+        secondView = null;
         cancelAnimationFrame(frameHandle);
         cancelAnimationFrame(completionHandle);
         if (switchTimer !== null) clearTimeout(switchTimer);

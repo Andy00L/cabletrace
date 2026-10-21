@@ -124,6 +124,34 @@ checks the canvas's `data-renderer` after loading and refuses a frame drawn on t
 5. **Scrub to frame.** On overview shots the harness steps the timeline six minutes with the keyboard and reports the
    median time from the input event to the next drawn frame: the replay's frame time as a user feels it.
 
+## Visibility check (the director)
+
+`scripts/lookdev/visibility-check.ts` judges the camera director (docs/UI_DESIGN_SYSTEM.md, Console, Director): the
+director must never lose the ship, its anchor or the cut.
+
+```bash
+bun scripts/lookdev/visibility-check.ts http://localhost:3106                    # both Playwright tiers, every case
+bun scripts/lookdev/visibility-check.ts http://localhost:3106 --tier hardware --only eagle-s
+```
+
+For every case it opens the console at each of these minutes, at 1,440 x 900 with reduced motion (the director cuts
+straight to its shot), presses Director, and waits for a still frame: the drag's start and two minutes after it (the
+follow shot: the ship and its anchor), three minutes before each cut (the approach: the anchor and the cut point),
+each cut (the close-up: the anchor and both torn ends) and the drag's end. The viewer's hooks name the shot and the
+subjects it promises (`data-director-shot`, `data-director-subjects`), the safe area it framed for (`data-safe-area`:
+the stage minus the controls bands and the right column) and where each subject landed with the relief's sight-line
+test (`data-subjects`, 64 samples along the line; in the close-up a raycast against its seabed). A subject passes when
+it is inside the safe area and not hidden (`scripts/lookdev/visibility.ts`, unit-tested). Exit codes: 0 every subject
+visible, 1 one outside, hidden or missing, 2 a frame not rendered. The report goes to `.scratch/visibility`.
+
+| Run | Moments | Subjects | Visible |
+| --- | --- | --- | --- |
+| 20 Oct 2026, software tier, 10 cases | 51 | 145 | 145 (100%) |
+| 20 Oct 2026, hardware tier, 10 cases | 51 | 145 | 145 (100%) |
+
+Per shot on each tier: 8 establishing, 12 follow, 11 approach, 12 close-up, 8 aftermath. The subjects judged: the ship
+36 times, the anchor 66, a cut point 76, the track's ends 64 and each torn end 24, over both tiers.
+
 ### Why no image library
 
 The harness decodes and encodes PNG itself (`scripts/lookdev/png.ts`, 8-bit RGB and RGBA, the PNG specification's

@@ -70,6 +70,7 @@ export function LayerCard({
             onInteractOutside={(event) => event.preventDefault()}
             className="fixed inset-x-4 bottom-4 z-(--layer-popover) flex max-h-[70svh] flex-col gap-3.5 overflow-y-auto rounded-row bg-card p-5 text-ink shadow-popover outline-none data-[state=closed]:animate-layer-exit data-[state=open]:animate-layer-enter"
             data-testid={testId}
+            data-label-blocker="true"
           >
             <Dialog.Title className="sr-only">{label}</Dialog.Title>
             {children}
@@ -99,6 +100,7 @@ export function LayerCard({
           style={{ width }}
           className="z-(--layer-popover) flex max-h-(--radix-popover-content-available-height) max-w-[calc(100vw-32px)] flex-col gap-3.5 overflow-y-auto rounded-row bg-card p-5 text-ink shadow-popover outline-none data-[state=closed]:animate-layer-exit data-[state=open]:animate-layer-enter"
           data-testid={testId}
+          data-label-blocker="true"
         >
           {children}
         </Popover.Content>

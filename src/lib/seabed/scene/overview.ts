@@ -517,8 +517,8 @@ function clampUnit(value: number): number {
   return Math.min(1, Math.max(-1, value));
 }
 
-/** Shortest distance (km) from a point to a polyline in scene x and z. */
-function measureDistanceToPolyline(point: ScenePoint, line: readonly ScenePoint[]): number {
+/** Shortest distance (km) from a point to a polyline in scene x and z. Also read by the stage's hover readout. */
+export function measureDistanceToPolyline(point: ScenePoint, line: readonly ScenePoint[]): number {
   let nearest = Number.POSITIVE_INFINITY;
   for (let index = 1; index < line.length; index += 1) {
     const start = line[index - 1];

@@ -29,8 +29,8 @@ export type DirectorSubjects = {
   vessel: VesselSubject | null;
   /** Null while the anchor is stowed. */
   anchor: AnchorSubject | null;
-  /** One point per case cut, in case order (`ReplaySceneInput.cuts`), drawn or not yet. */
-  cutPoints: readonly THREE.Vector3[];
+  /** One point per case cut, in case order (`ReplaySceneInput.cuts`), drawn or not yet; null where the scene has no marker. */
+  cutPoints: readonly (THREE.Vector3 | null)[];
   /** Points evenly spaced along the whole track, drawn or not yet, first to last. */
   trackPoints: readonly THREE.Vector3[];
 };
@@ -53,11 +53,14 @@ export type CanvasPoint = { x: number; y: number; isInFront: boolean };
  * pose `readPose` returns for that frame; a null pose skips the frame.
  */
 export type SecondView = {
-  canvas: HTMLCanvasElement;
+  canvas: SecondViewCanvas;
   widthPx: number;
   heightPx: number;
   readPose: () => CameraPose | null;
 };
+
+/** What the viewer needs of the second view's canvas (an HTMLCanvasElement in the page): its pixel size and 2D context. */
+export type SecondViewCanvas = { width: number; height: number; getContext: (contextId: "2d") => CanvasRenderingContext2D | null };
 
 /** One frame the viewer is about to draw: the replay moment and the wall clock (performance.now() ms). */
 export type ViewerFrame = { atMs: number; nowMs: number };
@@ -80,12 +83,31 @@ export type DirectorViewerPort = {
    * the camera back to the current view's own camera (presets, the follow camera, the orbit controls).
    */
   setCameraPose: (pose: CameraPose | null) => void;
-  /** Turns the close-up's camera about its target by this angle (degrees, about the vertical axis) from its preset. */
-  setCloseUpOrbit: (degrees: number) => void;
+  /**
+   * Turns the close-up's camera about its target by this angle (degrees, about the vertical axis) from its preset and
+   * holds it there; null hands the close-up back to its orbit controls.
+   */
+  setCloseUpOrbit: (degrees: number | null) => void;
   /** The anchor cam's numbers at a moment, or null while the anchor is not down. */
   readAnchorFacts: (atMs: number) => AnchorFacts | null;
-  /** Starts or stops drawing a second view; null stops it. */
+  /** Starts or stops drawing a second view; null stops it. Nothing is allocated for it until the first call. */
   setSecondView: (view: SecondView | null) => void;
   /** Called before each frame is drawn; returns the unsubscribe function. */
   onBeforeFrame: (listener: (frame: ViewerFrame) => void) => () => void;
+  /** What lies under a client point of the overview: the sea there, the nearest cable and the ship's nearest pass; null off the block. */
+  readGroundAt: (clientX: number, clientY: number) => GroundReadout | null;
+  /**
+   * Lookdev hook: the shot the director holds, the subjects it promises to show (names as the canvas's
+   * `data-subjects` gives them) and the safe area, written on the canvas; null clears them.
+   */
+  recordDirection: (direction: { shotKind: string; subjectNames: readonly string[]; safeArea: SafeArea } | null) => void;
+};
+
+/** The hover readout of a point of the sea: depth, nearest cable, and when the ship passed nearest to it. */
+export type GroundReadout = {
+  /** Metres of water under the point; null on land. */
+  waterDepthMetres: number | null;
+  nearestCable: { name: string; distanceMetres: number } | null;
+  /** The ship's closest pass to the point along its whole track; null without a track. */
+  shipPass: { atMs: number; distanceMetres: number } | null;
 };

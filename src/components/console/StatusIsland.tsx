@@ -44,6 +44,7 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
           browser can (interpolate-size), and snap where it cannot; the corner radius follows. */}
       <div
         className={`pointer-events-auto flex w-max max-w-[min(380px,calc(100vw-48px))] flex-col overflow-hidden bg-card shadow-row transition-[width,height,border-radius] duration-220 ease-enter [interpolate-size:allow-keywords] ${isOpen ? "rounded-row" : "rounded-full"}`}
+        data-label-blocker="true"
       >
         <button
           type="button"

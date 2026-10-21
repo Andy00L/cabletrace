@@ -179,6 +179,16 @@ The camera director (`src/lib/seabed/scene/director/`, board 21) picks the shot 
 
 The replay clock runs 30 times slower from 6 minutes before each cut to 2 minutes after it, easing in and out over 2 minutes of replay time on each side (`replay-pace.ts`): Eagle S's C-Lion1 cut plays in about 12 s (14 s with the ramps), the whole window in about 67 s instead of 40 s.
 
+The director frames every shot on the overview scene with the storyboard's method (`framing.ts`): each subject inside the safe area (the stage minus its controls bands, 72 px top and bottom, 112 px on top on a phone, and the right column the rail or the anchor cam takes) with a 24 px margin, from the angle the relief hides least. The viewer gives it a typed port (`viewer.director`, `viewer-port.ts`): the subjects, the sight-line test, a camera pose, the close-up's orbit, the anchor's figures, a second view and the hover readout. The camera driver (`camera-driver.ts`) loads after the viewer, never before the first frame.
+
+**Anchor cam** (board 22, `anchor-cam`, `data-state` anchor or swapped, `data-size` rest or expanded): while the anchor is on the seabed, a 360 px window top right of the stage (the rail starts under it) shows the seabed from behind the anchor, labelled illustrated, with depth, chain out, the distance to the nearest cable under the case's name and the anchor's speed over the seabed (`anchor-cam-depth`, `-chain`, `-cable`, `-speed`). Swap (`anchor-cam-swap`) puts the anchor cam in the main view and the ship in the window; expand (`anchor-cam-expand`) grows it to 640 px. On a phone it starts folded to a pill (`anchor-cam-open`), so nothing is drawn for it until it is opened. Its picture is a second pass of the same renderer, copied into the window's canvas, made only while the window is open.
+
+**Ship cameras** (`ship-camera-switch`): Follow, Bridge view and Anchor cam on the vessel card and the rail's ship card, each in the Vessel view; none is pressed while the director or another view holds the camera.
+
+**Hover readout** (`stage-hover-readout`): a mouse resting on the sea gets a small card by the pointer with the water's depth there, the nearest cable and its distance, and when the ship passed nearest and how far off (`hover-readout.ts`, `ground-readout.ts`). Mouse only; a drag or a touch moves the camera instead.
+
+**Labels** keep 8 px inside the stage (a label cut by the edge slides back in; one mostly outside hides) and never sit on a control or card: the console marks those `data-label-blocker` (the stage controls, the status island, the rail, the anchor cam, the cards), and the label placer hides a label that would cover one (`labels.ts`, `hideOverlappingLabels`).
+
 While the 3D view loads, the stage shows one progress line in two parts, the seabed and then the ship and scene (`stage-loading`, `data-state` seabed or ship); the console's skeleton draws the same card at its first step.
 
 ### Layers

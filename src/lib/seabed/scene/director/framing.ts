@@ -27,6 +27,9 @@ const AFTERMATH = { elevationDegrees: 75, azimuths: [180, 0, 90, 270] } as const
 const FOLLOW = { elevationDegrees: 38, relativeAzimuths: [225, 135, 270, 90] } as const;
 /** Relative to the drag's direction: abeam, low over the seabed, the anchor closing on the cable. */
 const APPROACH = { elevationDegrees: 12, relativeAzimuths: [-90, 90, -60, 60] } as const;
+// The establishing and aftermath shots frame at least this much of the block (scene km): the drawn scales put a ship
+// over a kilometre long, so a story shorter than a few of them is shown with its surroundings.
+const MIN_STORY_SPAN_KM = 6;
 // The superstructure's top above the waterline, in drawn ship lengths (board 21: 0.25 km on Eagle S's 1.37 km hull).
 const SHIP_TOP_LENGTHS = 0.18;
 
@@ -36,6 +39,12 @@ const ANCHOR_CAM_BEHIND_KM = 0.45;
 const ANCHOR_CAM_ABOVE_KM = 0.16;
 const ANCHOR_CAM_AIM_AHEAD_KM = 0.12;
 const ANCHOR_CAM_FOV_DEGREES = 50;
+// The bridge view: from the bridge front, aft of amidships on the hulls the generator builds (src/lib/ships/), at the
+// wheelhouse's height, looking ahead and down to the water a few ship lengths off the bow. In drawn ship lengths.
+const BRIDGE_AFT_LENGTHS = 0.36;
+const BRIDGE_ABOVE_LENGTHS = 0.13;
+const BRIDGE_LOOK_AHEAD_LENGTHS = 3;
+const BRIDGE_FOV_DEGREES = 55;
 
 /** A unit vector from a target toward a camera: compass azimuth and elevation in degrees. Scene x runs east, z south. */
 export function directionFrom(azimuthDegrees: number, elevationDegrees: number): THREE.Vector3 {
@@ -144,8 +153,24 @@ function toDirections(azimuths: readonly number[], elevationDegrees: number, bas
   return azimuths.map((azimuth) => directionFrom(baseAzimuth + azimuth, elevationDegrees));
 }
 
+/**
+ * Points that make a story at least `minimumSpanKm` across: a ship that never left its anchorage (Hai Hong Gong 66
+ * salvaging a wreck) would otherwise pull the camera down onto one spot of seabed.
+ */
+function padToMinimumSpan(points: THREE.Vector3[], minimumSpanKm: number): THREE.Vector3[] {
+  if (points.length === 0) return points;
+  const box = new THREE.Box3().setFromPoints(points);
+  const size = box.getSize(new THREE.Vector3());
+  if (Math.max(size.x, size.z) >= minimumSpanKm) return points;
+  const centre = box.getCenter(new THREE.Vector3());
+  const half = minimumSpanKm / 2;
+  return [...points, centre.clone().setX(centre.x - half), centre.clone().setX(centre.x + half), centre.clone().setZ(centre.z - half), centre.clone().setZ(centre.z + half)];
+}
+
 function frameWholeStory(subjects: DirectorSubjects, includesVessel: boolean): THREE.Vector3[] {
-  return [...subjects.trackPoints, ...subjects.cutPoints, ...(includesVessel && subjects.vessel ? [subjects.vessel.position] : [])].map((point) => point.clone());
+  const cutPoints = subjects.cutPoints.flatMap((point) => point ?? []);
+  const points = [...subjects.trackPoints, ...cutPoints, ...(includesVessel && subjects.vessel ? [subjects.vessel.position] : [])].map((point) => point.clone());
+  return padToMinimumSpan(points, MIN_STORY_SPAN_KM);
 }
 
 /**
@@ -222,6 +247,44 @@ export function poseAnchorCam(anchor: AnchorSubject): CameraPose {
   const position = anchor.position.clone().addScaledVector(drag, -ANCHOR_CAM_BEHIND_KM).add(new THREE.Vector3(0, ANCHOR_CAM_ABOVE_KM, 0));
   const target = anchor.position.clone().addScaledVector(drag, ANCHOR_CAM_AIM_AHEAD_KM);
   return { position, target, fovDegrees: ANCHOR_CAM_FOV_DEGREES };
+}
+
+/** The bridge view: from the wheelhouse, looking ahead over the bow at the water the ship is about to cross. */
+export function poseBridgeView(vessel: VesselSubject): CameraPose {
+  const lengthKm = vessel.drawnLengthKm;
+  const position = vessel.position.clone().addScaledVector(vessel.heading, -BRIDGE_AFT_LENGTHS * lengthKm);
+  position.y = vessel.position.y + BRIDGE_ABOVE_LENGTHS * lengthKm;
+  const target = vessel.position.clone().addScaledVector(vessel.heading, BRIDGE_LOOK_AHEAD_LENGTHS * lengthKm);
+  target.y = vessel.position.y;
+  return { position, target, fovDegrees: BRIDGE_FOV_DEGREES };
+}
+
+/**
+ * The names of the subjects a shot promises to show, as the viewer's lookdev hook names them (overview.ts and
+ * close-up.ts, readSubjects), for the visibility check: the whole story's ends and cuts when establishing and in the
+ * aftermath, the ship and its anchor while following, the anchor and the approached cut point on the approach, the
+ * anchor and both torn ends in the close-up.
+ */
+export function listShotSubjectNames(shot: Shot, subjects: DirectorSubjects, cutLabels: readonly string[]): string[] {
+  const cutPointName = (cutIndex: number) => `${cutLabels[cutIndex] ?? ""} cut point`;
+  const drawnCutPointNames = cutLabels.flatMap((_label, cutIndex) => (subjects.cutPoints[cutIndex] ? [cutPointName(cutIndex)] : []));
+  const trackEnds = subjects.trackPoints.length > 0 ? ["track 0%", "track 100%"] : [];
+  switch (shot.kind) {
+    case "establishing":
+      return [...trackEnds, ...drawnCutPointNames, ...(subjects.vessel ? ["vessel"] : [])];
+    case "follow":
+      return subjects.vessel ? ["vessel", ...(subjects.anchor ? ["anchor"] : [])] : [...trackEnds, ...drawnCutPointNames];
+    case "approach":
+      return subjects.anchor ? ["anchor", ...(subjects.cutPoints[shot.cutIndex] ? [cutPointName(shot.cutIndex)] : [])] : subjects.vessel ? ["vessel"] : [...trackEnds, ...drawnCutPointNames];
+    case "cut":
+      return ["anchor", "torn end west", "torn end east"];
+    case "aftermath":
+      return [...trackEnds, ...drawnCutPointNames];
+    default: {
+      const unhandledShot: never = shot;
+      return unhandledShot;
+    }
+  }
 }
 
 /** Where a scene point lands on a canvas seen through a pose, in CSS px; null at or behind the near plane. */

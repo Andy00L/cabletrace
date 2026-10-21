@@ -35,11 +35,11 @@
     },
     {
       "type": "action",
-      "description": "Click \"Follow\" (data-testid vessel-card-follow) in the card"
+      "description": "In the vessel card (data-testid vessel-card), click \"Follow\" in its camera switch (data-testid ship-camera-switch)"
     },
     {
       "type": "assertion",
-      "description": "Assert that button now reads \"Stop following\" and is pressed, \"Vessel\" is pressed in the view switch (data-testid view-switch), and the \"Director\" button (data-testid director-toggle) has data-state \"off\", since following the ship takes the camera from the director"
+      "description": "Assert \"Follow\" now has aria-pressed=\"true\" in that switch, \"Vessel\" is pressed in the view switch (data-testid view-switch), and the \"Director\" button (data-testid director-toggle) has data-state \"off\", since following the ship takes the camera from the director"
     },
     {
       "type": "action",
