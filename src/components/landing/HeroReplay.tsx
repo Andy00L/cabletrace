@@ -131,7 +131,7 @@ export function HeroReplay({ footage, events, listTitle, consoleHref, listClassN
   return (
     <>
       {/* The stage: the console's window, a white frame holding the footage and its dock, laid over the painting's sea. */}
-      <div ref={stageRef} className={`${stageClassName} rounded-card bg-card p-2 shadow-popover`}>
+      <div ref={stageRef} className={`${stageClassName} rounded-card bg-card p-2`}>
         <div className="flex flex-col gap-2" data-ui>
           <div className="landing-shutter relative overflow-hidden rounded-inner bg-ink">
             <picture className={`transition-opacity duration-220 ${hasFirstFrame ? "opacity-0" : "opacity-100"}`}>

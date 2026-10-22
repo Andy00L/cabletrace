@@ -35,7 +35,7 @@ const CONTENT_CLASS = "mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-8";
 const HERO_BLOCK_ID = "landing-hero";
 // A painting's caption set on the painting itself, as a small white label (on a phone the hero's sits under it instead).
 // At 768 px the hero's window starts 334 px from the left edge, so the label (24 px in) keeps to 280 px there.
-const PAINTING_LABEL_CLASS = "md:max-w-[280px] lg:max-w-[340px] md:rounded-field md:bg-card md:py-2 md:text-caption md:font-normal md:shadow-row";
+const PAINTING_LABEL_CLASS = "md:max-w-[280px] lg:max-w-[340px] md:rounded-field md:bg-card md:py-2 md:text-caption md:font-normal";
 const INK_PILL_CLASS =
   "flex h-12 items-center justify-center rounded-full bg-ink px-6 text-label text-card transition-colors duration-140 ease-standard hover:bg-ink-hover active:scale-[0.98]";
 
