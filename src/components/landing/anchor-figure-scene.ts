@@ -30,7 +30,7 @@ const AXIS_Y: Point3 = [0, 1, 0];
 const AXIS_Z: Point3 = [0, 0, 1];
 
 /** The hull's waterplane at height z as a ring, from `fromX` to the stem: starboard first, back along port. */
-export function hullRing(view: FigureView, fromX: number, z: number, inset = 0): Plane[] {
+function hullRing(view: FigureView, fromX: number, z: number, inset = 0): Plane[] {
   const steps = 36;
   const stem = view.ship.stemX;
   const starboard: Plane[] = Array.from({ length: steps + 1 }, (_slot, index) => {
@@ -91,12 +91,11 @@ function buildBlock(view: FigureView): Part[] {
   return parts;
 }
 
-/** One period of seabed texture (ripples running across the block, stones and shells), laid over the block and one period more. */
+/** One period of seabed texture (stones and shells), laid over the block and one period more; it slides as one. */
 function buildSeabedTexture(view: FigureView): { parts: Part[]; period: number } {
   const { projection } = view;
   const period = TEXTURE_PERIOD_METRES;
   const parts: Part[] = [];
-  const ripples: string[] = [];
   const copies = Math.ceil(BLOCK.w / period) + 1;
   let seed = 11;
   const random = () => {
@@ -123,11 +122,6 @@ function buildSeabedTexture(view: FigureView): { parts: Part[]; period: number }
   const shellSpots: Plane[] = Array.from({ length: 40 }, () => [random() * period, BLOCK.y + 1 + random() * (BLOCK.d - 2)]);
   for (let copy = 0; copy < copies; copy += 1) {
     const offset = BLOCK.x + copy * period;
-    for (let along = 2; along < period; along += 4) {
-      const points: Flat[] = [];
-      for (let acrossY = BLOCK.y - 2; acrossY <= BLOCK.y + BLOCK.d + 2; acrossY += 3) points.push(iso([offset + along + 0.9 * Math.sin(acrossY * 0.21 + along * 0.7), acrossY, 0], projection));
-      ripples.push(pathOf(points));
-    }
     stoneSpots.forEach(([along, across, radius], index) => {
       // Boulders and cobbles of the glacial till that reaches the seabed: low, rounded, half sunk in the clay.
       parts.push(slabPart(`seabed.stone#${copy}.${index}`, { x: offset + along - radius, y: across - radius * 0.8, w: radius * 2, d: radius * 1.6, r: radius * 0.7 }, 0, radius * 0.55, projection, { tone: "lo", steps: 4, bevel: 0.2 }));
@@ -135,8 +129,34 @@ function buildSeabedTexture(view: FigureView): { parts: Part[]; period: number }
     const shells = shellSpots.map(([along, across]) => iso([offset + along, across, 0], projection));
     parts.push({ name: `seabed.shells#${copy}`, svg: `<g class="iso-dots" data-tone="lo">${shells.map(([screenX, screenY]) => `<circle cx="${screenX.toFixed(1)}" cy="${screenY.toFixed(1)}" r="0.35"/>`).join("")}</g>`, at: [offset, 0, 0], bias: -1, shapes: [] });
   }
-  parts.push(linePart("seabed.ripples", ripples.join(""), [BLOCK.x, 0, 0], { tone: "faint", bias: -2 }));
   return { parts, period };
+}
+
+/** Ripple crests every this many metres along the track, across the seabed (a divisor of the texture's period). */
+const RIPPLE_SPACING_METRES = 4;
+
+/**
+ * The seabed's ripples for a distance travelled: crests every 4 m fixed in the world, each running edge to edge of the
+ * seabed face so it ends on the block's top edges (the line-end rule), and only those inside the block: drawn per
+ * moment rather than slid, so no crest hides past the block's ends.
+ */
+export function buildRipples(view: FigureView, travelledMetres: number): string {
+  const period = TEXTURE_PERIOD_METRES;
+  const wrapped = ((travelledMetres % period) + period) % period;
+  const crests: string[] = [];
+  for (let along = 2; along < period * 3; along += RIPPLE_SPACING_METRES) {
+    const alongX = BLOCK.x + along - wrapped;
+    if (alongX < BLOCK.x + 1.5 || alongX > BLOCK.x + BLOCK.w - 1.5) continue;
+    // The crest's wobble keeps to its place on the texture, so a crest keeps its shape as it slides.
+    const phase = (along % period) * 0.7;
+    const points: Flat[] = [];
+    for (let step = 0; step <= 20; step += 1) {
+      const acrossY = BLOCK.y + (BLOCK.d * step) / 20;
+      points.push(iso([alongX + 0.9 * Math.sin(acrossY * 0.21 + phase), acrossY, 0], view.projection));
+    }
+    crests.push(pathOf(points));
+  }
+  return crests.length ? `<path class="iso-line" data-tone="faint" d="${crests.join("")}"/>` : "";
 }
 
 /** The water's far edges and the surface's rules, drawn behind the ship. */
@@ -249,8 +269,8 @@ function buildShipAbove(view: FigureView): Part[] {
     [forecastleFrom + 4, -6.5, forecastleTop],
     [-60, ship.halfBeam - 2.4, deckZ],
     [-60, -(ship.halfBeam - 2.4), deckZ],
-    [-150, ship.halfBeam - 2.4, deckZ],
-    [-150, -(ship.halfBeam - 2.4), deckZ],
+    [-84, ship.halfBeam - 2.4, deckZ],
+    [-84, -(ship.halfBeam - 2.4), deckZ],
   ];
   bitts.forEach(([alongX, acrossY, z], index) => {
     parts.push(slabPart(`ship.bitt.base#${index}`, { x: alongX - 1.5, y: acrossY - 0.6, w: 3, d: 1.2, r: 0.3 }, z, 0.25, projection, { tone: "mid", bias: 3 }));
@@ -318,7 +338,8 @@ function buildShipAbove(view: FigureView): Part[] {
   // Tank hatches (round, on coamings) and the pressure-vacuum vent masts along the cargo deck.
   for (let index = 0; index < 8; index += 1) {
     const alongX = fromX + 12 + index * 16.5;
-    if (Math.abs(alongX - manifoldX) < 10) continue;
+    // Clear of the manifold, and of the forecastle (the vent mast stands 3.2 m forward of its hatch).
+    if (Math.abs(alongX - manifoldX) < 10 || alongX + 3.2 + 1.5 > forecastleFrom - 8) continue;
     const acrossY = index % 2 === 0 ? 6.6 : -6.6;
     parts.push(postPart(`ship.hatch.coaming#${index}`, [alongX, acrossY], 1.1, deckZ, 0.6, projection, { tone: "mid", steps: 16, bias: 1 }));
     parts.push(turnedPart(`ship.hatch.cover#${index}`, frameOf([alongX, acrossY, deckZ + 0.6], AXIS_Z, AXIS_X, AXIS_Y), [[0, 1.25], [0.15, 1.25], [0.3, 0.9, 1], [0.42, 0.4, 1], [0.46, 0.05]], projection, { tone: "hi", bias: 1.2 }));
@@ -357,7 +378,8 @@ function lineSvgOf(d: string): string {
 /** The depth scale on the block's near corner: a square post on a foot, a tick every 5 m and a longer one every 10 m. */
 function buildScale(view: FigureView): Part[] {
   const { projection, depth } = view;
-  const postX = BLOCK.x + BLOCK.w + 3;
+  // On the aft near corner, clear of the chain, which comes down at the forward end.
+  const postX = BLOCK.x - 3;
   const postY = BLOCK.y + BLOCK.d + 3;
   const minor: string[] = [];
   const major: string[] = [];
@@ -372,7 +394,7 @@ function buildScale(view: FigureView): Part[] {
   ];
 }
 
-export type StaticScene = {
+type StaticScene = {
   /** Layers of the stack, each painted far to near: under the seabed texture, the sliding texture, the water behind,
    * the hull below the water, the surface, and everything above it. */
   layers: { block: Part[]; texture: Part[]; waterBack: Part[]; hullUnder: Part[]; surface: Part[]; above: Part[]; front: Part[] };

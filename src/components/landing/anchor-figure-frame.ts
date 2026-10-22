@@ -1,6 +1,6 @@
 import { iso, pathOf, translateAlong, type Flat, type Point3 } from "@/components/iso/iso-kit";
-import { add3, circleOf, dotsOf, frameOf, mul3, unit3, type Frame } from "@/components/iso/lathe.mjs";
-import { ballPart, discPart, linePart, markupPart, prismPart, tubeParts, turnedPart, type Part } from "@/components/landing/anchor-figure-parts";
+import { add3, circleOf, dot3, dotsOf, frameOf, mul3, unit3, viewOf, type Frame } from "@/components/iso/lathe.mjs";
+import { ballPart, discPart, markupPart, prismPart, tubeParts, turnedPart, type Part } from "@/components/landing/anchor-figure-parts";
 import { BLOCK, halfBreadthAt, type FigureView } from "@/components/landing/anchor-figure-view";
 import {
   CABLE_SPACING_METRES,
@@ -10,10 +10,11 @@ import {
   layCables,
   readCablePull,
   readChainAt,
-  readRestingMoment,
+  readStageMoment,
   type AnchorFigureFacts,
   type AnchorPlace,
   type CableState,
+  type FigureStage,
   type ChainReading,
 } from "@/lib/landing/anchor-figure-model";
 
@@ -36,7 +37,7 @@ const MOUND_AHEAD_METRES = 7;
 const DRAG_ROLL = (30 * Math.PI) / 180;
 
 /** Points of the chain in the world: the anchor's shackle first, the hawse last. */
-export function chainWorldPoints(view: FigureView, reading: ChainReading): Point3[] {
+function chainWorldPoints(view: FigureView, reading: ChainReading): Point3[] {
   const anchorX = reading.kind === "grounded" ? -reading.laybackMetres : 0;
   // Links lie on the seabed, so the chain's line runs half a link's width above it, rising to the hawse.
   const lift = view.link.width / 2;
@@ -69,7 +70,7 @@ function resampleByLength(points: readonly Point3[], spacing: number, skip: numb
   return out;
 }
 
-export type ChainArt = { behindHull: string; front: string; aboveWater: string };
+type ChainArt = { behindHull: string; front: string; aboveWater: string };
 
 /**
  * The chain as stud links (6 by 3.6 chain diameters, ISO 1704), alternate links turned a quarter turn, each a closed
@@ -181,12 +182,12 @@ export function buildAnchorArt(view: FigureView, reading: ChainReading): AnchorA
   for (let index = 0; index < 3; index += 1) {
     const from = lowerFrom + ((lowerTo - lowerFrom) * index) / 3;
     const to = lowerFrom + ((lowerTo - lowerFrom) * (index + 1)) / 3;
-    parts.push(prismPart(`anchor.shank.lower#${index}`, shankFrame, chamfered(shankHalf, shankSide, shankSide * 0.35), from, to, projection, look));
+    // The casting seam along the top, end face to end face of each length, drawn inside it while that face is seen.
+    const isSeamSeen = dot3(up, viewOf(projection)) > 0;
+    const seam = pathOf([iso(add3(crown, add3(mul3(along, from), mul3(up, shankHalf))), projection), iso(add3(crown, add3(mul3(along, to), mul3(up, shankHalf))), projection)]);
+    parts.push(prismPart(`anchor.shank.lower#${index}`, shankFrame, chamfered(shankHalf, shankSide, shankSide * 0.35), from, to, projection, { ...look, inner: isSeamSeen ? `<path class="iso-line" data-tone="mid" d="${seam}"/>` : "" }));
   }
   parts.push(prismPart("anchor.shank.upper", shankFrame, chamfered(shankHalf * 0.78, shankSide * 0.8, shankSide * 0.3), anchor.shank * 0.55, anchor.shank - anchor.pin * 2.4, projection, look));
-  const seamFrom = add3(crown, add3(mul3(along, anchor.crownLength * 0.78), mul3(up, shankHalf)));
-  const seamTo = add3(crown, add3(mul3(along, anchor.shank * 0.55), mul3(up, shankHalf)));
-  parts.push(linePart("anchor.shank.seam", pathOf([iso(seamFrom, projection), iso(seamTo, projection)]), add3(seamFrom, mul3(along, 4)), { tone: "mid", bias: 0.5 }));
   // The eye at the head of the shank, its centre a pin and a fifth behind the shackle point, the bolt through it.
   const eyeCentre = add3(shackle, mul3(along, -anchor.pin * 1.2));
   const eyeFrame: Frame = { o: eyeCentre, a: across, u: along, v: up };
@@ -331,10 +332,12 @@ export function buildFurrowArt(view: FigureView, runs: readonly FurrowRun[], tra
 }
 
 /** A cable's solids (painted with the anchor, far to near) and its line work on the cut face and the torn ends. */
-export type CableArt = { cut: string; parts: Part[] };
+type CableArt = { cut: string; parts: Part[] };
 
 // A cable fades out over this many metres as it nears either end of the block, where the seabed's texture fades too.
 const CABLE_FADE_METRES = 12;
+// Within this distance across the track of the hook (m), the cable is cut at every centreline point (1.6 m apart).
+const CABLE_FINE_REACH_METRES = 14;
 
 const CABLE_STEPS = 40;
 
@@ -401,9 +404,19 @@ export function buildCableArt(view: FigureView, cable: CableState, travelledMetr
   const room = Math.min(Math.min(...xs) - BLOCK.x, BLOCK.x + BLOCK.w - Math.max(...xs)) - 2;
   const fade = Math.min(1, room / CABLE_FADE_METRES);
   if (fade <= 0) return { cut: "", parts: [] };
-  const faded = (markup: string) => (fade < 1 ? `<g opacity="${fade.toFixed(2)}">${markup}</g>` : markup);
+  // Every piece wears the cable's own colours (af-cable), faded near the block's ends.
+  const faded = (markup: string) => `<g class="af-cable"${fade < 1 ? ` opacity="${fade.toFixed(2)}"` : ""}>${markup}</g>`;
   lines.forEach((centreline, lineIndex) => {
-    const pieces = tubeParts(`cable#${lineIndex}`, centreline, radius, projection, { tone: "hi", rings: { pitch: 0.9, twist: 1.6, tone: "lo" }, maxLength: 1.5 });
+    // Short chunks only where the cable passes the anchor, so it paints between the anchor's parts there; long ones
+    // elsewhere keep the per-frame markup small.
+    const breaks: number[] = [];
+    let along = 0;
+    centreline.forEach((point, index) => {
+      const previous = centreline[index - 1];
+      if (previous) along += Math.hypot(point[0] - previous[0], point[1] - previous[1], point[2] - previous[2]);
+      if (Math.abs(point[1] - hook[1]) < CABLE_FINE_REACH_METRES) breaks.push(along);
+    });
+    const pieces = tubeParts(`cable#${lineIndex}`, centreline, radius, projection, { tone: "hi", rings: { pitch: 0.9, twist: 1.6, tone: "lo" }, maxLength: 12, breaks });
     parts.push(...pieces.map((piece) => ({ ...piece, svg: faded(piece.svg) })));
     const start = centreline[0];
     const end = centreline[centreline.length - 1];
@@ -428,7 +441,8 @@ export function buildCableArt(view: FigureView, cable: CableState, travelledMetr
       const step = discPart(`cable.${layer.name}#${lineIndex}`, endFrame, from, layer.step, radius * layer.share, projection, look);
       parts.push({ ...step, svg: faded(step.svg) });
     });
-    // Fibres in the steel tube's torn face, and the armour wires splayed out of the serving, their tips vermilion:
+    // Fibres in the steel tube's torn face, and the armour wires splayed out of the serving, their tips vermilion (a
+    // torn wire's tip ends in the water, so it is marked free for the line-end check):
     // painted with the solids just after the stair, so whatever stands in front of the torn end covers them too.
     const frayed: string[] = [];
     frayed.push(`<g class="iso-dots af-fibres">${dotsOf(endFrame, CABLE_LAYERS[4].step, radius * 0.12, 6, projection, { all: true }).map(([screenX, screenY]) => `<circle cx="${screenX.toFixed(1)}" cy="${screenY.toFixed(1)}" r="0.3"/>`).join("")}</g>`);
@@ -438,7 +452,7 @@ export function buildCableArt(view: FigureView, cable: CableState, travelledMetr
       const root = add3(torn, mul3(radial, radius * 0.8));
       const bend = add3(root, add3(mul3(outward, 1.4), mul3(radial, 0.8)));
       const tip = add3(bend, add3(mul3(outward, 1.2), mul3(radial, 1.6 + (wire % 3) * 0.4)));
-      frayed.push(`<path class="iso-line" data-tone="hi" d="${pathOf([iso(root, projection), iso(bend, projection)])}"/><path class="iso-line af-cut" d="${pathOf([iso(bend, projection), iso(tip, projection)])}"/>`);
+      frayed.push(`<path class="iso-line" data-tone="hi" d="${pathOf([iso(root, projection), iso(bend, projection)])}"/><path class="iso-line af-cut" data-free="end" d="${pathOf([iso(bend, projection), iso(tip, projection)])}"/>`);
     }
     parts.push(markupPart(`cable.frayed#${lineIndex}`, faded(frayed.join("")), add3(torn, mul3(outward, CABLE_LAYERS[4].step)), 2));
   });
@@ -462,30 +476,40 @@ export function placeFlukes(anchorArt: AnchorArt, reading: ChainReading): Anchor
 }
 
 /** The cable slots the figure draws: the spacing keeps at most two in or near the block. */
-export const CABLE_SLOTS = 2;
+const CABLE_SLOTS = 2;
 
-/** The cables lying in or near the block at a distance travelled, keeping the phase of those already met. */
-export function keepCablesNear(cables: readonly CableState[], travelled: number): CableState[] {
+/** The cables lying in or near the block at a distance travelled, each in its phase for the dragging anchor's hook. */
+export function layCablesNear(travelled: number, hookAheadMetres: number): CableState[] {
   const fromWorld = travelled + BLOCK.x - CABLE_SPACING_METRES * 0.25;
   const toWorld = travelled + BLOCK.x + BLOCK.w + CABLE_SPACING_METRES * 0.4;
-  const kept = cables.filter((cable) => cable.worldMetres >= fromWorld && cable.worldMetres <= toWorld);
-  const fresh = layCables(fromWorld, toWorld).filter((cable) => !kept.some((existing) => existing.worldMetres === cable.worldMetres));
-  return [...kept, ...fresh].sort((first, second) => first.worldMetres - second.worldMetres).slice(0, CABLE_SLOTS);
+  return layCables(fromWorld, toWorld, hookAheadMetres, travelled).slice(0, CABLE_SLOTS);
+}
+
+/** The furrow behind an anchor in the clay: from beyond the block's aft end (it has dragged all along) to its flukes. */
+export function readFurrowRuns(travelled: number, anchor: AnchorArt): FurrowRun[] {
+  return anchor.isDug ? [{ fromWorld: travelled + BLOCK.x - 40, toWorld: travelled + anchor.flukeTip[0] }] : [];
 }
 
 export const CHAIN_POINT_COUNT = 90;
 
-/**
- * The resting frame (readRestingMoment in the model): what the browser draws first and reduced motion keeps, and
- * where the live loop starts from.
- */
-export function buildRestingFrame(facts: AnchorFigureFacts, view: FigureView) {
-  const moment = readRestingMoment(facts, view.tourPaidOut);
+/** The dragging anchor's hook along the track (m ahead of the hawse): where every cable is caught. */
+export function readDragHook(facts: AnchorFigureFacts, view: FigureView): number {
+  return buildAnchorArt(view, readChainAt(facts, view.dragPaidOut, CHAIN_POINT_COUNT)).hook[0];
+}
+
+/** The figure at one moment of the drag: the chain, the anchor, the furrow, the cables and the readout. */
+function buildMomentFrame(facts: AnchorFigureFacts, view: FigureView, moment: { travelledMetres: number; paidOutMetres: number }, hookAheadMetres: number) {
   const reading = readChainAt(facts, moment.paidOutMetres, CHAIN_POINT_COUNT);
   const anchor = buildAnchorArt(view, reading);
-  // The furrow runs from beyond the block's aft end to the flukes: the anchor has been dragging all along.
-  const runs: FurrowRun[] = [{ fromWorld: moment.travelledMetres + BLOCK.x - 40, toWorld: moment.travelledMetres + anchor.flukeTip[0] }];
-  const cables = keepCablesNear(moment.cables, moment.travelledMetres);
+  const runs = readFurrowRuns(moment.travelledMetres, anchor);
+  const cables = layCablesNear(moment.travelledMetres, hookAheadMetres);
   const readout = describeReadout(facts, reading, describeCable(cables, placeFlukes(anchor, reading), moment.travelledMetres));
   return { moment, reading, anchor, runs, cables, readout };
+}
+
+/** The figure at one of its stages (readStageMoment in the model): what the drawing shows first, and each stage's end. */
+export function buildStageFrame(facts: AnchorFigureFacts, view: FigureView, stage: FigureStage) {
+  const hookAheadMetres = readDragHook(facts, view);
+  const moment = readStageMoment(stage, { snagAtMetres: -hookAheadMetres, draggingPaidOutMetres: view.dragPaidOut });
+  return { ...buildMomentFrame(facts, view, moment, hookAheadMetres), hookAheadMetres };
 }

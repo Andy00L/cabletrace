@@ -98,8 +98,9 @@ export function ballPart(name: string, at: Point3, radius: number, projection: P
 }
 
 /** A pipe or cable as depth-sorted chunks (the kit's tubePieces), each its own part, so it can pass in front of one part and behind the next. */
-export function tubeParts(name: string, route: Point3[], radius: number, projection: Projection, look: { tone?: "hi" | "mid" | "lo"; rings?: TubeRings; maxLength?: number; caps?: boolean | [boolean, boolean]; bias?: number } = {}): Part[] {
-  const pieces = tubePieces(route, radius, projection, { maxLength: look.maxLength ?? 14, rings: look.rings ?? null, caps: look.caps ?? true });
+/** `breaks` are lengths along the route where a chunk must end (short chunks where the tube passes close to other parts). */
+export function tubeParts(name: string, route: Point3[], radius: number, projection: Projection, look: { tone?: "hi" | "mid" | "lo"; rings?: TubeRings; maxLength?: number; breaks?: number[]; caps?: boolean | [boolean, boolean]; bias?: number } = {}): Part[] {
+  const pieces = tubePieces(route, radius, projection, { maxLength: look.maxLength ?? 14, breaks: look.breaks ?? [], rings: look.rings ?? null, caps: look.caps ?? true });
   return pieces.map((piece, index) => ({
     name: `${name}~${index}`,
     svg: tubeSvg(piece, { tone: look.tone ?? "hi" }),
@@ -118,8 +119,5 @@ export function linePart(name: string, d: string, at: Point3, look: { tone?: "hi
 export function markupPart(name: string, svg: string, at: Point3, bias = 0): Part {
   return { name, svg, at, bias, shapes: [] };
 }
-
-/** How many solids the parts draw: lines and markup do not count, and a tube's chunks (named `tube~chunk`) count once. */
-export const countSolids = (parts: readonly Part[]) => new Set(parts.filter((part) => part.shapes.length > 0).map((part) => part.name.split("~")[0])).size;
 
 export type { SolidPaths };

@@ -3,11 +3,9 @@ import { estimateCaseShipChain, readChainSpan } from "@/lib/ships/anchor-chain";
 import {
   PART_PULL_METRES,
   hawseHeightMetres,
-  placeAnchor,
+  readCablePhase,
   readChainAt,
-  readRestingMoment,
-  stepCable,
-  tourPaidOutAt,
+  readStageMoment,
   type AnchorFigureFacts,
 } from "@/lib/landing/anchor-figure-model";
 
@@ -36,27 +34,25 @@ describe("anchor figure model", () => {
     expect(reading.kind).toBe("hanging");
     if (reading.kind !== "hanging") throw new Error("expected a hanging chain");
     expect(reading.clearanceMetres).toBeCloseTo(hawseHeightMetres(FACTS) - 45, 6);
-    expect(placeAnchor(reading).isOnSeabed).toBe(false);
   });
 
-  test("a cable reaching flukes in the seabed snags, then parts after the pull", () => {
-    const anchor = { aheadOfHawseMetres: -300, isOnSeabed: true };
-    const lying = { worldMetres: 0, phase: { kind: "lying" } as const };
-    const snagged = stepCable(lying, anchor, 301);
-    expect(snagged.phase.kind).toBe("snagged");
-    expect(stepCable(snagged, anchor, 300 + PART_PULL_METRES - 1).phase.kind).toBe("snagged");
-    expect(stepCable(snagged, anchor, 300 + PART_PULL_METRES + 0.5).phase.kind).toBe("parted");
+  test("a cable lies until the hook reaches it, snags for the pull, then parts, scrubbed either way", () => {
+    // The hook 40 m aft of the hawse reaches a cable at world 0 once the ship has travelled 40 m.
+    expect(readCablePhase(0, -40, 39.9).kind).toBe("lying");
+    expect(readCablePhase(0, -40, 40 + PART_PULL_METRES - 0.1)).toEqual({ kind: "snagged", atTravelledMetres: 40 });
+    expect(readCablePhase(0, -40, 40 + PART_PULL_METRES)).toEqual({ kind: "parted", atTravelledMetres: 40 });
+    expect(readCablePhase(0, -40, 10).kind).toBe("lying");
   });
 
-  test("a cable reaching a hanging anchor passes under it", () => {
-    const anchor = { aheadOfHawseMetres: 0, isOnSeabed: false };
-    expect(stepCable({ worldMetres: 0, phase: { kind: "lying" } }, anchor, 1).phase.kind).toBe("passed");
-  });
-
-  test("the tour keeps all the chain out at the snag and hauls in after it", () => {
-    const { travelledMetres } = readRestingMoment(FACTS);
-    const snagAt = travelledMetres - PART_PULL_METRES - 26;
-    expect(tourPaidOutAt(FACTS, snagAt)).toBeCloseTo(330, 6);
-    expect(tourPaidOutAt(FACTS, snagAt + 300)).toBeLessThan(hawseHeightMetres(FACTS));
+  test("the stages run in story order: hanging clear, ploughing short of the cable, then past the part", () => {
+    const input = { snagAtMetres: 100, draggingPaidOutMetres: 90 };
+    const drop = readStageMoment("drop", input);
+    const drag = readStageMoment("drag", input);
+    const cut = readStageMoment("cut", input);
+    expect(readChainAt(FACTS, drop.paidOutMetres, 8).kind).toBe("hanging");
+    expect(drop.travelledMetres).toBeLessThan(drag.travelledMetres);
+    expect(drag.travelledMetres).toBeLessThan(input.snagAtMetres);
+    expect(cut.travelledMetres).toBeGreaterThan(input.snagAtMetres + PART_PULL_METRES);
+    expect(drag.paidOutMetres).toBe(90);
   });
 });

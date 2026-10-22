@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type PointerEvent } from "react";
+import { useFigureStage } from "@/components/landing/AnchorFigureStage";
 import type { FigureEngine } from "@/components/landing/anchor-figure-engine";
-import type { AnchorFigureFacts } from "@/lib/landing/anchor-figure-model";
+import type { AnchorFigureFacts, FigureStage } from "@/lib/landing/anchor-figure-model";
 
 // The live half of the front page's anchor figure. It renders an empty stage at the drawing's size (so nothing moves
 // when the drawing arrives), fetches the drawing from the figure's route once the figure nears the view and moves its
 // two layers into the stage, then loads the motion (anchor-figure-engine.ts: the model, the per-frame builders and
 // the silt shader) once the figure is really in view. The engine rewrites the drawing's slots from one frame loop;
-// this component re-renders only when the reader's choice changes.
+// this component re-renders only when the reader's choice or the page's stage (AnchorFigureStage) changes.
 
 // Keyboard steps (m of chain), and the shift step.
 const KEY_STEP_METRES = 10;
@@ -51,12 +52,16 @@ type Props = {
   speech: string;
   paidOutMetres: number;
   paidOutRange: [number, number];
+  /** The stage to show when no AnchorFigureStage encloses the figure. */
+  initialStage: FigureStage;
 };
 
 export function AnchorFigureLive(props: Props) {
   const { facts, svgPath } = props;
   const [minPaidOut, maxPaidOut] = props.paidOutRange;
   const isStill = useSyncExternalStore(subscribeToStillness, readStillness, readServerStillness);
+  const figureStage = useFigureStage() ?? props.initialStage;
+  const figureStageRef = useRef(figureStage);
   const [isNear, setIsNear] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [isDrawn, setIsDrawn] = useState(false);
@@ -119,7 +124,7 @@ export function AnchorFigureLive(props: Props) {
       .then(({ startFigureEngine }) => {
         const stage = stageRef.current;
         if (isCancelled || !stage || engineRef.current) return;
-        const engine = startFigureEngine({ facts, stage, canvas: canvasRef.current, isStill: isStillRef.current });
+        const engine = startFigureEngine({ facts, stage, canvas: canvasRef.current, isStill: isStillRef.current, figureStage: figureStageRef.current });
         engineRef.current = engine;
         engine.setRunning(isVisibleRef.current);
       })
@@ -134,6 +139,16 @@ export function AnchorFigureLive(props: Props) {
     engineRef.current?.setStill(isStill);
   }, [isStill]);
 
+  // The page's stage, played on the engine's loop (an external system); before the engine loads it waits in the ref.
+  useEffect(() => {
+    figureStageRef.current = figureStage;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const paidOut = engine.setStage(figureStage);
+    setPaidOutNow(Math.round(paidOut));
+    setSpoken(engine.describe(paidOut));
+  }, [figureStage]);
+
   useEffect(() => () => engineRef.current?.stop(), []);
 
   const announce = (paidOut: number) => {
@@ -146,7 +161,7 @@ export function AnchorFigureLive(props: Props) {
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const engine = engineRef.current;
     if (event.button !== 0 || !engine) return;
-    // Start from the length on screen, not the tour's target, so the chain never jumps under the pointer.
+    // Start from the length on screen, so the chain never jumps under the pointer.
     const { shown } = engine.readPaidOut();
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startPaidOut: shown };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -173,9 +188,8 @@ export function AnchorFigureLive(props: Props) {
     const engine = engineRef.current;
     if (!engine) return;
     const step = event.shiftKey ? KEY_BIG_STEP_METRES : KEY_STEP_METRES;
-    const { shown, target, isTouring } = engine.readPaidOut();
-    // Keys step from the length on screen while touring, so a press always moves the way the key says.
-    const from = isTouring ? shown : target;
+    // Keys step from the length being followed: during a stage's step that is the length on screen.
+    const from = engine.readPaidOut().target;
     const targets: Record<string, number> = { ArrowLeft: from + step, ArrowDown: from + step, ArrowRight: from - step, ArrowUp: from - step, Home: minPaidOut, End: maxPaidOut };
     const next = targets[event.key];
     if (next === undefined) return;
@@ -200,11 +214,12 @@ export function AnchorFigureLive(props: Props) {
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onKeyDown={onKeyDown}
-      onFocus={() => engineRef.current?.holdTour()}
     >
-      <svg ref={backRef} className="iso-svg af-back" viewBox={props.viewBox} role="img" aria-label={props.label} focusable="false" />
-      <canvas ref={canvasRef} className="af-layer af-gl" aria-hidden="true" />
-      <svg ref={frontRef} className="iso-svg af-layer af-front" viewBox={props.viewBox} aria-hidden="true" focusable="false" />
+      <div className="af-art">
+        <svg ref={backRef} className="iso-svg af-back" viewBox={props.viewBox} role="img" aria-label={props.label} focusable="false" />
+        <canvas ref={canvasRef} className="af-layer af-gl" aria-hidden="true" />
+        <svg ref={frontRef} className="iso-svg af-layer af-front" viewBox={props.viewBox} aria-hidden="true" focusable="false" />
+      </div>
     </div>
   );
 }

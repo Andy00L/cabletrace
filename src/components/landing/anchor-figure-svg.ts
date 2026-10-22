@@ -5,26 +5,29 @@ import {
   buildCableArt,
   buildChainArt,
   buildFurrowArt,
-  buildRestingFrame,
+  buildStageFrame,
   slideTransform,
   type AnchorArt,
   type FurrowRun,
 } from "@/components/landing/anchor-figure-frame";
 import { paintParts, type Part } from "@/components/landing/anchor-figure-parts";
 import { buildPlumeStipple } from "@/components/landing/anchor-figure-plume";
-import { buildStaticScene } from "@/components/landing/anchor-figure-scene";
+import { buildRipples, buildStaticScene } from "@/components/landing/anchor-figure-scene";
 import { BLOCK, VIEW_HEIGHT, VIEW_WIDTH, type FigureView } from "@/components/landing/anchor-figure-view";
-import type { AnchorFigureFacts, CableState, ChainReading } from "@/lib/landing/anchor-figure-model";
+import type { AnchorFigureFacts, CableState, ChainReading, FigureStage } from "@/lib/landing/anchor-figure-model";
 
 // The anchor figure as one SVG document: every static part painted far to near, and the moving parts (chain, anchor,
-// furrow, cables) in named slots filled with the resting frame. The front page fetches it from its own route
+// furrow, cables) in named slots filled at DRAWN_STAGE. The front page fetches it from its own route
 // (src/app/figures/anchor-figure.svg/route.ts) once the figure nears the view and moves its two layers into the stage,
 // so none of its paths ride in the page's HTML or its React payload. The live engine rewrites the slots' contents
 // with the same builders (buildChainSlots, buildSeabedSlots), so the first frame it draws changes nothing.
 
+/** The stage the drawing is built at: the page's first statement, the anchor let go. The engine moves on from it. */
+export const DRAWN_STAGE: FigureStage = "drop";
+
 /** The slots the engine rewrites, by the `data-slot` each carries. */
 export const CHAIN_SLOTS = ["chain-behind", "chain-front", "chain-above"] as const;
-export const SEABED_SLOTS = ["furrow-back", "furrow-front", "anchor", "cuts"] as const;
+export const SEABED_SLOTS = ["ripples", "furrow-back", "furrow-front", "anchor", "cuts"] as const;
 export type ChainSlot = (typeof CHAIN_SLOTS)[number];
 export type SeabedSlot = (typeof SEABED_SLOTS)[number];
 
@@ -44,6 +47,7 @@ export function buildSeabedSlots(view: FigureView, moment: { travelled: number; 
   const furrow = buildFurrowArt(view, runs, travelled, anchor.isDug ? anchor.flukeTip : null);
   const cableArts = cables.map((cable) => buildCableArt(view, cable, travelled, anchor.hook));
   return {
+    ripples: buildRipples(view, travelled),
     "furrow-back": furrow.back,
     "furrow-front": furrow.front,
     anchor: paintParts([...anchor.parts, ...furrow.spoilParts, ...cableArts.flatMap((art) => art.parts)], view.projection),
@@ -65,10 +69,10 @@ function waterTint(view: FigureView, waterClip: string): string {
   ].join("");
 }
 
-/** The whole figure as an SVG document: a back layer under the silt canvas and a front layer over it. */
-export function buildFigureSvg(facts: AnchorFigureFacts, view: FigureView): string {
+/** The whole figure as an SVG document at a stage (the route serves DRAWN_STAGE): a back layer under the silt canvas and a front layer over it. */
+export function buildFigureSvg(facts: AnchorFigureFacts, view: FigureView, stage: FigureStage = DRAWN_STAGE): string {
   const scene = buildStaticScene(view);
-  const resting = buildRestingFrame(facts, view);
+  const resting = buildStageFrame(facts, view, stage);
   const chain = buildChainSlots(view, resting.reading);
   const seabed = buildSeabedSlots(view, { travelled: resting.moment.travelledMetres, runs: resting.runs, cables: resting.cables, anchor: chain.anchor });
   const { layers } = scene;
@@ -93,23 +97,24 @@ export function buildFigureSvg(facts: AnchorFigureFacts, view: FigureView): stri
     `<g clip-path="url(#af-seabed-clip)">`,
     `<g mask="url(#af-seabed-fade)">`,
     slot("slide", paint(layers.texture, view), ` transform="${slideTransform(view, resting.moment.travelledMetres, scene.texturePeriod)}"`),
+    slot("ripples", seabed.ripples),
     slot("furrow-back", seabed["furrow-back"]),
     slot("furrow-front", seabed["furrow-front"]),
     "</g>",
     "</g>",
     `<g clip-path="url(#af-water-clip)">`,
-    slot("stipple", `<g class="iso-dots" data-tone="lo">${stipple}</g>`, ` class="af-plume-fallback" transform="${alongTransform(view, chain.anchor.flukeTip[0])}"`),
+    slot("stipple", `<g class="iso-dots" data-tone="lo">${stipple}</g>`, ` class="af-plume-fallback" transform="${alongTransform(view, chain.anchor.flukeTip[0])}"${chain.anchor.isDug ? "" : ' style="opacity:0"'}`),
     "</g>",
     paint(layers.waterBack, view),
   ].join("");
   const front = [
     slot("chain-behind", chain.slots["chain-behind"]),
-    paint(layers.hullUnder, view),
+    `<g class="af-ship">${paint(layers.hullUnder, view)}</g>`,
     slot("anchor", seabed.anchor),
     slot("cuts", seabed.cuts),
     slot("chain-front", chain.slots["chain-front"]),
     paint(layers.surface, view),
-    paint(layers.above, view),
+    `<g class="af-ship">${paint(layers.above, view)}</g>`,
     slot("chain-above", chain.slots["chain-above"]),
     paint(layers.front, view),
   ].join("");

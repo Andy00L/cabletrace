@@ -17,9 +17,9 @@ export function NewestCaseNote({ cableCase }: { cableCase: CableCase }) {
       <p className="text-small">
         {cutsLabel} cut. {describeTrackEvidenceBriefly(cableCase)}, <span className="tabular-nums">{cableCase.sources.length}</span> sources, every quote linked.
       </p>
-      <Link href={`/cases/${cableCase.slug}`} className="group -mx-2 mt-1 flex min-h-11 w-fit items-center gap-1 rounded-full px-2 text-label hover:bg-ink/5" data-testid={`case-card-${cableCase.slug}`}>
+      <Link href={`/cases/${cableCase.slug}`} className="-mx-2 mt-1 flex min-h-11 w-fit items-center gap-1 rounded-full px-2 text-label hover:bg-ink/5" data-testid={`case-card-${cableCase.slug}`}>
         Open the replay
-        <Icon name="chevronRight" className="transition-transform duration-140 ease-standard group-hover:translate-x-0.5" />
+        <Icon name="chevronRight" />
       </Link>
     </div>
   );

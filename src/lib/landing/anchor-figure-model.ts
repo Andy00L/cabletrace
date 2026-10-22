@@ -42,10 +42,10 @@ export function readAnchorFigureFacts(input: { cableCase: CableCase; cutLabel: s
 }
 
 /** The shortest chain the reader can haul in to: the anchor then hangs well clear of the seabed. */
-export const PAID_OUT_MIN_METRES = 30;
+const PAID_OUT_MIN_METRES = 30;
 
 /** The longest: all the chain of one anchor (UR A1 Table 1 through the anchor model). */
-export const paidOutMaxMetres = (facts: AnchorFigureFacts) => facts.chain.chainPerAnchorMetres;
+const paidOutMaxMetres = (facts: AnchorFigureFacts) => facts.chain.chainPerAnchorMetres;
 
 /** Hawse height above the seabed (m): the water depth plus the model's hawse height above the water. */
 export const hawseHeightMetres = (facts: AnchorFigureFacts) => facts.depthMetres + facts.chain.hawseAboveWaterMetres;
@@ -76,37 +76,22 @@ export function readChainAt(facts: AnchorFigureFacts, paidOutMetres: number, poi
   return { kind: "grounded", paidOutMetres: paidOut, laybackMetres: span.laybackMetres, groundedMetres: shape.value.groundedMetres, points: shape.value.points };
 }
 
-// The illustrated loop. Time runs this many times faster than the drag, so a cable reaches the anchor in seconds.
-export const TIME_LAPSE = 12;
-// Cables are laid this far apart along the track (m) so one reaches the anchor every loop; Eagle S crossed five cables
+// Cables are laid this far apart along the track (m), so only one is ever near the anchor; Eagle S crossed five cables
 // along a 90 to 100 km drag trace (src/data/cases/eagle-s-2024.ts, summary), much further apart than this.
 export const CABLE_SPACING_METRES = 480;
 // How far the anchor drags a snagged cable before it parts (m). Illustrated: no source gives it.
 export const PART_PULL_METRES = 16;
-// One international nautical mile is 1,852 m (BIPM SI Brochure, 9th edition, table 8).
-const METRES_PER_NAUTICAL_MILE = 1852;
-
-/** Metres the ship covers per second of the figure's clock. */
-export const figureMetresPerSecond = (facts: AnchorFigureFacts) => ((facts.speedKnots * METRES_PER_NAUTICAL_MILE) / 3600) * TIME_LAPSE;
 
 /**
  * One cable across the track. `worldMetres` is where it lies along the track; the figure follows the ship, so the
  * cable sits `worldMetres - travelledMetres` ahead of the hawse (negative: behind it).
  */
-export type CablePhase =
-  | { kind: "lying" }
-  | { kind: "passed" }
-  | { kind: "snagged"; atTravelledMetres: number }
-  | { kind: "parted"; atTravelledMetres: number };
+type CablePhase = { kind: "lying" } | { kind: "snagged"; atTravelledMetres: number } | { kind: "parted"; atTravelledMetres: number };
 
 export type CableState = { worldMetres: number; phase: CablePhase };
 
-/** The anchor as the cable sees it: where its flukes are along the track (m from the hawse) and whether they are in the seabed. */
+/** The anchor as the cable sees it: where its hook is along the track (m from the hawse) and whether it is in the seabed. */
 export type AnchorPlace = { aheadOfHawseMetres: number; isOnSeabed: boolean };
-
-export function placeAnchor(reading: ChainReading): AnchorPlace {
-  return reading.kind === "grounded" ? { aheadOfHawseMetres: -reading.laybackMetres, isOnSeabed: true } : { aheadOfHawseMetres: 0, isOnSeabed: false };
-}
 
 /** How far the anchor has dragged a snagged cable past where it lay (m), 0 before the snag. */
 export function readCablePull(cable: CableState, travelledMetres: number): number {
@@ -116,37 +101,25 @@ export function readCablePull(cable: CableState, travelledMetres: number): numbe
 }
 
 /**
- * Steps a cable to the ship's new position: a cable reaching anchor flukes in the seabed snags, a snagged cable parts
- * once dragged PART_PULL_METRES, and a cable that reaches a hanging anchor passes under it.
+ * A cable's phase once the ship has travelled `travelledMetres`, for an anchor dragging with its hook
+ * `hookAheadMetres` ahead of the hawse: lying until the hook reaches it, snagged for PART_PULL_METRES, parted after.
+ * A function of the distance alone, so the figure can be scrubbed back and forth between its stages.
  */
-export function stepCable(cable: CableState, anchor: AnchorPlace, travelledMetres: number): CableState {
-  const aheadOfAnchor = cable.worldMetres - travelledMetres - anchor.aheadOfHawseMetres;
-  switch (cable.phase.kind) {
-    case "lying":
-      if (aheadOfAnchor > 0) return cable;
-      return anchor.isOnSeabed ? { ...cable, phase: { kind: "snagged", atTravelledMetres: travelledMetres + aheadOfAnchor } } : { ...cable, phase: { kind: "passed" } };
-    case "snagged":
-      return travelledMetres - cable.phase.atTravelledMetres >= PART_PULL_METRES ? { ...cable, phase: { kind: "parted", atTravelledMetres: cable.phase.atTravelledMetres } } : cable;
-    case "passed":
-    case "parted":
-      return cable;
-    default: {
-      const unhandled: never = cable.phase;
-      return unhandled;
-    }
-  }
+export function readCablePhase(worldMetres: number, hookAheadMetres: number, travelledMetres: number): CablePhase {
+  const snagAt = worldMetres - hookAheadMetres;
+  if (travelledMetres < snagAt) return { kind: "lying" };
+  if (travelledMetres < snagAt + PART_PULL_METRES) return { kind: "snagged", atTravelledMetres: snagAt };
+  return { kind: "parted", atTravelledMetres: snagAt };
 }
 
-/** The cables a stretch of track holds, from `fromMetres` to `toMetres` along it, all lying. */
-export function layCables(fromMetres: number, toMetres: number): CableState[] {
+/** The cables a stretch of track holds, from `fromMetres` to `toMetres` along it, each in its phase at that distance. */
+export function layCables(fromMetres: number, toMetres: number, hookAheadMetres: number, travelledMetres: number): CableState[] {
   const first = Math.ceil(fromMetres / CABLE_SPACING_METRES);
   const last = Math.floor(toMetres / CABLE_SPACING_METRES);
-  return Array.from({ length: Math.max(0, last - first + 1) }, (_slot, index) => ({ worldMetres: (first + index) * CABLE_SPACING_METRES, phase: { kind: "lying" } }));
-}
-
-/** How far the ship has travelled when, with `mostMetres` of chain out, the anchor meets the cable at the track's start. */
-function readFirstSnagMetres(facts: AnchorFigureFacts, mostMetres: number): number {
-  return -placeAnchor(readChainAt(facts, mostMetres, 8)).aheadOfHawseMetres;
+  return Array.from({ length: Math.max(0, last - first + 1) }, (_slot, index) => {
+    const worldMetres = (first + index) * CABLE_SPACING_METRES;
+    return { worldMetres, phase: readCablePhase(worldMetres, hookAheadMetres, travelledMetres) };
+  });
 }
 
 /**
@@ -169,39 +142,31 @@ export function paidOutForLayback(facts: AnchorFigureFacts, laybackMetres: numbe
   return (low + high) / 2;
 }
 
-// The tour's hauled-in length: the anchor hangs about 20 m off the seabed in the Eagle S water (m).
-const TOUR_HAULED_IN_METRES = 45;
+/** The three moments the front page steps the figure through, in story order. */
+export type FigureStage = "drop" | "drag" | "cut";
+
+// The anchor let go and still falling: this much chain out holds its shackle 34 m off the seabed in the Eagle S water,
+// so the anchor, drawn 7 times its size (28 m), hangs clear of it.
+const DROP_PAID_OUT_METRES = 34;
+// Where the cable lies at each stage, against the distance at which the hook reaches the track's first cable (m): well
+// ahead while the anchor falls, a short way ahead of the flukes as they plough, and long enough after the part that its
+// two ends lie clear aft of the anchor, where its crown does not hide them.
+const STAGE_TRAVEL_FROM_SNAG: Record<FigureStage, number> = { drop: -60, drag: -24, cut: PART_PULL_METRES + 44 };
 
 /**
- * The idle tour, as the chain paid out over one loop of two cables: the most chain out while the even cables meet the
- * anchor and part, hauled in right after so the anchor hangs clear while the odd cable passes under the hawse, then
- * paid out again once that cable is aft of the anchor's reach. The windows are shares of the loop counted from a snag,
- * chosen so no cable ever meets the anchor while the chain is moving.
+ * One stage as a moment of the drag: how far the ship has travelled and how much chain is out. `snagAtMetres` is the
+ * distance at which the anchor's hook reaches the cable at the start of the track, and `draggingPaidOutMetres` the
+ * chain the figure drags with.
  */
-export function tourPaidOutAt(facts: AnchorFigureFacts, travelledMetres: number, most = paidOutMaxMetres(facts)): number {
-  const loopMetres = 2 * CABLE_SPACING_METRES;
-  const share = ((((travelledMetres - readFirstSnagMetres(facts, most)) / loopMetres) % 1) + 1) % 1;
-  const ease = (amount: number) => amount * amount * (3 - 2 * amount);
-  const between = (from: number, to: number) => ease(Math.min(1, Math.max(0, (share - from) / (to - from))));
-  return most - (most - TOUR_HAULED_IN_METRES) * (between(0.05, 0.155) - between(0.5, 0.8));
-}
-
-/**
- * The resting moment the server draws and reduced motion keeps: the most chain the figure pays out, a cable just parted at the
- * anchor. Returns how far the ship has travelled and the cable as it lies then.
- */
-export function readRestingMoment(facts: AnchorFigureFacts, most = paidOutMaxMetres(facts)): { travelledMetres: number; paidOutMetres: number; cables: CableState[] } {
-  const paidOutMetres = most;
-  // The cable at the start of the track is met by the anchor once the hawse is a layback past it; it parts a pull later.
-  const snagAt = readFirstSnagMetres(facts, most);
-  // Long enough after the snag that the parted ends have fallen clear of the flukes and read as two.
-  const travelledMetres = snagAt + PART_PULL_METRES + 26;
-  const cable: CableState = { worldMetres: 0, phase: { kind: "parted", atTravelledMetres: snagAt } };
-  return { travelledMetres, paidOutMetres, cables: [cable, ...layCables(1, travelledMetres + CABLE_SPACING_METRES * 1.5)] };
+export function readStageMoment(stage: FigureStage, input: { snagAtMetres: number; draggingPaidOutMetres: number }): { travelledMetres: number; paidOutMetres: number } {
+  return {
+    travelledMetres: input.snagAtMetres + STAGE_TRAVEL_FROM_SNAG[stage],
+    paidOutMetres: stage === "drop" ? DROP_PAID_OUT_METRES : input.draggingPaidOutMetres,
+  };
 }
 
 /** The nearest cable still ahead of the anchor, in metres, or null when none is in reach. */
-export function readCableAhead(cables: readonly CableState[], anchor: AnchorPlace, travelledMetres: number): number | null {
+function readCableAhead(cables: readonly CableState[], anchor: AnchorPlace, travelledMetres: number): number | null {
   const distances = cables.filter((cable) => cable.phase.kind === "lying").map((cable) => cable.worldMetres - travelledMetres - anchor.aheadOfHawseMetres);
   const ahead = distances.filter((distance) => distance > 0);
   return ahead.length ? Math.min(...ahead) : null;
@@ -212,6 +177,8 @@ export function describeCable(cables: readonly CableState[], anchor: AnchorPlace
   if (cables.some((cable) => cable.phase.kind === "snagged")) return "cable snagged";
   const justParted = cables.some((cable) => cable.phase.kind === "parted" && travelledMetres - cable.phase.atTravelledMetres < PART_PULL_METRES + 120);
   if (justParted) return "cable parted";
+  // A hanging anchor catches nothing, so a distance to the next cable would only mislead.
+  if (!anchor.isOnSeabed) return "nothing caught";
   const ahead = readCableAhead(cables, anchor, travelledMetres);
   return ahead === null ? "no cable ahead" : `cable ${Math.round(ahead)} m ahead`;
 }

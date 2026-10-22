@@ -1,4 +1,4 @@
-import { boxCorners, fitProjection, iso, type Flat, type Plan, type Point3, type Projection } from "@/components/iso/iso-kit";
+import { boxCorners, fitProjection, type Plan, type Point3, type Projection } from "@/components/iso/iso-kit";
 import { paidOutForLayback, type AnchorFigureFacts } from "@/lib/landing/anchor-figure-model";
 import { SHIP_SPECS } from "@/lib/ships/ship-specs";
 
@@ -9,14 +9,14 @@ import { SHIP_SPECS } from "@/lib/ships/ship-specs";
 // anchor, its chain and the cable are drawn larger than life (DRAWN_SCALES), as the replay draws them larger too.
 // Plain numbers only: the server's art, the audit script and the live engine all build from this.
 
-export const VIEW_WIDTH = 640;
-export const VIEW_HEIGHT = 400;
+export const VIEW_WIDTH = 480;
+export const VIEW_HEIGHT = 480;
 const VIEW_PAD = 10;
-export const AZIMUTH = 56;
-export const ELEVATION = 28;
+export const AZIMUTH = 50;
+export const ELEVATION = 26;
 
 /** The block of sea: its floor plan, the clay under the seabed (z 0) and the plinth it stands on. */
-export const BLOCK: Plan = { x: -170, y: -24, w: 188, d: 64, r: 0 };
+export const BLOCK: Plan = { x: -116, y: -24, w: 134, d: 64, r: 0 };
 export const SEDIMENT_BOTTOM = -10;
 export const PLINTH: Plan = { x: BLOCK.x - 3, y: BLOCK.y - 3, w: BLOCK.w + 6, d: BLOCK.d + 6, r: 1.5 };
 export const PLINTH_BOTTOM = -14;
@@ -25,9 +25,9 @@ export const FOOT_HEIGHT = 2.6;
 export const TEXTURE_PERIOD_METRES = 96;
 /** Where the anchor's crown may come at most aft: inside the block with room for the furrow behind it (m). */
 const CROWN_AFT_LIMIT = BLOCK.x + 16;
-/** Where the tour and the resting frame keep the crown: a little aft of the block's middle, so the anchor, its
- * touchdown and the cable it meets sit near the centre of the figure (a share of the block's length from its aft end). */
-const CROWN_TOUR_SHARE = 0.42;
+/** Where the drag stages keep the crown: a little aft of the block's middle, so the anchor, its touchdown and the
+ * cable it meets sit near the centre of the figure (a share of the block's length from its aft end). */
+const CROWN_DRAG_SHARE = 0.42;
 
 /** How much larger than life the small things are drawn, so they read at the block's scale. */
 export const DRAWN_SCALES = {
@@ -50,7 +50,7 @@ const SPEK_SHARE = { crown: 480 / 1440, shankDepth: 240 / 1440, pin: 50 / 1440, 
 const STUD_LINK_LENGTH_TO_DIAMETER = 6;
 const STUD_LINK_WIDTH_TO_DIAMETER = 3.6;
 
-export type AnchorDims = {
+type AnchorDims = {
   shank: number;
   shankDepth: number;
   shankWidth: number;
@@ -75,8 +75,8 @@ export type FigureView = {
   cableRadius: number;
   /** The chain the reader can pay out in the figure: from hanging clear to the length that keeps the anchor in the block. */
   paidOutRange: [number, number];
-  /** The chain the idle tour pays out at most, and the resting frame shows: the anchor near the block's middle. */
-  tourPaidOut: number;
+  /** The chain the anchor drags with in the drag and cut stages: the anchor near the block's middle. */
+  dragPaidOut: number;
 };
 
 /** Half the breadth of the hull at x (m): an elliptic entrance forward to the stem, then the parallel midbody. */
@@ -131,9 +131,6 @@ export function buildFigureView(facts: AnchorFigureFacts): FigureView {
     link: { length: STUD_LINK_LENGTH_TO_DIAMETER * chainDiameter * DRAWN_SCALES.chainLink, width: STUD_LINK_WIDTH_TO_DIAMETER * chainDiameter * DRAWN_SCALES.chainLink },
     cableRadius: CABLE_DRAWN_RADIUS,
     paidOutRange: [30, Math.round(paidOutForLayback(facts, mostLayback))],
-    tourPaidOut: Math.round(paidOutForLayback(facts, -(BLOCK.x + BLOCK.w * CROWN_TOUR_SHARE + anchor.shank))),
+    dragPaidOut: Math.round(paidOutForLayback(facts, -(BLOCK.x + BLOCK.w * CROWN_DRAG_SHARE + anchor.shank))),
   };
 }
-
-/** World to view-box point. */
-export const atPoint = (view: FigureView, point: Point3): Flat => iso(point, view.projection);
