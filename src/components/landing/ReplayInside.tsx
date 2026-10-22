@@ -1,8 +1,13 @@
+import { AsciiPicture } from "@/components/ascii/AsciiPicture";
 import { EvidenceNote } from "@/components/landing/EvidenceNote";
 import { LandingPicture } from "@/components/landing/LandingPicture";
 import { readRiseOrderStyle } from "@/components/landing/rise-order";
+import { FlipText } from "@/components/ui/FlipText";
 import type { CableCase, CaseCut } from "@/lib/cases/case-file";
 import { CONSOLE_STILLS } from "@/lib/landing/replay-footage";
+
+// The painting the section's glyph plate is drawn from, at its smallest width (src/lib/landing/archive-art.ts).
+const PLATE_SOURCE = "/landing/archive/great-eastern-under-weigh-1200.webp";
 
 type ReplayInsideProps = {
   /** The case the stills and the source card come from (Eagle S). */
@@ -21,13 +26,17 @@ export function ReplayInside({ cableCase, cut, contentClassName }: ReplayInsideP
   const closeupStill = CONSOLE_STILLS.closeup;
   return (
     <section aria-labelledby="inside-title" className={`${contentClassName} flex flex-col gap-24 md:gap-36`}>
-      <div className="flex max-w-[720px] flex-col gap-4">
-        <h2 id="inside-title" className="text-title sm:text-display" data-rise="ready">
-          Inside a replay
-        </h2>
-        <p className="text-lead text-ink" data-rise="ready" style={readRiseOrderStyle(1)}>
-          Each case opens in a console that rebuilds the hours around the cut from the ship&apos;s track, the seabed and the published statements.
-        </p>
+      <div className="grid items-center gap-8 md:grid-cols-12 md:gap-x-6">
+        <div className="flex flex-col gap-4 md:col-span-5">
+          <FlipText as="h2" id="inside-title" text="Inside a replay" className="text-title sm:text-display" rise="ready" />
+          <p className="text-lead text-ink" data-rise="ready" style={readRiseOrderStyle(1)}>
+            Each case opens in a console that rebuilds the hours around the cut from the ship&apos;s track, the seabed and the published statements.
+          </p>
+        </div>
+        {/* The Great Eastern again, as glyphs: dusk on slate where the section used to leave the page empty. */}
+        <div className="overflow-hidden rounded-card bg-slate md:col-span-7" data-rise="ready" style={readRiseOrderStyle(2)}>
+          <AsciiPicture src={PLATE_SOURCE} region={[0.3, 0.32, 0.56, 0.5]} cellPx={5} ramp="dense" background="slate" tone="dusk" toneShare={0.3} isShimmering className="h-56 w-full md:h-[340px]" />
+        </div>
       </div>
 
       <div className="grid items-center gap-8 md:grid-cols-12 md:gap-x-6">

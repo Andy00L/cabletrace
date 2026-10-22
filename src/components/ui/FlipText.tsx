@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 type FlipTextProps = {
   /** The heading's text; each letter flips on its own when the pointer passes over it. */
@@ -6,6 +6,9 @@ type FlipTextProps = {
   as?: "h1" | "h2" | "span";
   id?: string;
   className?: string;
+  /** The landing's scroll rise (src/components/landing/LandingMotion.tsx): "ready" with its order in `style`. */
+  rise?: "ready";
+  style?: CSSProperties;
 };
 
 /**
@@ -14,7 +17,7 @@ type FlipTextProps = {
  * whole text as its accessible name, and its letters (hidden from assistive technology) still read as the plain text,
  * so a test or a copy reads "Every cable cut, replayed." once. Words never break inside.
  */
-export function FlipText({ text, as: Element = "span", id, className = "" }: FlipTextProps) {
+export function FlipText({ text, as: Element = "span", id, className = "", rise, style }: FlipTextProps) {
   const words = text.split(" ");
   const children: ReactNode[] = [];
   words.forEach((word, wordIndex) => {
@@ -30,7 +33,7 @@ export function FlipText({ text, as: Element = "span", id, className = "" }: Fli
     );
   });
   return (
-    <Element id={id} aria-label={text} className={className}>
+    <Element id={id} aria-label={text} className={className} data-rise={rise} style={style}>
       {children}
     </Element>
   );

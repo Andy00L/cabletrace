@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AnchorFigure, AnchorFigureCaption } from "@/components/landing/AnchorFigure";
 import { AnchorStory, type AnchorStoryStatement } from "@/components/landing/AnchorStory";
+import { AsciiPicture } from "@/components/ascii/AsciiPicture";
 import { ArchiveBand } from "@/components/landing/ArchiveBand";
 import { ArchiveCaption, readArchiveBasePath } from "@/components/landing/ArchiveCaption";
 import { CaseLedger } from "@/components/landing/CaseLedger";
@@ -13,6 +14,8 @@ import { LiveWatch, SHIPS_LAST_HOUR_PHRASE } from "@/components/landing/LiveWatc
 import { OpenReplayDialog } from "@/components/landing/OpenReplayDialog";
 import { ReplayInside } from "@/components/landing/ReplayInside";
 import { SiteHeader } from "@/components/layout/SiteHeader";
+import { DiscoverButton } from "@/components/ui/DiscoverButton";
+import { FlipText } from "@/components/ui/FlipText";
 import { CABLE_CASES } from "@/data/cases";
 import { EAGLE_S_2024 } from "@/data/cases/eagle-s-2024";
 import { REGIONS } from "@/data/regions";
@@ -36,8 +39,8 @@ const HERO_BLOCK_ID = "landing-hero";
 // A painting's caption set on the painting itself, as a small white label (on a phone the hero's sits under it instead).
 // At 768 px the hero's window starts 334 px from the left edge, so the label (24 px in) keeps to 280 px there.
 const PAINTING_LABEL_CLASS = "md:max-w-[280px] lg:max-w-[340px] md:rounded-field md:bg-card md:py-2 md:text-caption md:font-normal";
-const INK_PILL_CLASS =
-  "flex h-12 items-center justify-center rounded-full bg-ink px-6 text-label text-card transition-colors duration-140 ease-standard hover:bg-ink-hover active:scale-[0.98]";
+// The hero's painting at its smallest width, for the glyph band under it (a canvas samples it once).
+const HERO_ASCII_SOURCE = "/landing/archive/great-eastern-under-weigh-1200.webp";
 
 /**
  * The three statements beside the anchor figure, with the model's own numbers for the Eagle S at the C-Lion1 cut
@@ -106,17 +109,13 @@ export default async function LandingPage() {
             <div className={`${CONTENT_CLASS} flex flex-col md:min-h-[min(88svh,820px)]`}>
               <SiteHeader current="home" />
               <div className="flex flex-col gap-8 pt-10 pb-10 md:pt-14 lg:pt-20">
-                <h1 id="landing-title" className="text-hero">
-                  Every cable cut, replayed.
-                </h1>
+                <FlipText as="h1" id="landing-title" text="Every cable cut, replayed." className="text-hero" />
                 <div id={HERO_BLOCK_ID} className="flex max-w-[540px] flex-col gap-8">
                   <p className="text-lead text-ink">
                     CableTrace rebuilds each undersea cable cut minute by minute, from the ship&apos;s own track, the seabed and the published sources.
                   </p>
                   <div className="flex flex-wrap items-center gap-3">
-                    <Link href={CONSOLE_PATH} className={INK_PILL_CLASS} data-testid="open-console">
-                      Open the console
-                    </Link>
+                    <DiscoverButton href={CONSOLE_PATH} label="Open the console" testId="open-console" />
                     <Link href="/sign-in" className="flex h-12 items-center rounded-full px-4 text-label text-ink hover:bg-card/60" data-testid="landing-sign-in">
                       Sign in
                     </Link>
@@ -139,19 +138,24 @@ export default async function LandingPage() {
                   className="landing-settle [--settle-from:1.05]"
                 />
               </div>
+              {/* The phone's band samples the part of the painting its 4:3 crop shows. */}
+              <AsciiPicture src={HERO_ASCII_SOURCE} region={[0.14, 0.72, 0.63, 0.26]} cellPx={6} ramp="dense" isInverted tone="ink" toneShare={0.2} fadeShare={0.65} className="h-24 w-full md:hidden" />
               <ArchiveCaption
                 art={heroPainting}
                 className={`px-4 pt-3 sm:px-6 md:absolute md:bottom-8 md:left-6 md:px-3.5 lg:left-[max(2rem,calc(50vw-688px))] ${PAINTING_LABEL_CLASS}`}
               />
             </figure>
           </div>
+          {/* The painting's sea carries on as glyphs into the page (the ASCII layer); a phone's band sits in the figure,
+              between the painting and its caption. */}
+          <AsciiPicture src={HERO_ASCII_SOURCE} region={[0, 0.72, 1, 0.26]} cellPx={7} ramp="dense" isInverted tone="ink" toneShare={0.2} fadeShare={0.65} className="hidden h-40 w-full md:block" />
           <div className={`${CONTENT_CLASS} grid grid-cols-1 gap-y-8 pt-8 md:grid-cols-12 md:gap-x-6 md:pt-0`}>
             <HeroReplay
               footage={EAGLE_S_FOOTAGE}
               events={heroMoments}
               listTitle="Eagle S, 25 December 2024. Pick a moment."
               consoleHref={CONSOLE_PATH}
-              stageClassName="relative md:col-span-7 md:col-start-6 md:row-start-1 md:-mt-[148px]"
+              stageClassName="relative md:col-span-7 md:col-start-6 md:row-start-1 md:-mt-[288px] md:self-start"
               listClassName="md:col-span-5 md:row-start-1 md:pt-10"
             />
           </div>
@@ -198,9 +202,7 @@ export default async function LandingPage() {
           </figure>
           <div className={`${CONTENT_CLASS} grid min-h-[80svh] gap-12 pt-16 pb-32 md:grid-cols-12 md:gap-x-6 md:py-24`}>
             <div className="flex flex-col gap-6 self-end md:col-span-6">
-              <h2 id="landing-closing-title" className="text-hero" data-rise="ready">
-                Watch it happen.
-              </h2>
+              <FlipText as="h2" id="landing-closing-title" text="Watch it happen." className="text-hero" rise="ready" />
               {closingRecord && (
                 <p className="max-w-[44ch] text-lead tabular-nums" data-testid="landing-record">
                   {closingRecord} Sign in with Google or an email code, and the console opens on the case you pick.
