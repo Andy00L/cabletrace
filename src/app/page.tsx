@@ -93,7 +93,7 @@ export default async function LandingPage() {
 
   return (
     // Every anchor target keeps clear of the sticky bar's 56 px when the page jumps to it.
-    <div className="min-h-dvh overflow-x-clip bg-paper [&_[id]]:scroll-mt-16">
+    <div className="min-h-dvh overflow-x-clip bg-page [&_[id]]:scroll-mt-16">
       <LandingStickyBar heroId={HERO_BLOCK_ID} stateLine={stickyStateLine} action={{ href: CONSOLE_PATH, label: "Open the console" }} />
       <LandingMotion />
       <main className="flex flex-col gap-28 md:gap-48">

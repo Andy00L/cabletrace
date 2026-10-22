@@ -1,31 +1,30 @@
 /*
  * The anchor figure in the console's own colours: Anatomy's light tone hierarchy (src/components/iso/iso.css) mixed
  * from the design tokens in src/app/globals.css, never typed. Outlines are `ink`; the four shades are ink mixed toward
- * `paper`, the landing's field, so the greys sit warm beside its watercolours; faces and tops are `card`. The ship
- * wears `ship` greys, the cable `cable` blues, the water a light tone of `cable` toward `paper` deepening to the seabed,
- * and the one accent, the cut and the torn ends, is `alarm`. Scoped to `.af`, so nothing here reaches the rest of the
- * page.
+ * `page`; faces and tops are `card`. The ship wears `ship` greys, the cable `cable` blues, the water a light tone of
+ * `cable` toward `page` deepening to the seabed, and the one accent, the cut and the torn ends, is `alarm`. Scoped to
+ * `.af`, so nothing here reaches the rest of the page.
  */
 .iso.af {
-  --af-silt: color-mix(in oklab, var(--color-paper), var(--color-ink) 30%);
-  --anatomy-page: var(--color-paper);
+  --af-silt: color-mix(in oklab, var(--color-page), var(--color-ink) 30%);
+  --anatomy-page: var(--color-page);
   --anatomy-card: var(--color-card);
   --anatomy-paper: var(--color-card);
   --anatomy-text: var(--color-muted);
   --anatomy-strong: var(--color-ink);
   --anatomy-muted: var(--color-muted);
   --anatomy-face: var(--color-card);
-  --anatomy-top: color-mix(in oklab, var(--color-card), var(--color-paper) 40%);
-  --anatomy-shade-0: color-mix(in oklab, var(--color-paper), var(--color-ink) 34%);
-  --anatomy-shade-1: color-mix(in oklab, var(--color-paper), var(--color-ink) 23%);
-  --anatomy-shade-2: color-mix(in oklab, var(--color-paper), var(--color-ink) 14%);
-  --anatomy-shade-3: color-mix(in oklab, var(--color-paper), var(--color-ink) 6%);
+  --anatomy-top: color-mix(in oklab, var(--color-card), var(--color-page) 40%);
+  --anatomy-shade-0: color-mix(in oklab, var(--color-page), var(--color-ink) 34%);
+  --anatomy-shade-1: color-mix(in oklab, var(--color-page), var(--color-ink) 23%);
+  --anatomy-shade-2: color-mix(in oklab, var(--color-page), var(--color-ink) 14%);
+  --anatomy-shade-3: color-mix(in oklab, var(--color-page), var(--color-ink) 6%);
   --anatomy-lit-top: var(--color-card);
-  --anatomy-lit-shade: color-mix(in oklab, var(--color-paper), var(--color-ink) 18%);
+  --anatomy-lit-shade: color-mix(in oklab, var(--color-page), var(--color-ink) 18%);
   --anatomy-hi: var(--color-ink);
-  --anatomy-mid: color-mix(in oklab, var(--color-ink) 70%, var(--color-paper));
-  --anatomy-lo: color-mix(in oklab, var(--color-ink) 46%, var(--color-paper));
-  --anatomy-faint: color-mix(in oklab, var(--color-ink) 22%, var(--color-paper));
+  --anatomy-mid: color-mix(in oklab, var(--color-ink) 70%, var(--color-page));
+  --anatomy-lo: color-mix(in oklab, var(--color-ink) 46%, var(--color-page));
+  --anatomy-faint: color-mix(in oklab, var(--color-ink) 22%, var(--color-page));
   --anatomy-lit: var(--color-ink);
   --anatomy-dot: var(--color-ink);
   --anatomy-red: var(--color-alarm);
@@ -184,7 +183,7 @@
   stroke: none;
 }
 .af-furrow-wall {
-  fill: color-mix(in oklab, var(--color-paper), var(--color-ink) 48%);
+  fill: color-mix(in oklab, var(--color-page), var(--color-ink) 48%);
   stroke: none;
 }
 /* The berms are solids: clay a shade under the seabed's tone on their lit faces. */
@@ -200,17 +199,17 @@
 }
 /* Cast steel: the anchor a few tones darker than the white seabed, so its outline reads at a glance. */
 .af .af-steel {
-  --anatomy-paper: color-mix(in oklab, var(--color-paper), var(--color-ink) 22%);
-  --anatomy-face: color-mix(in oklab, var(--color-paper), var(--color-ink) 22%);
-  --anatomy-top: color-mix(in oklab, var(--color-paper), var(--color-ink) 12%);
-  --anatomy-lit-top: color-mix(in oklab, var(--color-paper), var(--color-ink) 10%);
-  --anatomy-lit-shade: color-mix(in oklab, var(--color-paper), var(--color-ink) 38%);
-  --anatomy-shade-0: color-mix(in oklab, var(--color-paper), var(--color-ink) 62%);
-  --anatomy-shade-1: color-mix(in oklab, var(--color-paper), var(--color-ink) 50%);
-  --anatomy-shade-2: color-mix(in oklab, var(--color-paper), var(--color-ink) 40%);
-  --anatomy-shade-3: color-mix(in oklab, var(--color-paper), var(--color-ink) 31%);
-  --anatomy-mid: color-mix(in oklab, var(--color-ink) 82%, var(--color-paper));
-  --anatomy-lo: color-mix(in oklab, var(--color-ink) 64%, var(--color-paper));
+  --anatomy-paper: color-mix(in oklab, var(--color-page), var(--color-ink) 22%);
+  --anatomy-face: color-mix(in oklab, var(--color-page), var(--color-ink) 22%);
+  --anatomy-top: color-mix(in oklab, var(--color-page), var(--color-ink) 12%);
+  --anatomy-lit-top: color-mix(in oklab, var(--color-page), var(--color-ink) 10%);
+  --anatomy-lit-shade: color-mix(in oklab, var(--color-page), var(--color-ink) 38%);
+  --anatomy-shade-0: color-mix(in oklab, var(--color-page), var(--color-ink) 62%);
+  --anatomy-shade-1: color-mix(in oklab, var(--color-page), var(--color-ink) 50%);
+  --anatomy-shade-2: color-mix(in oklab, var(--color-page), var(--color-ink) 40%);
+  --anatomy-shade-3: color-mix(in oklab, var(--color-page), var(--color-ink) 31%);
+  --anatomy-mid: color-mix(in oklab, var(--color-ink) 82%, var(--color-page));
+  --anatomy-lo: color-mix(in oklab, var(--color-ink) 64%, var(--color-page));
 }
 
 /* The spoil the flukes push up: clay, a tone under the seabed's own. */
