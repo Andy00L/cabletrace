@@ -125,7 +125,7 @@ export default async function LandingPage() {
 
         <ReplayInside cableCase={EAGLE_S_2024} cut={evidenceCut} contentClassName={CONTENT_CLASS} />
 
-        <AnchorStory statements={anchorStatements} figure={<AnchorFigure />} caption={<AnchorFigureCaption className="max-w-[56ch] text-small text-muted" />} contentClassName={CONTENT_CLASS} />
+        <AnchorStory statements={anchorStatements} figure={<AnchorFigure />} caption={<AnchorFigureCaption className="max-w-[60ch] text-body text-ink" />} contentClassName={CONTENT_CLASS} />
 
         <CaseLedger cases={CABLE_CASES} contentClassName={CONTENT_CLASS} />
 
