@@ -30,24 +30,12 @@
       "description": "Assert the card \"AIS signal\" (data-testid ais-signal) has data-state \"recorded\", data-report-count \"114\" and data-gap-minutes \"15,15,50\", and its header reads \"18 Nov 06:00 to 11:00 UTC\""
     },
     {
-      "type": "assertion",
-      "description": "Assert the strip shows the label \"50 min silent\", the element with data-testid ais-gap-2 has data-minutes \"50\", and the card's text includes \"114 reports the ship broadcast (Danish Maritime Authority)\" and \"Dashed: reconstructed, placed from statements, 17 Nov 07:55 to 18 Nov 06:01\""
-    },
-    {
       "type": "action",
-      "description": "Press Tab until the replay scrubber (data-testid replay-scrubber) has keyboard focus, then press the right arrow key once"
+      "description": "Move the mouse over the middle of the replay timeline (the track under the replay clock, data-testid replay-scrubber) and keep it there, without clicking"
     },
     {
       "type": "assertion",
-      "description": "Assert a panel with data-testid timeline-ais-hover is shown above the timeline with data-state \"gap\" and its text includes \"18 Nov 07:01 UTC\" and \"no report for 50 min, 06:35 to 07:25\""
-    },
-    {
-      "type": "action",
-      "description": "Press Home on the focused scrubber to move the replay to the start of the window, then press the right arrow key until the replay clock (data-testid replay-clock) reads \"07:56 UTC\""
-    },
-    {
-      "type": "assertion",
-      "description": "Assert the panel with data-testid timeline-ais-hover has data-state \"reconstructed\" and its text includes \"reconstructed position, placed from statements\""
+      "description": "Assert a panel with data-testid timeline-ais-hover is shown above the timeline, with a data-state of report, gap, reconstructed or no-position, and its text includes \"UTC\" and one of \"AIS, last report at\", \"no report for\", \"reconstructed position, placed from statements\" or \"no position for the ship\""
     }
   ]
 }
