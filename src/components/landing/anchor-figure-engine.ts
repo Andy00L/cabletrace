@@ -2,7 +2,7 @@ import { glCamera, glLayer, type GlLayer } from "@/components/iso/gl";
 import { CHAIN_POINT_COUNT, alongTransform, buildAnchorArt, layCablesNear, placeFlukes, readDragHook, readFurrowRuns, slideTransform } from "@/components/landing/anchor-figure-frame";
 import { PLUME_FRAGMENT, plumeScreenBounds } from "@/components/landing/anchor-figure-plume";
 import { CHAIN_SLOTS, DRAWN_STAGE, SEABED_SLOTS, buildChainSlots, buildSeabedSlots, type ChainSlot, type SeabedSlot } from "@/components/landing/anchor-figure-svg";
-import { BLOCK, TEXTURE_PERIOD_METRES, VIEW_HEIGHT, VIEW_WIDTH, buildFigureView } from "@/components/landing/anchor-figure-view";
+import { BLOCK, TEXTURE_PERIOD_METRES, VIEW_HEIGHT, VIEW_WIDTH, buildFigureView, type ViewFrame } from "@/components/landing/anchor-figure-view";
 import { describeCable, describeChainForSpeech, describeReadout, readChainAt, readStageMoment, type AnchorFigureFacts, type FigureStage } from "@/lib/landing/anchor-figure-model";
 
 // The anchor figure's motion, loaded by AnchorFigureLive only once the figure first comes into view, so the front
@@ -36,7 +36,7 @@ export type FigureEngine = {
   stop: () => void;
 };
 
-type Step = { fromTravelled: number; toTravelled: number; fromPaidOut: number; toPaidOut: number; startMs: number };
+type Step = { fromTravelled: number; toTravelled: number; fromPaidOut: number; toPaidOut: number; fromFrame: ViewFrame; toFrame: ViewFrame; startMs: number };
 
 /**
  * The page's standard easing, cubic-bezier(0.4, 0, 0.2, 1) (`--ease-standard`, sourceRef src/app/globals.css), as a
@@ -118,6 +118,9 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; stage: HTML
   const furrows = [...stage.querySelectorAll<SVGGElement>('[data-slot="furrow-back"], [data-slot="furrow-front"]')];
   const writtenChain = new Map<ChainSlot, string>();
   const writtenSeabed = new Map<SeabedSlot, string>();
+  const drawings = [...stage.querySelectorAll<SVGSVGElement>("svg")];
+  let frameNow: ViewFrame = view.frames[DRAWN_STAGE];
+  let shownFrame = "";
   const drawn = momentOf(DRAWN_STAGE);
   let travelled = drawn.travelledMetres;
   let shownPaidOut = drawn.paidOutMetres;
@@ -136,6 +139,7 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; stage: HTML
   let drawnSeabed = "";
 
   const silt = readProbeColour(stage.querySelector<SVGPathElement>(".af-silt-probe"));
+  const camera = glCamera(view.projection);
   // Without the token's colour there is no right ink for the cloud, so the SVG stipple stays instead.
   const layer: GlLayer | null =
     input.canvas && silt
@@ -143,14 +147,22 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; stage: HTML
           canvas: input.canvas,
           fragment: PLUME_FRAGMENT,
           view: [VIEW_WIDTH, VIEW_HEIGHT],
-          camera: glCamera(view.projection),
+          camera,
           uniforms: ["uFluke", "uRunStart", "uTravel", "uActive", "uBounds"],
           fixed: { uSilt: silt, uBlock: [BLOCK.x, BLOCK.x + BLOCK.w] },
         })
       : null;
   if (layer) stage.setAttribute("data-gl", "");
 
+  // The camera: the view box of both drawings, and the same move for the shader (its origin and scale in the view box).
+  const zoomOf = (frame: ViewFrame) => VIEW_WIDTH / frame[2];
+  const toFrame = ([screenX, screenY]: [number, number], frame: ViewFrame): [number, number] => [(screenX - frame[0]) * zoomOf(frame), (screenY - frame[1]) * zoomOf(frame)];
   const draw = () => {
+    const frameText = frameNow.map((value) => value.toFixed(2)).join(" ");
+    if (frameText !== shownFrame) {
+      shownFrame = frameText;
+      for (const drawing of drawings) drawing.setAttribute("viewBox", frameText);
+    }
     if (Math.abs(shownPaidOut - drawnPaidOut) > 0.02) {
       drawnPaidOut = shownPaidOut;
       reading = readChainAt(facts, shownPaidOut, CHAIN_POINT_COUNT);
@@ -183,7 +195,12 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; stage: HTML
             uRunStart: currentRun ? currentRun.fromWorld - travelled : BLOCK.x,
             uTravel: travelled,
             uActive: plume.level,
-            uBounds: plumeScreenBounds(view, anchor.flukeTip[0]),
+            uBounds: (() => {
+              const [left, top, right, bottom] = plumeScreenBounds(view, anchor.flukeTip[0]);
+              return [...toFrame([left, top], frameNow), ...toFrame([right, bottom], frameNow)];
+            })(),
+            uOrigin: toFrame(camera.origin, frameNow),
+            uK: camera.k * zoomOf(frameNow),
           },
           isStill ? 0.8 : clock,
         );
@@ -207,6 +224,8 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; stage: HTML
       travelled = step.fromTravelled + (step.toTravelled - step.fromTravelled) * eased;
       shownPaidOut = step.fromPaidOut + (step.toPaidOut - step.fromPaidOut) * eased;
       targetPaidOut = shownPaidOut;
+      const { fromFrame, toFrame: endFrame } = step;
+      frameNow = [0, 1, 2, 3].map((index) => (fromFrame[index] ?? 0) + ((endFrame[index] ?? 0) - (fromFrame[index] ?? 0)) * eased) as ViewFrame;
       if (share >= 1) step = null;
     } else {
       const follow = isStill ? 1 : 1 - Math.exp(-dt / CHAIN_FOLLOW_SECONDS);
@@ -231,7 +250,7 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; stage: HTML
 
   const goTo = (figureStage: FigureStage, isInstant: boolean) => {
     const moment = momentOf(figureStage);
-    step = { fromTravelled: travelled, toTravelled: moment.travelledMetres, fromPaidOut: shownPaidOut, toPaidOut: moment.paidOutMetres, startMs: isInstant ? -Infinity : performance.now() };
+    step = { fromTravelled: travelled, toTravelled: moment.travelledMetres, fromPaidOut: shownPaidOut, toPaidOut: moment.paidOutMetres, fromFrame: frameNow, toFrame: view.frames[figureStage], startMs: isInstant ? -Infinity : performance.now() };
     wake();
     return moment.paidOutMetres;
   };

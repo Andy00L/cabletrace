@@ -1,5 +1,5 @@
-import { boxCorners, fitProjection, type Plan, type Point3, type Projection } from "@/components/iso/iso-kit";
-import { paidOutForLayback, type AnchorFigureFacts } from "@/lib/landing/anchor-figure-model";
+import { boxCorners, fitProjection, iso, type Plan, type Point3, type Projection } from "@/components/iso/iso-kit";
+import { paidOutForLayback, type AnchorFigureFacts, type FigureStage } from "@/lib/landing/anchor-figure-model";
 import { SHIP_SPECS } from "@/lib/ships/ship-specs";
 
 // The anchor figure's world, in metres: x along the track (the ship heads +x), y across it (the viewer looks from +y
@@ -36,8 +36,8 @@ export const DRAWN_SCALES = {
   /** The chain's links: a common stud link is about six chain diameters long (84 mm chain from the anchor model). */
   chainLink: 6,
 } as const;
-/** The cable's drawn radius (m): 2.2 m across, far thicker than life, as the replay's close-up draws it thicker. */
-const CABLE_DRAWN_RADIUS = 1.1;
+/** The cable's drawn radius (m): 3.2 m across, far thicker than life, as the replay's close-up draws it thicker. */
+const CABLE_DRAWN_RADIUS = 1.6;
 
 /** The police: the anchor about 4 m long and 2.5 m wide (sourceRef src/lib/seabed/scene-scales.ts, closeUpAnchorScale). */
 const ANCHOR_LENGTH_METRES = 4;
@@ -77,7 +77,29 @@ export type FigureView = {
   paidOutRange: [number, number];
   /** The chain the anchor drags with in the drag and cut stages: the anchor near the block's middle. */
   dragPaidOut: number;
+  /** The part of the view box each stage shows (x, y, width, height): all of it while the anchor drops, closer in on
+   * the anchor and the cable once it is on the seabed. */
+  frames: Record<FigureStage, ViewFrame>;
 };
+
+/** A square of the view box, in view-box units: x, y, width, height. */
+export type ViewFrame = [number, number, number, number];
+
+// How much closer the seabed stages come than the whole block, and the world point they centre on (m): the anchor's
+// crown at the block's middle and the cable it parts, aft of it, both in the square.
+const SEABED_ZOOM = 2;
+const SEABED_FOCUS_UP = 7;
+// Along the track (m): the drag centres on the anchor and the cable ahead of it, the cut on the anchor and the parted
+// ends aft of it.
+const SEABED_FOCUS_ALONG: Record<"drag" | "cut", number> = { drag: -56, cut: -70 };
+
+/** The square of the view box `zoom` times closer than the whole, centred on `focus` but kept inside the view box. */
+function frameAround(projection: Projection, focus: Point3, zoom: number): ViewFrame {
+  const size = VIEW_WIDTH / zoom;
+  const [centreX, centreY] = iso(focus, projection);
+  const clampTo = (value: number, most: number) => Math.min(most - size, Math.max(0, value - size / 2));
+  return [clampTo(centreX, VIEW_WIDTH), clampTo(centreY, VIEW_HEIGHT), size, size];
+}
 
 /** Half the breadth of the hull at x (m): an elliptic entrance forward to the stem, then the parallel midbody. */
 export function halfBreadthAt(view: Pick<FigureView, "ship">, alongX: number, upZ = Number.NaN): number {
@@ -112,7 +134,8 @@ export function buildFigureView(facts: AnchorFigureFacts): FigureView {
     crownDepth: ANCHOR_LENGTH_METRES * SPEK_SHARE.shankDepth * 1.25 * scale,
     halfWidth: (ANCHOR_WIDTH_METRES / 2) * scale,
     fluke: ANCHOR_LENGTH_METRES * SPEK_SHARE.fluke * scale,
-    flukeWidth: ANCHOR_WIDTH_METRES * 0.36 * scale,
+    // Each fluke takes four tenths of the anchor's width, as in the Spek drawing (anchor-figure-frame.ts cites it).
+    flukeWidth: ANCHOR_WIDTH_METRES * 0.4 * scale,
     thickness: ANCHOR_LENGTH_METRES * SPEK_SHARE.pin * 1.6 * scale,
     pin: ANCHOR_LENGTH_METRES * SPEK_SHARE.pin * scale,
   };
@@ -132,5 +155,10 @@ export function buildFigureView(facts: AnchorFigureFacts): FigureView {
     cableRadius: CABLE_DRAWN_RADIUS,
     paidOutRange: [30, Math.round(paidOutForLayback(facts, mostLayback))],
     dragPaidOut: Math.round(paidOutForLayback(facts, -(BLOCK.x + BLOCK.w * CROWN_DRAG_SHARE + anchor.shank))),
+    frames: {
+      drop: [0, 0, VIEW_WIDTH, VIEW_HEIGHT],
+      drag: frameAround(projection, [SEABED_FOCUS_ALONG.drag, ship.halfBeam - 2, SEABED_FOCUS_UP], SEABED_ZOOM),
+      cut: frameAround(projection, [SEABED_FOCUS_ALONG.cut, ship.halfBeam - 2, SEABED_FOCUS_UP], SEABED_ZOOM),
+    },
   };
 }

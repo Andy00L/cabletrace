@@ -19,7 +19,7 @@ import {
 } from "@/lib/landing/anchor-figure-model";
 
 // The parts of the anchor figure that move or change shape, rebuilt whenever the model's state changes: the chain's
-// stud links along the catenary, the anchor at its pitch with one fluke in the clay, the furrow and its spoil, and each
+// stud links along the catenary, the anchor at its pitch with both flukes in the clay, the furrow and its spoil, and each
 // cable on the seabed with its armour and, once parted, its layers stepped back at the torn ends. Pure strings and
 // shapes, so the audit script and the browser run the same code.
 
@@ -28,13 +28,17 @@ const AXIS_Y: Point3 = [0, 1, 0];
 const SWING_METRES = 16;
 // The furrow's trench: its depth below the seabed and its berms of spoil (m, drawn with the anchor's scale).
 const FURROW_DEPTH = 1.8;
-const BERM_HEIGHT = 1.1;
+const BERM_HEIGHT = 1.3;
 // A stockless anchor's flukes open about 40 degrees from the shank (Spek and Hall types: 35 to 45 degrees).
 const FLUKE_OPENING = (40 * Math.PI) / 180;
-// The spoil mound's centre ahead of the fluke tips (m): its 5.2 m foot starts just ahead of them.
-const MOUND_AHEAD_METRES = 7;
-// While it drags, the anchor rolls a little about its shank, so the near fluke bites deeper than the far one.
-const DRAG_ROLL = (30 * Math.PI) / 180;
+// The spoil mound's centre ahead of the fluke tips (m): its 5.2 m foot starts clear of a cable they hold.
+const MOUND_AHEAD_METRES = 10;
+// The mound's radius at its foot (m), as its profile below draws it.
+const MOUND_FOOT_METRES = 5.2;
+// Dragged, each fluke has this share of its length in the clay; the rest stands out of it, its broad face up.
+const FLUKE_BURY_SHARE = 0.1;
+// The shank's pitch above which a hanging anchor starts to turn on its swivel toward the viewer (radians, 50 degrees).
+const HANG_TURN_FROM = (50 * Math.PI) / 180;
 
 /** Points of the chain in the world: the anchor's shackle first, the hawse last. */
 function chainWorldPoints(view: FigureView, reading: ChainReading): Point3[] {
@@ -114,7 +118,8 @@ export function buildChainArt(view: FigureView, reading: ChainReading): ChainArt
 
 /**
  * The anchor's parts; the near fluke's tip (buried while it drags); whether a fluke is in the clay; and the hook, where
- * a cable is caught: just ahead of the foremost point where a fluke enters the seabed (the far fluke's tip if none does).
+ * a cable is caught: on the shank's line, just ahead of where the flukes enter the seabed (the fluke tips' if they do
+ * not), so a caught cable lies across both flukes.
  */
 export type AnchorArt = { parts: Part[]; flukeTip: Point3; isDug: boolean; hook: Point3 };
 
@@ -137,33 +142,41 @@ function clipAbove(polygon: Flat[], height: (point: Flat) => number, floor: numb
 /**
  * The anchor at its shackle, the chain's first point, as a Spek stockless anchor: the shank with its eye and a casting
  * seam, the crown with the pivot pin through it and its two stops, two flukes with their tripping palms, and the
- * D-shackle with its bolt, swivel and end link. Hanging, its shank follows the chain; let down far enough that the
- * crown would pass through the seabed, it tips over and drags rolled onto its near side, resting on the near pin head,
- * the near fluke dug into the clay and the far one half in (each fluke is cut off where it enters the seabed, so the
- * rest reads as buried).
+ * D-shackle with its bolt, swivel and end link. The outline follows the Spek drawing in "Anchor types" (Wikimedia
+ * Commons, File:Anchor_types.jpg, public domain, read 22 Oct 2026): a long shank, a wide crown, and two broad flukes
+ * beside the shank, wide at the crown and narrowing to tips that lean outward. Hanging, the shank follows the chain;
+ * let down far enough, the anchor tips over and drags with both flukes biting into the clay, a third of each in it
+ * (cut off where it enters the seabed, so the rest reads as buried) and their broad faces turned up.
  */
 export function buildAnchorArt(view: FigureView, reading: ChainReading): AnchorArt {
   const { projection, anchor } = view;
   const first = chainWorldPoints(view, reading)[0] ?? [0, view.chainY, 0];
   const floor = 0;
-  // Dragged and rolled, the anchor rests on its near pin head: the crown sits that head's drop above the seabed.
-  const crownRestZ = (anchor.halfWidth + anchor.pin * 0.85) * Math.sin(DRAG_ROLL) + anchor.pin * 0.9 * Math.cos(DRAG_ROLL) + 0.3;
   const shankHalf = anchor.shankDepth / 2;
   const shankSide = anchor.shankWidth / 2;
   // The eye clears the seabed where the chain's first link lies on it.
   const shackleZ = Math.max(first[2], shankHalf * 0.8 + 0.05);
-  const pitch = Math.asin(Math.max(-0.2, Math.min(1, (shackleZ - crownRestZ) / anchor.shank)));
-  const isLying = pitch < 0.35;
-  const roll = isLying ? DRAG_ROLL * Math.min(1, 1 - pitch / 0.35) : 0;
-  const along: Point3 = [Math.cos(pitch), 0, Math.sin(pitch)];
-  const upFlat: Point3 = [-Math.sin(pitch), 0, Math.cos(pitch)];
-  // Rolled toward the viewer: the near fluke's root (across +y) drops, the far one rises.
-  const up = add3(mul3(upFlat, Math.cos(roll)), mul3(AXIS_Y, Math.sin(roll)));
-  const across = add3(mul3(AXIS_Y, Math.cos(roll)), mul3(upFlat, -Math.sin(roll)));
+  // Dragged, the crown rides where its flukes, opened 40 degrees from the shank, have FLUKE_BURY_SHARE of their length
+  // in the clay; the shank's slope and the crown's height settle together in a few rounds.
+  let crownRestZ = anchor.fluke * Math.sin(FLUKE_OPENING) * (1 - FLUKE_BURY_SHARE);
+  for (let round = 0; round < 4; round += 1) {
+    const slope = Math.asin(Math.max(-0.6, Math.min(1, (shackleZ - crownRestZ) / anchor.shank)));
+    // Never lower than the crown resting on the seabed itself, as it does while the shank still stands steep.
+    crownRestZ = Math.max(anchor.crownDepth * 0.5 + 0.1, anchor.fluke * Math.sin(FLUKE_OPENING - slope) * (1 - FLUKE_BURY_SHARE));
+  }
+  const pitch = Math.asin(Math.max(-0.6, Math.min(1, (shackleZ - crownRestZ) / anchor.shank)));
+  // Hanging, the anchor turns on its swivel; the figure turns it to face the viewer (its flukes spread across the
+  // picture), and back into line with the drag as it tips over onto the seabed.
+  const hang = Math.min(1, Math.max(0, (pitch - HANG_TURN_FROM) / (Math.PI / 2 - HANG_TURN_FROM)));
+  const yaw = ((projection.azimuth ?? 45) * Math.PI) / 180 * hang * hang * (3 - 2 * hang);
+  const turn = ([alongX, acrossY, upZ]: Point3): Point3 => [alongX * Math.cos(yaw) - acrossY * Math.sin(yaw), alongX * Math.sin(yaw) + acrossY * Math.cos(yaw), upZ];
+  const along = turn([Math.cos(pitch), 0, Math.sin(pitch)]);
+  const up = turn([-Math.sin(pitch), 0, Math.cos(pitch)]);
+  const across = turn(AXIS_Y);
   const shackle: Point3 = [first[0], first[1], shackleZ];
   const crown = add3(shackle, mul3(along, -anchor.shank));
   const parts: Part[] = [];
-  const look = { tone: "hi" as const, lit: true };
+  const look = { tone: "hi" as const, lit: true, className: "af-steel" };
   // The shank: a chamfered bar from the crown's nose to the eye, narrowing toward the eye; a casting seam along its top.
   const chamfered = (halfU: number, halfV: number, cut: number): Flat[] => [
     [-halfU + cut, -halfV],
@@ -199,13 +212,16 @@ export function buildAnchorArt(view: FigureView, reading: ChainReading): AnchorA
   parts.push(prismPart("anchor.shank.eye", eyeFrame, eyeOutline, -shankSide * 0.6, shankSide * 0.6, projection, look));
   // The crown: the head the flukes turn in, with the pivot pin through it and a stop each side.
   const crownFrame: Frame = { o: crown, a: across, u: along, v: up };
+  // A cast head, round at the back where the flukes turn about the pin, drawn in to the shank at the front.
   const crownProfile: Flat[] = [
-    [-anchor.crownLength * 0.35, -anchor.crownDepth * 0.42],
-    [anchor.crownLength * 0.62, -anchor.crownDepth * 0.42],
+    ...Array.from({ length: 9 }, (_slot, step): Flat => {
+      const angle = Math.PI / 2 + (step / 8) * Math.PI;
+      return [anchor.crownLength * 0.1 + anchor.crownDepth * 0.42 * Math.cos(angle), anchor.crownDepth * 0.42 * Math.sin(angle)];
+    }),
+    [anchor.crownLength * 0.62, -anchor.crownDepth * 0.36],
     [anchor.crownLength * 0.78, -anchor.crownDepth * 0.15],
-    [anchor.crownLength * 0.62, anchor.crownDepth * 0.42],
-    [-anchor.crownLength * 0.35, anchor.crownDepth * 0.42],
-    [-anchor.crownLength * 0.5, 0],
+    [anchor.crownLength * 0.78, anchor.crownDepth * 0.15],
+    [anchor.crownLength * 0.62, anchor.crownDepth * 0.36],
   ];
   const crownHalf = anchor.halfWidth - anchor.flukeWidth;
   parts.push(prismPart("anchor.crown", crownFrame, crownProfile, -crownHalf, crownHalf, projection, look));
@@ -216,42 +232,59 @@ export function buildAnchorArt(view: FigureView, reading: ChainReading): AnchorA
     parts.push(discPart(`anchor.pin#${side}`, pinFrame, Math.min(pinOut(0), pinOut(0.35)), Math.max(pinOut(0), pinOut(0.35)), anchor.pin * 0.55, projection, look));
     parts.push(discPart(`anchor.pin.head#${side}`, pinFrame, Math.min(pinOut(0.35), pinOut(0.85)), Math.max(pinOut(0.35), pinOut(0.85)), anchor.pin * 0.9, projection, look));
     const stopFrame: Frame = { o: add3(crown, mul3(across, side * crownHalf * 0.55)), a: across, u: along, v: up };
-    parts.push(prismPart(`anchor.stop#${side}`, stopFrame, [[anchor.crownLength * 0.05, anchor.crownDepth * 0.42], [anchor.crownLength * 0.45, anchor.crownDepth * 0.42], [anchor.crownLength * 0.35, anchor.crownDepth * 0.62], [anchor.crownLength * 0.1, anchor.crownDepth * 0.62]], -anchor.pin * 0.7, anchor.pin * 0.7, projection, look));
+    parts.push(prismPart(`anchor.stop#${side}`, stopFrame, [[anchor.crownLength * 0.2, anchor.crownDepth * 0.4], [anchor.crownLength * 0.5, anchor.crownDepth * 0.36], [anchor.crownLength * 0.42, anchor.crownDepth * 0.52], [anchor.crownLength * 0.26, anchor.crownDepth * 0.54]], -anchor.pin * 0.45, anchor.pin * 0.45, projection, look));
   }
   // The flukes open from the crown toward the shank, each a tapering plate with a palm at its root.
   const flukeAlong = add3(mul3(along, Math.cos(FLUKE_OPENING)), mul3(up, -Math.sin(FLUKE_OPENING)));
   const flukeNormal = add3(mul3(along, Math.sin(FLUKE_OPENING)), mul3(up, Math.cos(FLUKE_OPENING)));
-  const flukeOutline: Flat[] = [
-    [0, -anchor.flukeWidth / 2],
-    [anchor.fluke * 0.62, -anchor.flukeWidth * 0.5],
-    [anchor.fluke * 0.92, -anchor.flukeWidth * 0.2],
-    [anchor.fluke, 0],
-    [anchor.fluke * 0.92, anchor.flukeWidth * 0.2],
-    [anchor.fluke * 0.62, anchor.flukeWidth * 0.5],
-    [0, anchor.flukeWidth / 2],
+  // A Spek fluke in its own plane (along it, then sideways, + outward): its inner edge straight beside the crown, its
+  // outer edge bellied, narrowing to a blunt tip that leans outward (the Spek drawing cited above).
+  const flukeShape: Flat[] = [
+    [0, -0.5],
+    [0.3, -0.5],
+    [0.72, -0.36],
+    [0.97, 0.1],
+    [0.9, 0.3],
+    [0.62, 0.56],
+    [0.28, 0.62],
+    [0, 0.5],
   ];
+  const flukeOutlineFor = (side: number): Flat[] => {
+    const outline = flukeShape.map(([alongShare, sideShare]): Flat => [alongShare * anchor.fluke, side * sideShare * anchor.flukeWidth]);
+    return side > 0 ? outline : outline.reverse();
+  };
   let flukeTip: Point3 = add3(crown, mul3(flukeAlong, anchor.fluke));
   let isDug = false;
   let hook: Point3 | null = null;
   for (const side of [-1, 1]) {
     const root = add3(crown, mul3(across, side * (anchor.halfWidth - anchor.flukeWidth / 2)));
     const height = ([alongFluke, sideways]: Flat) => root[2] + alongFluke * flukeAlong[2] + sideways * across[2];
-    const visible = clipAbove(flukeOutline, height, floor);
-    if (flukeOutline.some((point) => height(point) < floor)) {
+    const flukeOutline = flukeOutlineFor(side);
+    // Clipped where the plate's lower face meets the seabed, so no part of its thickness goes into the clay.
+    const clipAt = floor + (anchor.thickness / 2) * Math.abs(flukeNormal[2]);
+    const visible = clipAbove(flukeOutline, height, clipAt);
+    if (flukeOutline.some((point) => height(point) < clipAt)) {
       isDug = true;
       // Where this fluke enters the clay: the clipped outline's points on the seabed, in the world.
-      const entry = visible.filter((point) => Math.abs(height(point) - floor) < 1e-6).map(([alongFluke, sideways]) => add3(root, add3(mul3(flukeAlong, alongFluke), mul3(across, sideways))));
+      const entry = visible.filter((point) => Math.abs(height(point) - clipAt) < 1e-6).map(([alongFluke, sideways]) => add3(root, add3(mul3(flukeAlong, alongFluke), mul3(across, sideways))));
       const foremost = entry.reduce<Point3 | null>((best, point) => (best && best[0] >= point[0] ? best : point), null);
       if (foremost && (!hook || foremost[0] > hook[0])) hook = foremost;
     }
     if (visible.length >= 3) {
       const frame: Frame = { o: root, a: flukeNormal, u: flukeAlong, v: across };
-      const rib = pathOf([iso(root, projection), iso(add3(root, mul3(flukeAlong, anchor.fluke * 0.85)), projection)]);
-      parts.push(prismPart(`anchor.fluke#${side}`, frame, visible, -anchor.thickness / 2, anchor.thickness / 2, projection, { ...look, inner: `<path class="iso-line" data-tone="mid" d="${rib}"/>` }));
+      // On the face turned to the viewer: the casting's bevel, a loop a little inside the edge, and the rib down the
+      // middle from the root to the bevel.
+      const faceS = (dot3(flukeNormal, viewOf(projection)) > 0 ? 1 : -1) * (anchor.thickness / 2);
+      const onFace = ([alongFluke, sideways]: Flat) => iso(add3(root, add3(mul3(flukeNormal, faceS), add3(mul3(flukeAlong, alongFluke), mul3(across, sideways)))), projection);
+      const centre = visible.reduce<Flat>((sum, point) => [sum[0] + point[0] / visible.length, sum[1] + point[1] / visible.length], [0, 0]);
+      const bevel = visible.map(([alongFluke, sideways]): Flat => [centre[0] + (alongFluke - centre[0]) * 0.8, centre[1] + (sideways - centre[1]) * 0.8]);
+      const ribEnd = bevel.reduce((best, point) => (Math.abs(point[1] - centre[1]) < anchor.flukeWidth * 0.25 && point[0] > best[0] ? point : best), [centre[0], centre[1]] as Flat);
+      const lines = `<path class="iso-line" data-tone="mid" d="${pathOf(bevel.map(onFace), true)}"/><path class="iso-line" data-tone="lo" d="${pathOf([onFace([0, ribEnd[1]]), onFace(ribEnd)])}"/>`;
+      parts.push(prismPart(`anchor.fluke#${side}`, frame, visible, -anchor.thickness / 2, anchor.thickness / 2, projection, { ...look, inner: lines }));
     }
     // The tripping palm: a plate standing up from the fluke's root, which tips the flukes down when the anchor drags.
     const palmFrame: Frame = { o: root, a: across, u: along, v: up };
-    parts.push(prismPart(`anchor.palm#${side}`, palmFrame, [[-anchor.crownLength * 0.3, anchor.crownDepth * 0.35], [anchor.crownLength * 0.2, anchor.crownDepth * 0.35], [-anchor.crownLength * 0.1, anchor.crownDepth * 0.95]], -anchor.flukeWidth * 0.28, anchor.flukeWidth * 0.28, projection, look));
+    parts.push(prismPart(`anchor.palm#${side}`, palmFrame, [[-anchor.crownLength * 0.3, anchor.crownDepth * 0.28], [anchor.crownLength * 0.18, anchor.crownDepth * 0.28], [anchor.crownLength * 0.02, anchor.crownDepth * 0.52], [-anchor.crownLength * 0.22, anchor.crownDepth * 0.5]], -anchor.pin * 0.5, anchor.pin * 0.5, projection, look));
     if (side === 1) flukeTip = add3(root, mul3(flukeAlong, anchor.fluke));
   }
   // The D-shackle round the eye: its bow a tube ending at the bolt, the bolt across the eye with a head and a nut;
@@ -277,47 +310,72 @@ export function buildAnchorArt(view: FigureView, reading: ChainReading): AnchorA
   parts.push(turnedPart("anchor.swivel", swivelFrame, [[0, 0.3 * anchor.pin], [0.2 * anchor.pin, 0.8 * anchor.pin], [1.4 * anchor.pin, 0.95 * anchor.pin, 1], [2.6 * anchor.pin, 0.8 * anchor.pin], [3.0 * anchor.pin, 0.4 * anchor.pin]], projection, look));
   const farTip = add3(crown, add3(mul3(across, -(anchor.halfWidth - anchor.flukeWidth / 2)), mul3(flukeAlong, anchor.fluke)));
   const caught = hook ?? farTip;
-  return { parts, flukeTip, isDug, hook: [caught[0] + view.cableRadius, caught[1], 0] };
+  // The cable lies against the flukes' leading faces: its own radius and a fluke's thickness ahead of the entry line.
+  return { parts, flukeTip, isDug, hook: [caught[0] + view.cableRadius + anchor.thickness, view.chainY, 0] };
 }
 
 export type FurrowRun = { fromWorld: number; toWorld: number };
 
 /**
- * The furrow: a trench the anchor's width with its far wall and floor showing, berms of spoil along both lips, and,
+ * Where the flukes push their spoil up, or null: none while the anchor hangs, and none while a cable lies where the
+ * mound would stand (the cable is in its way; the flukes heap the clay against it instead).
+ */
+export function readPloughPoint(view: FigureView, anchor: AnchorArt, cables: readonly CableState[], travelledMetres: number): Point3 | null {
+  if (!anchor.isDug) return null;
+  const moundX = anchor.flukeTip[0] + MOUND_AHEAD_METRES;
+  const reach = MOUND_FOOT_METRES + view.cableRadius + 1;
+  const isBlocked = cables.some((cable) => Math.abs(cable.worldMetres - travelledMetres + readCablePull(cable, travelledMetres) - moundX) < reach);
+  return isBlocked ? null : anchor.flukeTip;
+}
+
+/**
+ * The furrow: twin trenches, one cut by each fluke (a stockless anchor dragged with both flukes in leaves two parallel
+ * scars), each showing its floor and far wall; spoil heaped in a berm along each outer lip, shaded as solids; and,
  * while the flukes plough, a mound of spoil pushed up ahead of them with clods thrown off it.
  */
 export function buildFurrowArt(view: FigureView, runs: readonly FurrowRun[], travelledMetres: number, ploughAt: Point3 | null): { back: string; front: string; spoilParts: Part[] } {
   const { projection, anchor } = view;
-  const inner = anchor.halfWidth + 0.8;
-  const berm = 2.6;
+  const trackHalf = anchor.flukeWidth / 2 + 0.4;
+  const trackOffset = anchor.halfWidth - anchor.flukeWidth / 2;
+  const outer = trackOffset + trackHalf;
+  const inner = outer;
+  const berm = 3;
   const back: string[] = [];
   const front: string[] = [];
   const spoilParts: Part[] = [];
   const runY = view.chainY;
   for (const run of runs) {
-    const fromX = Math.max(BLOCK.x - 4, run.fromWorld - travelledMetres);
+    const fromX = Math.max(BLOCK.x, run.fromWorld - travelledMetres);
     const toX = Math.min(BLOCK.x + BLOCK.w, run.toWorld - travelledMetres);
     if (toX - fromX < 0.5) continue;
     const point = (alongX: number, acrossY: number, height: number) => iso([alongX, acrossY, height], projection);
-    const floor = pathOf([point(fromX, runY - inner, -FURROW_DEPTH), point(toX, runY - inner, -FURROW_DEPTH), point(toX, runY + inner, -FURROW_DEPTH), point(fromX, runY + inner, -FURROW_DEPTH)], true);
-    const farWall = pathOf([point(fromX, runY - inner, 0), point(toX, runY - inner, 0), point(toX, runY - inner, -FURROW_DEPTH), point(fromX, runY - inner, -FURROW_DEPTH)], true);
-    back.push(`<path class="af-furrow-floor" d="${floor}"/><path class="af-furrow-wall" d="${farWall}"/>`);
-    back.push(`<path class="iso-line" data-tone="lo" d="${pathOf([point(fromX, runY - inner, 0), point(toX, runY - inner, 0)])}${pathOf([point(fromX, runY - inner, -FURROW_DEPTH), point(toX, runY - inner, -FURROW_DEPTH)])}"/>`);
-    // The berms: a low ridge of spoil each side, its crest a little off the lip; the near one hides the trench's near wall.
+    for (const track of [-1, 1]) {
+      const nearY = runY + track * trackOffset + trackHalf;
+      const farY = runY + track * trackOffset - trackHalf;
+      const floor = pathOf([point(fromX, farY, -FURROW_DEPTH), point(toX, farY, -FURROW_DEPTH), point(toX, nearY, -FURROW_DEPTH), point(fromX, nearY, -FURROW_DEPTH)], true);
+      const farWall = pathOf([point(fromX, farY, 0), point(toX, farY, 0), point(toX, farY, -FURROW_DEPTH), point(fromX, farY, -FURROW_DEPTH)], true);
+      back.push(`<path class="af-furrow-floor" d="${floor}"/><path class="af-furrow-wall" d="${farWall}"/>`);
+      // The lips and the foot of the far wall; the near lip is the trench's edge against the floor.
+      back.push(`<path class="iso-line" data-tone="mid" d="${pathOf([point(fromX, farY, 0), point(toX, farY, 0)])}${pathOf([point(fromX, nearY, 0), point(toX, nearY, 0)])}"/><path class="iso-line" data-tone="lo" d="${pathOf([point(fromX, farY, -FURROW_DEPTH), point(toX, farY, -FURROW_DEPTH)])}"/>`);
+      // The trench's profile at both ends (where the block cuts it, and the flukes' face), which its lines end on.
+      const profile = (alongX: number) => pathOf([point(alongX, farY, 0), point(alongX, farY, -FURROW_DEPTH), point(alongX, nearY, -FURROW_DEPTH), point(alongX, nearY, 0)]);
+      back.push(`<path class="iso-line" data-tone="lo" d="${profile(fromX)}${profile(toX)}"/>`);
+    }
+    // The berms: spoil thrown out over each outer lip, a low ridge drawn as a solid so its four tones read.
     for (const side of [-1, 1]) {
       const lipY = runY + side * inner;
-      const crestY = runY + side * (inner + berm * 0.45);
+      const crestY = runY + side * (inner + berm * 0.4);
       const outerY = runY + side * (inner + berm);
-      const ridge = pathOf([point(fromX, lipY, 0), point(toX, lipY, 0), point(toX, crestY, BERM_HEIGHT), point(toX, outerY, 0), point(fromX, outerY, 0), point(fromX, crestY, BERM_HEIGHT)], true);
-      const crest = pathOf([point(fromX, crestY, BERM_HEIGHT), point(toX, crestY, BERM_HEIGHT)]);
-      (side > 0 ? front : back).push(`<path class="af-berm" d="${ridge}"/><path class="iso-line" data-tone="lo" d="${crest}"/><path class="iso-line" data-tone="faint" d="${pathOf([point(fromX, outerY, 0), point(toX, outerY, 0)])}"/>`);
+      const ridgeFrame: Frame = { o: [0, 0, 0], a: [1, 0, 0], u: AXIS_Y, v: [0, 0, 1] };
+      const ridge = prismPart(`seabed.berm#${side}`, ridgeFrame, side > 0 ? [[lipY, 0], [outerY, 0], [crestY, BERM_HEIGHT]] : [[outerY, 0], [lipY, 0], [crestY, BERM_HEIGHT]], fromX, toX, projection, { tone: "mid", className: "af-berm" });
+      (side > 0 ? front : back).push(ridge.svg);
     }
   }
   if (ploughAt) {
     // The spoil mound pushed up ahead of the flukes (clear of a cable they hold, which trails aft of them): a low
     // dome on the near lip, and clods of clay about it.
     const moundX = ploughAt[0] + MOUND_AHEAD_METRES;
-    spoilParts.push(turnedPart("seabed.spoil", frameOf([moundX, runY + inner * 0.55, 0], [0, 0, 1], [1, 0, 0], AXIS_Y), [[0, 0], [0, 5.2], [0.8, 4.6, 1], [1.7, 3.0, 1], [2.3, 1.2, 1], [2.5, 0.05]], projection, { tone: "lo", className: "af-spoil" }));
+    spoilParts.push(turnedPart("seabed.spoil", frameOf([moundX, runY + inner * 0.55, 0], [0, 0, 1], [1, 0, 0], AXIS_Y), [[0, 0], [0, MOUND_FOOT_METRES], [0.8, 4.6, 1], [1.7, 3.0, 1], [2.3, 1.2, 1], [2.5, 0.05]], projection, { tone: "lo", className: "af-spoil" }));
     // Clods thrown just clear of the mound's foot (radius 5.2 m): [ahead of the flukes, sideways, radius] (m).
     const clods: [number, number, number][] = [
       [8.6, 2.4, 0.6],
@@ -363,9 +421,16 @@ function cableCentrelines(view: FigureView, cable: CableState, travelledMetres: 
       return [lyingX + bowAt(acrossY), acrossY, radius];
     });
   if (cable.phase.kind === "snagged") {
-    // The bight follows the flukes exactly while the anchor holds it.
-    const offset = hook[0] - (lyingX + bowAt(apexY));
-    return [lineFrom(y0, y1).map(([alongX, acrossY, upZ]) => [alongX + offset * Math.max(0, 1 - Math.abs(acrossY - apexY) / 30), acrossY, upZ])];
+    // The bight follows the flukes exactly while the anchor holds it: straight across both flukes and a little past
+    // their outer edges, then two taut legs back to where the cable still lies.
+    const held = view.anchor.halfWidth + 4;
+    return [
+      lineFrom(y0, y1).map(([, acrossY, upZ]): Point3 => {
+        const reach = acrossY > apexY ? y1 - apexY : apexY - y0;
+        const share = Math.min(1, Math.max(0, (Math.abs(acrossY - apexY) - held) / Math.max(1, reach - held)));
+        return [hook[0] - (hook[0] - lyingX) * Math.pow(share, 0.85), acrossY, upZ];
+      }),
+    ];
   }
   if (cable.phase.kind === "parted") {
     const gap = 3.4 + Math.min(3.6, sinceParted * 0.3);
