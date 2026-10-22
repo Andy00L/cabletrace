@@ -59,7 +59,7 @@ export function CaseEventList() {
             <li
               key={`${event.atMs}-${event.title}`}
               aria-current={isCurrent ? "step" : undefined}
-              className={`grid grid-cols-[48px_minmax(0,1fr)] gap-x-3 rounded-field px-2 py-2.5 transition-colors duration-140 ease-standard ${isCurrent ? "bg-page" : ""} ${isLater ? "text-muted" : "text-ink"}`}
+              className={`grid grid-cols-[48px_minmax(0,1fr)] gap-x-3 rounded-field px-2 py-2.5 transition-colors duration-140 ease-standard ${isCurrent ? "bg-soft" : ""} ${isLater ? "text-muted" : "text-ink"}`}
             >
               <button type="button" onClick={() => seekTo(event.atMs)} className="col-span-2 grid grid-cols-subgrid text-left" aria-label={`${event.timeLabel} UTC, ${event.title}`}>
                 <span className="flex flex-col">
@@ -69,7 +69,7 @@ export function CaseEventList() {
                 </span>
                 <span className="text-small">{event.title}</span>
               </button>
-              <CitationButtons citations={event.citations} className="col-start-2 mt-0.5" />
+              <CitationButtons citations={event.citations} surface={isCurrent ? "soft" : "card"} className="col-start-2 mt-0.5" />
             </li>
           );
         })}

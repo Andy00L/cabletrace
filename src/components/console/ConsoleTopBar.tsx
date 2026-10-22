@@ -97,7 +97,7 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
                   key={item.slug}
                   href={`/cases/${item.slug}`}
                   aria-current={isCurrent ? "page" : undefined}
-                  className={`grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3.5 rounded-field p-2 transition-colors duration-140 ease-standard hover:bg-page ${isCurrent ? "bg-page" : ""}`}
+                  className={`grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3.5 rounded-field p-2 transition-colors duration-140 ease-standard hover:bg-page ${isCurrent ? "bg-soft" : ""}`}
                 >
                   <span className="block aspect-video overflow-hidden rounded-chip bg-depth-40">
                     {sketch && <CaseSketchMap sketch={sketch} vesselName={item.vesselName} />}

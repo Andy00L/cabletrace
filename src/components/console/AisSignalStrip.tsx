@@ -184,7 +184,8 @@ export function TimelineSignal({ atMs }: { atMs: number }) {
   const axis = { startMs: input.windowStartMs, endMs: input.windowEndMs };
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 bottom-full z-(--layer-popover) mb-2 flex flex-col gap-1.5 rounded-field bg-card pt-2 pb-1 shadow-popover"
+      // A vellum card over the slate dock, so it drops the halo the dock's text inherits (ConsoleDock).
+      className="pointer-events-none absolute inset-x-0 bottom-full z-(--layer-popover) mb-2 flex flex-col gap-1.5 rounded-field bg-card pt-2 pb-1 text-ink shadow-popover [text-shadow:none]"
       data-testid="timeline-ais-hover"
       data-state={moment.kind}
       role="status"

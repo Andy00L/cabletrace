@@ -27,7 +27,7 @@ const CARD_CLASS = "flex flex-col gap-3 rounded-row bg-card px-5 py-4.5 shadow-c
 // No fade mask on it: over the 3D view a mask is composited again every frame, 5 fps on Windows Chrome's integrated
 // GPU (57 to 52 fps playing, 21 Oct 2026).
 const RAIL_SCROLL_CLASS = "-mr-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-3 pb-6";
-const ROW_BUTTON_CLASS = "grid w-full items-center gap-x-3 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-page";
+const ROW_BUTTON_CLASS = "grid w-full items-center gap-x-3 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-soft";
 
 function ShipSample() {
   return (
@@ -68,7 +68,7 @@ function ShipHeading({ onHide }: { onHide: (() => void) | null }) {
           onClick={(event) => openLayer({ kind: "vessel" }, event.currentTarget)}
           title="Show the vessel card on the ship"
           aria-current={layer.kind === "vessel" ? "true" : undefined}
-          className="-mx-2 -my-1 flex items-center gap-3 rounded-field px-2 py-1 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-page"
+          className="-mx-2 -my-1 flex items-center gap-3 rounded-field px-2 py-1 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-soft"
           data-testid="open-vessel-card"
         >
           <ShipSample />
@@ -98,7 +98,7 @@ function ReplayRail({ onHide }: { onHide: (() => void) | null }) {
         <ShipCameraSwitch />
         <p className="text-caption font-normal text-muted">
           {vessel.evidenceBrief}.{" "}
-          <button type="button" onClick={() => setMode("ship")} className="font-medium text-ink underline decoration-faint underline-offset-4 hover:decoration-ink">
+          <button type="button" onClick={() => setMode("ship")} className="font-medium text-brass underline decoration-brass/40 underline-offset-4 hover:decoration-brass">
             Ship details
           </button>
         </p>
@@ -123,7 +123,7 @@ function ShipRail({ onHide, showsCharts }: { onHide: (() => void) | null; showsC
       <AisSignalCard />
       {showsCharts && series && (
         <section className={`${CARD_CLASS} flex-none`} aria-label="Charts on the replay's time axis">
-          <CaseCharts series={series} isStacked />
+          <CaseCharts series={series} isStacked surface="card" />
         </section>
       )}
     </div>
