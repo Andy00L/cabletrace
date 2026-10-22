@@ -125,6 +125,11 @@
   width: 100%;
   height: 100%;
 }
+/* The seabed stages show part of the view box: nothing outside it may spill over the label row or the readout. */
+.af-art,
+.af .af-art > svg {
+  overflow: hidden;
+}
 .af-art > .af-layer {
   position: absolute;
   inset: 0;
@@ -181,11 +186,30 @@
   fill: color-mix(in oklab, var(--color-page), var(--color-ink) 48%);
   stroke: none;
 }
-.af-berm {
-  fill: var(--anatomy-shade-2);
-  stroke: var(--anatomy-lo);
-  stroke-width: 0.35;
-  stroke-linejoin: round;
+/* The berms are solids: clay a shade under the seabed's tone on their lit faces. */
+.af .af-berm {
+  --anatomy-paper: color-mix(in oklab, var(--color-soft), var(--color-ink) 6%);
+  --anatomy-top: color-mix(in oklab, var(--color-soft), var(--color-ink) 4%);
+}
+/* The anchor's contact shadow on the seabed and in the furrow. */
+.af-shadow {
+  fill: var(--color-ink);
+  fill-opacity: 0.16;
+  stroke: none;
+}
+/* Cast steel: the anchor a few tones darker than the white seabed, so its outline reads at a glance. */
+.af .af-steel {
+  --anatomy-paper: color-mix(in oklab, var(--color-page), var(--color-ink) 22%);
+  --anatomy-face: color-mix(in oklab, var(--color-page), var(--color-ink) 22%);
+  --anatomy-top: color-mix(in oklab, var(--color-page), var(--color-ink) 12%);
+  --anatomy-lit-top: color-mix(in oklab, var(--color-page), var(--color-ink) 10%);
+  --anatomy-lit-shade: color-mix(in oklab, var(--color-page), var(--color-ink) 38%);
+  --anatomy-shade-0: color-mix(in oklab, var(--color-page), var(--color-ink) 62%);
+  --anatomy-shade-1: color-mix(in oklab, var(--color-page), var(--color-ink) 50%);
+  --anatomy-shade-2: color-mix(in oklab, var(--color-page), var(--color-ink) 40%);
+  --anatomy-shade-3: color-mix(in oklab, var(--color-page), var(--color-ink) 31%);
+  --anatomy-mid: color-mix(in oklab, var(--color-ink) 82%, var(--color-page));
+  --anatomy-lo: color-mix(in oklab, var(--color-ink) 64%, var(--color-page));
 }
 
 /* The spoil the flukes push up: clay, a tone under the seabed's own. */

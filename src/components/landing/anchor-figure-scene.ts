@@ -28,15 +28,34 @@ import { BLOCK, FOOT_HEIGHT, PLINTH, PLINTH_BOTTOM, SEDIMENT_BOTTOM, TEXTURE_PER
 const AXIS_X: Point3 = [1, 0, 0];
 const AXIS_Y: Point3 = [0, 1, 0];
 const AXIS_Z: Point3 = [0, 0, 1];
+// How far inside the block's aft end the ship's break line runs (m).
+const BREAK_AFT_METRES = 6;
 
-/** The hull's waterplane at height z as a ring, from `fromX` to the stem: starboard first, back along port. */
-function hullRing(view: FigureView, fromX: number, z: number, inset = 0): Plane[] {
+/**
+ * The hull's waterplane at height z as a ring, from `fromX` to the stem: starboard first, back along port. With a bulb,
+ * the stem runs out into the bulb's rounded nose and the waterlines swell into it over its fairing length.
+ */
+function hullRing(view: FigureView, fromX: number, z: number, inset = 0, bulb: { nose: number; radius: number } | null = null): Plane[] {
   const steps = 36;
   const stem = view.ship.stemX;
-  const starboard: Plane[] = Array.from({ length: steps + 1 }, (_slot, index) => {
-    const alongX = stem - ((stem - fromX) * index) / steps;
-    return [alongX, Math.max(0, halfBreadthAt(view, alongX, z) - inset)];
+  const fairing = 12;
+  const bulbHalfAt = (alongX: number) => {
+    if (!bulb) return 0;
+    if (alongX >= stem) return bulb.radius * Math.sqrt(Math.max(0, 1 - ((alongX - stem) / bulb.nose) ** 2));
+    return bulb.radius * Math.max(0, 1 - ((stem - alongX) / fairing) ** 2);
+  };
+  const noseSteps = bulb ? 8 : 0;
+  const nose: Plane[] = Array.from({ length: noseSteps }, (_slot, index) => {
+    const alongX = stem + (bulb?.nose ?? 0) * (1 - index / noseSteps);
+    return [alongX, bulbHalfAt(alongX)];
   });
+  const starboard: Plane[] = [
+    ...nose,
+    ...Array.from({ length: steps + 1 }, (_slot, index): Plane => {
+      const alongX = stem - ((stem - fromX) * index) / steps;
+      return [alongX, Math.max(0, Math.max(halfBreadthAt(view, alongX, z), bulbHalfAt(alongX)) - inset)];
+    }),
+  ];
   const port = [...starboard].reverse().map(([alongX, acrossY]): Plane => [alongX, -acrossY]);
   return [...starboard, ...port].filter((point, index, all) => index === 0 || point[0] !== all[index - 1]?.[0] || point[1] !== all[index - 1]?.[1]);
 }
@@ -185,25 +204,26 @@ function buildHullUnderwater(view: FigureView): Part[] {
   const fromX = BLOCK.x;
   const parts: Part[] = [];
   // Three strakes, each a little fuller than the one under it, so the bilge and the bow's flare read as steps of plating.
-  const levels = [ship.keelZ, ship.keelZ + 2.2, ship.keelZ + 6.5, depth - 1.4];
-  for (let index = 0; index < levels.length - 1; index += 1) {
-    const bottom = levels[index] ?? ship.keelZ;
-    const top = levels[index + 1] ?? depth;
-    parts.push(extrudedPart(`ship.hull.strake#${index}`, hullRing(view, fromX, bottom, index === 0 ? 1.6 : 0), bottom, top - bottom, projection, { tone: "mid", bias: -60 + index }));
-  }
-  parts.push(extrudedPart("ship.hull.boottop", hullRing(view, fromX, depth), depth - 1.4, 1.4, projection, { tone: "mid", bias: -56, className: "af-boottop" }));
-  // The bulbous bow: a rounded nose standing 1.44 radii ahead of the stem (vessel-profile.ts), its aft face on the
-  // stem, where the hull's waterlines close to nothing.
+  // The bulbous bow is plated into the middle strake: its nose stands 1.44 radii ahead of the stem (vessel-profile.ts)
+  // and the waterlines swell into it, so the bulb grows out of the stem rather than sitting on it.
   const bulbRadius = 0.096 * 2 * ship.halfBeam;
   const bulbAxisZ = ship.keelZ + 0.42 * ship.draught;
-  const noseLength = 1.44 * bulbRadius;
-  const bulbFrame = frameOf([ship.stemX + noseLength, 0, bulbAxisZ], [-1, 0, 0], AXIS_Y, AXIS_Z);
-  const bulbProfile: [number, number, number][] = Array.from({ length: 10 }, (_slot, index) => {
-    const along = (index / 9) * noseLength;
-    const radius = bulbRadius * Math.sqrt(Math.max(0, 1 - Math.pow((noseLength - along) / noseLength, 2)));
-    return [along, Math.max(0.05, radius), 1];
-  });
-  parts.push(turnedPart("ship.hull.bulb", bulbFrame, bulbProfile, projection, { tone: "mid", bias: -50 }));
+  // In three strakes stepped like an ellipsoid's waterlines: the middle one full, those over and under it 0.8 of it.
+  const bulbAt = (share: number) => ({ nose: 1.44 * bulbRadius * share, radius: bulbRadius * share });
+  const bands: [number, { nose: number; radius: number } | null][] = [
+    [ship.keelZ, null],
+    [bulbAxisZ - bulbRadius * 0.9, bulbAt(0.8)],
+    [bulbAxisZ - bulbRadius * 0.35, bulbAt(1)],
+    [bulbAxisZ + bulbRadius * 0.35, bulbAt(0.8)],
+    [bulbAxisZ + bulbRadius * 0.9, null],
+    [depth - 1.4, null],
+  ];
+  for (let index = 0; index < bands.length - 1; index += 1) {
+    const [bottom, bulb] = bands[index] ?? [ship.keelZ, null];
+    const top = bands[index + 1]?.[0] ?? depth;
+    parts.push(extrudedPart(`ship.hull.strake#${index}`, hullRing(view, fromX, bottom, index === 0 ? 1.6 : 0, bulb), bottom, top - bottom, projection, { tone: "mid", bias: -60 + index }));
+  }
+  parts.push(extrudedPart("ship.hull.boottop", hullRing(view, fromX, depth), depth - 1.4, 1.4, projection, { tone: "mid", bias: -56, className: "af-boottop" }));
   // Draught marks on the near side of the parallel body: a rule each metre from the keel to the water, longer every 2.
   const marksX = -62;
   const marks: string[] = [];
@@ -368,6 +388,18 @@ function buildShipAbove(view: FigureView): Part[] {
   // The waterline along the near side, where the hull meets the surface, and the bow wave folding off the stem.
   const waterline = pathOf(hullRing(view, fromX, depth).slice(0, 37).map(([alongX, acrossY]) => iso([alongX, acrossY, depth], projection)));
   parts.push(linePart("water.waterline", waterline, [0, ship.halfBeam, depth], { tone: "hi", bias: -31 }));
+  // The ship is drawn to here on purpose: a break line (the draughtsman's sign for "continues") across the deck and
+  // down the near side, a few metres inside the block's aft end. Eagle S runs on another 110 m aft to her house.
+  const breakAt = (sway: number) => fromX + BREAK_AFT_METRES + 1.1 * Math.sin(sway);
+  const deckBreak = Array.from({ length: 13 }, (_slot, step) => {
+    const acrossY = ship.halfBeam - (2 * ship.halfBeam * step) / 12;
+    return iso([breakAt(acrossY * 0.35), acrossY, deckZ], projection);
+  });
+  const sideBreak = Array.from({ length: 9 }, (_slot, step) => {
+    const height = deckZ - ((deckZ - depth) * step) / 8;
+    return iso([breakAt(ship.halfBeam * 0.35 + (deckZ - height) * 0.5), ship.halfBeam, height], projection);
+  });
+  parts.push(linePart("ship.break", pathOf(deckBreak) + pathOf(sideBreak), [fromX + BREAK_AFT_METRES, ship.halfBeam, deckZ], { tone: "hi", bias: 40 }));
   return parts;
 }
 

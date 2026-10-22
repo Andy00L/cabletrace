@@ -150,8 +150,8 @@ export type FigureStage = "drop" | "drag" | "cut";
 const DROP_PAID_OUT_METRES = 34;
 // Where the cable lies at each stage, against the distance at which the hook reaches the track's first cable (m): well
 // ahead while the anchor falls, a short way ahead of the flukes as they plough, and long enough after the part that its
-// two ends lie clear aft of the anchor, where its crown does not hide them.
-const STAGE_TRAVEL_FROM_SNAG: Record<FigureStage, number> = { drop: -60, drag: -24, cut: PART_PULL_METRES + 44 };
+// two ends lie clear aft of the anchor's crown, in the furrow it has cut.
+const STAGE_TRAVEL_FROM_SNAG: Record<FigureStage, number> = { drop: -60, drag: -24, cut: PART_PULL_METRES + 26 };
 
 /**
  * One stage as a moment of the drag: how far the ship has travelled and how much chain is out. `snagAtMetres` is the

@@ -1,4 +1,5 @@
-import { iso, type Flat } from "@/components/iso/iso-kit";
+import { iso, pathOf, type Flat } from "@/components/iso/iso-kit";
+import { hullOf } from "@/components/iso/lathe.mjs";
 import {
   alongTransform,
   buildAnchorArt,
@@ -6,6 +7,7 @@ import {
   buildChainArt,
   buildFurrowArt,
   buildStageFrame,
+  readPloughPoint,
   slideTransform,
   type AnchorArt,
   type FurrowRun,
@@ -27,7 +29,7 @@ export const DRAWN_STAGE: FigureStage = "drop";
 
 /** The slots the engine rewrites, by the `data-slot` each carries. */
 export const CHAIN_SLOTS = ["chain-behind", "chain-front", "chain-above"] as const;
-export const SEABED_SLOTS = ["ripples", "furrow-back", "furrow-front", "anchor", "cuts"] as const;
+export const SEABED_SLOTS = ["ripples", "furrow-back", "furrow-front", "shadow", "anchor", "cuts"] as const;
 export type ChainSlot = (typeof CHAIN_SLOTS)[number];
 export type SeabedSlot = (typeof SEABED_SLOTS)[number];
 
@@ -44,15 +46,34 @@ export function buildChainSlots(view: FigureView, reading: ChainReading): { slot
  */
 export function buildSeabedSlots(view: FigureView, moment: { travelled: number; runs: readonly FurrowRun[]; cables: readonly CableState[]; anchor: AnchorArt }): Record<SeabedSlot, string> {
   const { travelled, runs, cables, anchor } = moment;
-  const furrow = buildFurrowArt(view, runs, travelled, anchor.isDug ? anchor.flukeTip : null);
+  const furrow = buildFurrowArt(view, runs, travelled, readPloughPoint(view, anchor, cables, travelled));
   const cableArts = cables.map((cable) => buildCableArt(view, cable, travelled, anchor.hook));
   return {
+    shadow: buildAnchorShadow(view, anchor),
     ripples: buildRipples(view, travelled),
     "furrow-back": furrow.back,
     "furrow-front": furrow.front,
     anchor: paintParts([...anchor.parts, ...furrow.spoilParts, ...cableArts.flatMap((art) => art.parts)], view.projection),
     cuts: cableArts.map((art) => art.cut).join(""),
   };
+}
+
+// The anchor's shadow fades with its height over the seabed, out to this height (m).
+const SHADOW_FADE_METRES = 40;
+
+/**
+ * The anchor's contact shadow: the outline of its parts dropped straight onto the seabed, a little spread, fainter the
+ * higher the anchor hangs. Lying in the furrow, it is what sets the anchor down in it.
+ */
+function buildAnchorShadow(view: FigureView, anchor: AnchorArt): string {
+  const solids = anchor.parts.filter((part) => part.shapes.length > 0);
+  if (solids.length < 3) return "";
+  const height = solids.reduce((sum, part) => sum + part.at[2], 0) / solids.length;
+  const strength = Math.max(0.2, 1 - height / SHADOW_FADE_METRES);
+  const dropped = hullOf(solids.map((part) => iso([part.at[0], part.at[1], 0], view.projection)));
+  const middle = dropped.reduce<Flat>((sum, point) => [sum[0] + point[0] / dropped.length, sum[1] + point[1] / dropped.length], [0, 0]);
+  const spread = dropped.map(([screenX, screenY]): Flat => [middle[0] + (screenX - middle[0]) * 1.25, middle[1] + (screenY - middle[1]) * 1.25]);
+  return `<path class="af-shadow" style="opacity:${strength.toFixed(2)}" d="${pathOf(spread, true)}"/>`;
 }
 
 const slot = (name: string, content: string, attributes = "") => `<g data-slot="${name}"${attributes}>${content}</g>`;
@@ -100,6 +121,7 @@ export function buildFigureSvg(facts: AnchorFigureFacts, view: FigureView, stage
     slot("ripples", seabed.ripples),
     slot("furrow-back", seabed["furrow-back"]),
     slot("furrow-front", seabed["furrow-front"]),
+    slot("shadow", seabed.shadow),
     "</g>",
     "</g>",
     `<g clip-path="url(#af-water-clip)">`,
