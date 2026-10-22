@@ -27,7 +27,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the card \"AIS signal\" (data-testid ais-signal) has data-state \"no-ais\" and data-report-count \"0\", says \"No AIS report survives for this ship in this case.\", and shows a dashed stretch (data-testid ais-reconstructed) with data-state \"reconstructed\""
+      "description": "Scroll the panel on the right of the 3D view until the card \"AIS signal\" (data-testid ais-signal) is in view (click \"Show panel\" first if it is folded), then assert the card \"AIS signal\" (data-testid ais-signal) has data-state \"no-ais\" and data-report-count \"0\", says \"No AIS report survives for this ship in this case.\", and shows a dashed stretch (data-testid ais-reconstructed) with data-state \"reconstructed\""
     },
     {
       "type": "assertion",
