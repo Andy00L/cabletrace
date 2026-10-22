@@ -644,3 +644,50 @@ run each, twice (`windows-frame-pacing.ts`, the Vessel link above):
 
 The two builds play alike: the machine drew slower that night than when PR 64 measured 0.22 px, and no change since
 PR 64 slowed the replay.
+
+### The anchor cam's cost (22 Oct 2026, night)
+
+Production played the Eagle S Vessel view at 60 fps before the anchor drops (10:05) and at 47 fps once the anchor cam
+window opens (16:24). Where the time went, from a Chrome trace of the run (`--chrome-arg
+"--trace-startup=toplevel,gpu,viz,gpu.dawn,cc" --chrome-arg "--trace-startup-format=json" --chrome-arg
+"--trace-startup-file=<Windows path>"` on `windows-frame-pacing.ts`): while playing, the GPU process' main thread was
+busy 927 ms of every second, 13.8 ms a frame on WebGPU commands, against 5.3 ms with the window's picture never drawn.
+The page's own JavaScript took about 1.2 ms a frame. The picture's size did not matter (drawn at 3% of the window, the
+cost stayed at 12.8 ms), nor what it looked at (pointed straight down, 13.3 ms); hiding the cam's fat lines alone (the
+cables' tracers, the chain, the track) brought it to 7.3 ms.
+
+**The fat lines copied the frame.** A data line is marked transparent only so it draws after the water
+(`src/lib/render/data-colors.ts`). On WebGPU, three's `Line2NodeMaterial` draws without blending and, when transparent,
+mixes its colour in its shader over a mipmapped copy of the opaque frame (`viewportOpaqueMipTexture`), so every render
+call that drew one copied its frame and built the copy's mipmaps, and the anchor cam's pass swapped the copy every line
+reads. At opacity 1 that mix is the line's own colour. The WebGPU kit now builds those lines' shaders as opaque ones
+(`OpaqueScreenLineNodeMaterial`, `src/lib/render/webgpu/webgpu-kit.ts`): WebGPU commands fell to 6.8 ms a frame with
+the window open and to 3.5 ms without it. Drawn every frame, the window still cost frames: 55.4, 54.7 and 55.9 fps,
+p95 33.3 ms, on a local build.
+
+**Every other frame.** The window now draws at most every 25 ms (`SECOND_VIEW_INTERVAL_MS`, viewer.ts): every other
+frame at 60 Hz, 30 pictures a second. With both changes, the same local build played at 58.7, 59.2 and 56.1 fps, p95
+16.8 ms each time, interleaved with the runs above. A skipped frame asks for the next one, so a calm scene (reduced
+motion) never leaves the window behind the stage.
+
+Production (main at 19aac17) against the branch, alternating on the same machine, Windows Chrome on WebGPU, 1,440 x 900 at
+DPR 1, four pairs per link, load average 0.9 to 1.8, medians (range):
+
+| Playing 8 s, Vessel view | Production | Branch |
+| --- | --- | --- |
+| Anchor cam open (16:24), fps | 49.2 (47.4 to 49.4) | **58.3** (57.9 to 58.9) |
+| Anchor cam open, p95 frame | 33.4 ms (all four) | **16.8 ms** (all four) |
+| Anchor cam open, frames over 25 ms | 70.5 (69 to 84) | **4** (4 to 7) |
+| Anchor cam open, ship's step change on screen, p95 | 0.88 px (0.54 to 1.41) | **0.21 px** (0.20 to 0.22) |
+| No anchor cam (10:05), fps | 58.7 (57.6 to 59.9) | 58.1 (57.6 to 59.6) |
+| No anchor cam, p95 frame | 16.8 ms (16.8 to 17.1) | 16.8 ms (16.8 to 17.0) |
+
+The plain view did not move: both builds' runs overlap, and the frames over 25 ms there (0 to 3 a run on both) are
+one 0.17 s hitch that some runs of either build show. The window looks the same: a still of the 16:24 page from each
+build matched pixel for pixel (0 of 1,296,000 differ, the window and the stage), and the WebGPU lookdev passed its 8
+Eagle S frames, data colours exact.
+
+Measured and not kept: the window at half resolution (53.8 fps, one run, a visibly softer picture); a 3 km far plane
+for the window, past which its fog is opaque (52.7 fps, one run; it dropped the unfogged data lines on the horizon and
+changed 12% of the window's pixels); every other frame without the line fix (53.6 and 55.8 fps); hiding the
+terrain, the additive light, the sediment sprites or the line bodies from the window (no gain beyond noise).

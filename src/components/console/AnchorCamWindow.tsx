@@ -70,9 +70,9 @@ export function AnchorCamWindow({ driver, port, presentation, expandedWidthPx }:
     return facts ? describeAnchorReadouts(facts, input.cuts) : null;
   }, [port, minute, input.cuts]);
 
-  // Hands the picture's canvas and size to the viewer while the window is open (a render pass per drawn frame), and
-  // takes it back when the window folds or goes: syncs with the 3D view and with the element's size, which React does
-  // not own.
+  // Hands the picture's canvas and size to the viewer while the window is open (a render pass every other frame at
+  // 60 Hz, viewer.ts SECOND_VIEW_INTERVAL_MS), and takes it back when the window folds or goes: syncs with the 3D view
+  // and with the element's size, which React does not own.
   useEffect(() => {
     const picture = pictureRef.current;
     const canvas = canvasRef.current;
