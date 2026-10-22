@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AnchorFigure, AnchorFigureCaption } from "@/components/landing/AnchorFigure";
+import { AnchorStory, type AnchorStoryStatement } from "@/components/landing/AnchorStory";
 import { ArchiveBand } from "@/components/landing/ArchiveBand";
 import { CaseLedger } from "@/components/landing/CaseLedger";
 import { HeroReplay } from "@/components/landing/HeroReplay";
@@ -13,6 +15,8 @@ import { SiteHeader } from "@/components/layout/SiteHeader";
 import { CABLE_CASES } from "@/data/cases";
 import { EAGLE_S_2024 } from "@/data/cases/eagle-s-2024";
 import { REGIONS } from "@/data/regions";
+import type { AnchorFigureFacts } from "@/lib/landing/anchor-figure-model";
+import { loadAnchorFigureFacts } from "@/lib/landing/load-anchor-figure-facts";
 import { loadLandingLive } from "@/lib/landing/landing-live";
 import { CONSOLE_STILLS, EAGLE_S_FOOTAGE } from "@/lib/landing/replay-footage";
 import { formatUtcDate } from "@/lib/replay/format-utc";
@@ -31,15 +35,49 @@ const INK_PILL_CLASS =
   "flex h-12 items-center justify-center rounded-full bg-ink px-6 text-label text-card transition-colors duration-140 ease-standard hover:bg-ink-hover active:scale-[0.98]";
 
 /**
+ * The three statements beside the anchor figure, with the model's own numbers for the Eagle S at the C-Lion1 cut
+ * (src/lib/landing/load-anchor-figure-facts.ts); without them the statements keep their claims and drop the figures.
+ */
+function buildAnchorStatements(facts: AnchorFigureFacts | null): AnchorStoryStatement[] {
+  if (!facts) {
+    return [
+      { stage: "drop", title: "The anchor drops.", detail: "The anchor goes down on its chain to the seabed while the ship keeps moving." },
+      { stage: "drag", title: "It drags along the seabed.", detail: "Instead of holding, the anchor ploughs a furrow through the clay behind the ship." },
+      { stage: "cut", title: "The cable parts.", detail: "When the flukes catch a cable, the chain's pull tears through its armour." },
+    ];
+  }
+  const anchorTonnes = (facts.chain.anchorMassKg / 1000).toFixed(1);
+  return [
+    {
+      stage: "drop",
+      title: "The anchor drops.",
+      detail: `The ${facts.vesselName}'s anchor, an estimated ${anchorTonnes} t on ${facts.chain.chainDiameterMm} mm chain for a ${Math.round(facts.lengthMetres)} m ship, goes down to the seabed ${Math.round(facts.depthMetres)} m below.`,
+    },
+    {
+      stage: "drag",
+      title: "It drags along the seabed.",
+      detail: `The ship keeps going at about ${facts.speedKnots.toFixed(1)} kn, so the anchor never holds: it ploughs a furrow through the clay behind it.`,
+    },
+    {
+      stage: "cut",
+      title: "The cable parts.",
+      detail: `The flukes catch ${facts.cutLabel} and the chain's pull tears through its armour. The replay places that moment from the operator's own words.`,
+    },
+  ];
+}
+
+/**
  * The public front door, built as "the product performs": the hero is the console itself replaying the Eagle S, the
- * sections below show what a replay holds, every case on file, the recorder's live figures and the 1865 expedition's
+ * sections below show what a replay holds, how a dragged anchor cuts a cable, every case on file, the recorder's live figures and the 1865 expedition's
  * own pictures, and the page ends with the console's first step already open. Every number is read from the recorder
  * or the case files. The rest of the app sits behind sign-in (src/proxy.ts).
  */
 export default async function LandingPage() {
   const evidenceCut = EAGLE_S_2024.cuts.find((cut) => cut.label === EVIDENCE_CUT_LABEL) ?? EAGLE_S_2024.cuts[0];
   const heroMoments = HERO_MOMENTS_UTC.flatMap((atUtc) => EAGLE_S_FOOTAGE.events.filter((event) => event.atMs === Date.parse(atUtc)).slice(0, 1));
-  const live = await loadLandingLive();
+  const [live, figureFacts] = await Promise.all([loadLandingLive(), loadAnchorFigureFacts()]);
+  if (!figureFacts.ok) console.error(`[LandingPage] anchor figure facts: ${figureFacts.reason}`);
+  const anchorStatements = buildAnchorStatements(figureFacts.ok ? figureFacts.value : null);
   const summary = live.recorder.ok ? live.recorder.value.summary : null;
   const stickyStateLine = summary ? `${summary.shipsLastHour.toLocaleString("en-US")} ${SHIPS_LAST_HOUR_PHRASE}` : null;
   const closingRecord = describeLandingRecord({ cases: CABLE_CASES, cablesWatched: summary?.cablesWatched ?? null, regionCount: REGIONS.length });
@@ -86,6 +124,8 @@ export default async function LandingPage() {
         </section>
 
         <ReplayInside cableCase={EAGLE_S_2024} cut={evidenceCut} contentClassName={CONTENT_CLASS} />
+
+        <AnchorStory statements={anchorStatements} figure={<AnchorFigure />} caption={<AnchorFigureCaption className="max-w-[56ch] text-small text-muted" />} contentClassName={CONTENT_CLASS} />
 
         <CaseLedger cases={CABLE_CASES} contentClassName={CONTENT_CLASS} />
 
