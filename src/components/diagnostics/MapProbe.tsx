@@ -130,7 +130,14 @@ export function MapProbe() {
         <h2 id="map-probe-title" className="text-card-title">Map</h2>
         <p className="text-small text-muted">MapLibre draws Estlink 2, the power cable between Finland and Estonia.</p>
       </div>
-      <div ref={containerRef} className="h-80 overflow-hidden rounded-inner bg-soft" role="img" aria-label="Map of the Estlink 2 cable route" />
+      {/* MapLibre's attribution bar is white at 50% and its links black (maplibre-gl.css, unlayered, hence the !): on
+          vellum and in muted ink here, so the probe carries no stark white. */}
+      <div
+        ref={containerRef}
+        className="h-80 overflow-hidden rounded-inner bg-soft [&_.maplibregl-ctrl-attrib]:bg-card/85! [&_.maplibregl-ctrl-attrib_a]:text-muted!"
+        role="img"
+        aria-label="Map of the Estlink 2 cable route"
+      />
       <DiagnosticsReadout
         rows={[
           { label: "Status", value: describeMapState(probeState), testId: "map-status" },
