@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FeedCheck, type FeedCheckState } from "@/components/live/FeedCheck";
 import { DRAFT_CASE_DAYS, type DraftCasesState } from "@/components/live/LiveDraftCases";
 import { LiveDay } from "@/components/live/LiveDay";
+import { LiveNightSea } from "@/components/live/LiveNightSea";
 import type { DetectionsState } from "@/components/live/LiveRail";
 import { fetchRecentDraftCases } from "@/lib/fault-signals/fault-api";
 import { createFrameSource } from "@/lib/globe/frame-source";
@@ -76,8 +77,10 @@ export function LiveConsole({ watchedLines, incidents, watchedRegions }: LiveCon
         : { title: "The recorded day could not be loaded", body: "Reload the page to try again." };
   return (
     <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 sm:px-6">
-      <section className="grid min-h-[320px] flex-1 place-items-center rounded-card bg-soft p-6 shadow-card" data-testid="live-globe" data-state={indexState.kind}>
-        <div className="flex w-full max-w-sm flex-col gap-3 rounded-inner bg-card p-5 shadow-card" aria-live="polite">
+      {/* The same slate field and night sea as the ready stage, so the page does not change ground when the day lands. */}
+      <section className="relative grid min-h-[320px] flex-1 place-items-center overflow-hidden rounded-card bg-slate p-6 shadow-card" data-testid="live-globe" data-state={indexState.kind}>
+        <LiveNightSea />
+        <div className="relative flex w-full max-w-sm flex-col gap-3 rounded-inner bg-card p-5 shadow-card" aria-live="polite">
           <p className="text-label">{message.title}</p>
           {message.body && <p className="text-small text-muted">{message.body}</p>}
           {indexState.kind === "loading" && (
