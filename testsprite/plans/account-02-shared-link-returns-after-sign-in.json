@@ -15,7 +15,7 @@
   },
   {
    "type": "action",
-   "description": "Type testsprite+clerk_test@example.com into the \"Email address\" field and click Continue"
+   "description": "Type testsprite-account-02+clerk_test@example.com into the \"Email address\" field and click Continue"
   },
   {
    "type": "action",
