@@ -35,8 +35,9 @@ function findCurrentEventIndex(events: readonly FootageEvent[], atMs: number): n
 }
 
 /**
- * The hero's live replay, the stage first and the moments after it (the order a phone reads them in): real footage of the console (src/lib/landing/replay-footage.ts) on the ink stage, with the
- * console's own dock under it (play, the UTC clock, the scrubber) and the case's moments beside it. Picking a moment
+ * The hero's live replay, the stage first and the moments after it (the order a phone reads them in): real footage of
+ * the console (src/lib/landing/replay-footage.ts) in a white window, with the console's own dock under it (play, the
+ * UTC clock, the scrubber) and the case's moments beside it. Picking a moment
  * moves the footage there; the clock and the marked moment follow the footage. Until the video draws its first frame
  * the stage shows the poster, which is that frame, so nothing jumps; under reduced motion it waits for Play. It pauses
  * while off screen.
@@ -129,9 +130,9 @@ export function HeroReplay({ footage, events, listTitle, consoleHref, listClassN
 
   return (
     <>
-      {/* The stage: one flat ink field cut at its top-left corner, bleeding off the page's right edge. */}
-      <div ref={stageRef} className={`${stageClassName} bg-ink [clip-path:polygon(0_40px,72px_40px,112px_0,100%_0,100%_100%,0_100%)] md:[clip-path:polygon(0_56px,220px_56px,276px_0,100%_0,100%_100%,0_100%)]`}>
-        <div className="flex flex-col gap-3 px-4 pt-14 pb-4 md:max-w-[960px] md:px-14 md:pt-24 md:pb-14" data-ui>
+      {/* The stage: the console's window, a white frame holding the footage and its dock, laid over the painting's sea. */}
+      <div ref={stageRef} className={`${stageClassName} rounded-card bg-card p-2`}>
+        <div className="flex flex-col gap-2" data-ui>
           <div className="landing-shutter relative overflow-hidden rounded-inner bg-ink">
             <picture className={`transition-opacity duration-220 ${hasFirstFrame ? "opacity-0" : "opacity-100"}`}>
               <source media={PHONE_MEDIA} type="image/avif" srcSet={phoneFile.posterAvif} />
@@ -142,7 +143,6 @@ export function HeroReplay({ footage, events, listTitle, consoleHref, listClassN
                 width={desktopFile.width}
                 height={desktopFile.height}
                 alt="The CableTrace console replaying the Eagle S on 25 December 2024: the tanker's track crosses the Gulf of Finland, its anchor drags, and the cables it crosses turn red as they fail"
-                fetchPriority="high"
                 className="landing-settle block aspect-[4/5] h-auto w-full object-cover md:aspect-[16/10]"
               />
             </picture>
@@ -157,7 +157,7 @@ export function HeroReplay({ footage, events, listTitle, consoleHref, listClassN
               data-testid="hero-footage"
             />
           </div>
-          <div className="flex items-center gap-3.5 rounded-row bg-card p-2 pr-4">
+          <div className="flex items-center gap-3.5 py-1 pr-3 pl-1">
             <button
               type="button"
               onClick={togglePlayback}

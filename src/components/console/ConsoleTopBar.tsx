@@ -86,7 +86,7 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
             align="start"
             sideOffset={8}
             collisionPadding={16}
-            className="z-(--layer-popover) flex w-[420px] max-w-[calc(100vw-32px)] flex-col gap-1 rounded-row bg-card p-2 shadow-popover outline-none data-[state=closed]:animate-layer-exit data-[state=open]:animate-layer-enter"
+            className="z-(--layer-popover) flex max-h-(--radix-popover-content-available-height) w-[420px] max-w-[calc(100vw-32px)] flex-col gap-1 overflow-y-auto overscroll-contain rounded-row bg-card p-2 shadow-popover outline-none data-[state=closed]:animate-layer-exit data-[state=open]:animate-layer-enter"
           >
             <p className="px-3 pt-2 pb-1 text-caption text-muted">Cases</p>
             {switcherCases.map((item) => {

@@ -29,4 +29,10 @@ describe("formatCountdown", () => {
     expect(formatCountdown(60)).toBe("in 1 h");
     expect(formatCountdown(125)).toBe("in 2 h 05 min");
   });
+
+  test("reads days and whole hours from a day out", () => {
+    expect(formatCountdown(24 * 60)).toBe("in 1 day");
+    expect(formatCountdown(25 * 60 + 30)).toBe("in 1 day 1 h");
+    expect(formatCountdown(130 * 60 + 41)).toBe("in 5 days 10 h");
+  });
 });

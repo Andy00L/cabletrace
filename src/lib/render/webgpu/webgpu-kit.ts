@@ -1,7 +1,7 @@
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { Line2 } from "three/addons/lines/webgpu/Line2.js";
 import { densityFogFactor, float, fog, instancedBufferAttribute, mix, rangeFogFactor, reference, renderGroup, uniform } from "three/tsl";
-import { Color, InstancedBufferAttribute, Line2NodeMaterial, PMREMGenerator, PointsNodeMaterial, Sprite, type Fog, type FogExp2, type Scene, type WebGPURenderer } from "three/webgpu";
+import { Color, InstancedBufferAttribute, Line2NodeMaterial, PMREMGenerator, PointsNodeMaterial, Sprite, type Fog, type FogExp2, type NodeBuilder, type Scene, type WebGPURenderer } from "three/webgpu";
 import type { SceneFogSwitch, SceneMaterialKit, SoftPoints, SoftPointsOptions } from "@/lib/render/scene-renderer";
 import { createCausticsNode } from "@/lib/render/webgpu/caustics-node";
 import { createKelvinWakeNodeMaterial } from "@/lib/render/webgpu/kelvin-wake-node-material";
@@ -35,6 +35,27 @@ function createSoftPointSprites(count: number, { map, color, size, opacity }: So
       positionAttribute.needsUpdate = true;
     },
   };
+}
+
+/**
+ * A fat line of opacity 1 that the caller still marks transparent, only so it sorts after the water
+ * (src/lib/render/data-colors.ts). three's Line2NodeMaterial draws without blending and, when transparent, mixes its
+ * colour in its shader over a mipmapped copy of the opaque frame (viewportOpaqueMipTexture; sourceRef:
+ * node_modules/three/src/materials/nodes/Line2NodeMaterial.js, setupDiffuseColor). At opacity 1 with alpha-to-coverage
+ * off that mix is rgb * 1 + copy * 0, the line's own colour, yet each render call that drew such a line copied its
+ * frame and built the copy's mipmaps, and the anchor cam's pass swapped the copy every material reads. Measured on
+ * Windows Chrome (Eagle S, Vessel view, anchor cam open, 22 Oct 2026): the GPU process spent 13.8 ms a frame on WebGPU
+ * commands against 5.3 ms without the anchor cam; hiding only the cam's fat lines brought it to 7.3 ms. This material
+ * builds the shader as for an opaque line, so the copy is never made; the pixels are the same. The shader is built
+ * once, so it holds only for lines whose opacity stays 1 (no caller changes a screen line's opacity after making it).
+ */
+class OpaqueScreenLineNodeMaterial extends Line2NodeMaterial {
+  setupDiffuseColor(builder: NodeBuilder) {
+    const isTransparent = this.transparent;
+    this.transparent = false;
+    super.setupDiffuseColor(builder);
+    this.transparent = isTransparent;
+  }
 }
 
 /**
@@ -72,8 +93,10 @@ export function createWebGpuKit(renderer: WebGPURenderer): SceneMaterialKit {
     createThinnedDataTubeMaterial: createThinnedDataTubeNodeMaterial,
     // Hard-edged like WebGL's LineMaterial: the node material's default alpha-to-coverage feathers a 2 px line until no
     // pixel holds its exact colour, and dithers it under MSAA.
-    createScreenLine: (geometry, { color, widthPx, hasVertexColors, opacity }) =>
-      new Line2(geometry, new Line2NodeMaterial({ color: new Color(color), linewidth: widthPx, vertexColors: hasVertexColors, opacity, transparent: opacity < 1, worldUnits: false, alphaToCoverage: false })),
+    createScreenLine: (geometry, { color, widthPx, hasVertexColors, opacity }) => {
+      const parameters = { color: new Color(color), linewidth: widthPx, vertexColors: hasVertexColors, opacity, transparent: opacity < 1, worldUnits: false, alphaToCoverage: false };
+      return new Line2(geometry, opacity >= 1 ? new OpaqueScreenLineNodeMaterial(parameters) : new Line2NodeMaterial(parameters));
+    },
     createKelvinWakeMaterial: createKelvinWakeNodeMaterial,
     createCaustics: createCausticsNode,
     createSoftPoints: createSoftPointSprites,

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AnchorFigure, AnchorFigureCaption } from "@/components/landing/AnchorFigure";
 import { AnchorStory, type AnchorStoryStatement } from "@/components/landing/AnchorStory";
 import { ArchiveBand } from "@/components/landing/ArchiveBand";
+import { ArchiveCaption, readArchiveBasePath } from "@/components/landing/ArchiveCaption";
 import { CaseLedger } from "@/components/landing/CaseLedger";
 import { HeroReplay } from "@/components/landing/HeroReplay";
 import { describeLandingRecord, LandingFooter } from "@/components/landing/LandingFooter";
@@ -15,6 +16,7 @@ import { SiteHeader } from "@/components/layout/SiteHeader";
 import { CABLE_CASES } from "@/data/cases";
 import { EAGLE_S_2024 } from "@/data/cases/eagle-s-2024";
 import { REGIONS } from "@/data/regions";
+import { ARCHIVE_ART } from "@/lib/landing/archive-art";
 import type { AnchorFigureFacts } from "@/lib/landing/anchor-figure-model";
 import { loadAnchorFigureFacts } from "@/lib/landing/load-anchor-figure-facts";
 import { loadLandingLive } from "@/lib/landing/landing-live";
@@ -31,6 +33,9 @@ const HERO_MOMENTS_UTC = ["2024-12-25T10:26:00Z", "2024-12-25T11:05:00Z", "2024-
 const CONTENT_CLASS = "mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-8";
 // The hero block the sticky bar watches: once it has scrolled away, the bar brings its action back (LandingStickyBar).
 const HERO_BLOCK_ID = "landing-hero";
+// A painting's caption set on the painting itself, as a small white label (on a phone the hero's sits under it instead).
+// At 768 px the hero's window starts 334 px from the left edge, so the label (24 px in) keeps to 280 px there.
+const PAINTING_LABEL_CLASS = "md:max-w-[280px] lg:max-w-[340px] md:rounded-field md:bg-card md:py-2 md:text-caption md:font-normal";
 const INK_PILL_CLASS =
   "flex h-12 items-center justify-center rounded-full bg-ink px-6 text-label text-card transition-colors duration-140 ease-standard hover:bg-ink-hover active:scale-[0.98]";
 
@@ -83,6 +88,8 @@ export default async function LandingPage() {
   const closingRecord = describeLandingRecord({ cases: CABLE_CASES, cablesWatched: summary?.cablesWatched ?? null, regionCount: REGIONS.length });
   const replayChoices = CABLE_CASES.map((cableCase) => ({ slug: cableCase.slug, title: cableCase.vessel.name, dateLabel: formatUtcDate(Date.parse(cableCase.cuts[0].atUtc)) }));
   const globeStill = CONSOLE_STILLS.globe;
+  const heroPainting = ARCHIVE_ART["great-eastern-under-weigh"];
+  const closingPainting = ARCHIVE_ART["albany-at-night"];
 
   return (
     // Every anchor target keeps clear of the sticky bar's 56 px when the page jumps to it.
@@ -90,35 +97,62 @@ export default async function LandingPage() {
       <LandingStickyBar heroId={HERO_BLOCK_ID} stateLine={stickyStateLine} action={{ href: CONSOLE_PATH, label: "Open the console" }} />
       <LandingMotion />
       <main className="flex flex-col gap-28 md:gap-48">
-        {/* The headline over the stage, the sentence and the moments on its left; the stage runs off the right edge. */}
+        {/*
+          A wide screen sets the bar and the headline in the painting's evening sky and lays the console's window over its
+          sea; a phone reads the headline first, then the painting, then the window and the moments.
+        */}
         <section aria-labelledby="landing-title">
-          <div className={CONTENT_CLASS}>
-            <SiteHeader current="home" />
-          </div>
-          <div className={`${CONTENT_CLASS} grid grid-cols-1 gap-y-8 pt-10 md:grid-cols-12 md:gap-x-6 md:gap-y-10 md:pt-16`}>
-            <h1 id="landing-title" className="text-hero md:col-span-10 md:row-start-1">
-              Every cable cut, replayed.
-            </h1>
-            <div id={HERO_BLOCK_ID} className="flex flex-col gap-8 md:col-span-5 md:row-start-2">
-              <p className="max-w-[40ch] text-lead text-ink">
-                CableTrace rebuilds each undersea cable cut minute by minute, from the ship&apos;s own track, the seabed and the published sources.
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <Link href={CONSOLE_PATH} className={INK_PILL_CLASS} data-testid="open-console">
-                  Open the console
-                </Link>
-                <Link href="/sign-in" className="flex h-12 items-center rounded-full px-4 text-label text-ink hover:bg-soft" data-testid="landing-sign-in">
-                  Sign in
-                </Link>
+          <div className="relative isolate">
+            <div className={`${CONTENT_CLASS} flex flex-col md:min-h-[min(88svh,820px)]`}>
+              <SiteHeader current="home" />
+              <div className="flex flex-col gap-8 pt-10 pb-10 md:pt-14 lg:pt-20">
+                <h1 id="landing-title" className="text-hero">
+                  Every cable cut, replayed.
+                </h1>
+                <div id={HERO_BLOCK_ID} className="flex max-w-[540px] flex-col gap-8">
+                  <p className="text-lead text-ink">
+                    CableTrace rebuilds each undersea cable cut minute by minute, from the ship&apos;s own track, the seabed and the published sources.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Link href={CONSOLE_PATH} className={INK_PILL_CLASS} data-testid="open-console">
+                      Open the console
+                    </Link>
+                    <Link href="/sign-in" className="flex h-12 items-center rounded-full px-4 text-label text-ink hover:bg-card/60" data-testid="landing-sign-in">
+                      Sign in
+                    </Link>
+                  </div>
+                </div>
               </div>
             </div>
+            <figure className="relative md:absolute md:inset-0 md:-z-10">
+              <div className="aspect-[4/3] overflow-hidden md:aspect-auto md:h-full">
+                <LandingPicture
+                  basePath={readArchiveBasePath("great-eastern-under-weigh")}
+                  widths={heroPainting.widths}
+                  width={heroPainting.width}
+                  height={heroPainting.height}
+                  alt={heroPainting.alt}
+                  sizes="100vw"
+                  isPriority
+                  isCover
+                  objectPosition="62% 42%"
+                  className="landing-settle [--settle-from:1.05]"
+                />
+              </div>
+              <ArchiveCaption
+                art={heroPainting}
+                className={`px-4 pt-3 sm:px-6 md:absolute md:bottom-8 md:left-6 md:px-3.5 lg:left-[max(2rem,calc(50vw-688px))] ${PAINTING_LABEL_CLASS}`}
+              />
+            </figure>
+          </div>
+          <div className={`${CONTENT_CLASS} grid grid-cols-1 gap-y-8 pt-8 md:grid-cols-12 md:gap-x-6 md:pt-0`}>
             <HeroReplay
               footage={EAGLE_S_FOOTAGE}
               events={heroMoments}
               listTitle="Eagle S, 25 December 2024. Pick a moment."
               consoleHref={CONSOLE_PATH}
-              stageClassName="-mx-4 sm:-mx-6 md:col-span-7 md:col-start-6 md:row-span-2 md:row-start-2 md:mx-0 md:-mr-6 lg:mr-[min(-2rem,calc(688px-50vw))]"
-              listClassName="md:col-span-5 md:row-start-3 md:self-start"
+              stageClassName="relative md:col-span-7 md:col-start-6 md:row-start-1 md:-mt-[148px]"
+              listClassName="md:col-span-5 md:row-start-1 md:pt-10"
             />
           </div>
         </section>
@@ -139,9 +173,30 @@ export default async function LandingPage() {
 
         <ArchiveBand contentClassName={CONTENT_CLASS} />
 
-        {/* The page's one ink field: the closing line and the console's first step, already open. */}
-        <section aria-labelledby="landing-closing-title" className="bg-ink text-card">
-          <div className={`${CONTENT_CLASS} grid min-h-[72svh] gap-12 py-16 md:grid-cols-12 md:gap-x-6 md:py-24`}>
+        {/*
+          The page closes on the night of 26 August 1866, when the Albany buoyed the cable lost the year before: the painting
+          sits at 45% on ink, which keeps white text over its brightest cloud at 4.5:1 or more, with the closing line and the
+          console's first step, already open.
+        */}
+        <section aria-labelledby="landing-closing-title" className="relative isolate overflow-hidden bg-ink text-card">
+          <figure className="absolute inset-0 -z-10">
+            <LandingPicture
+              basePath={readArchiveBasePath("albany-at-night")}
+              widths={closingPainting.widths}
+              width={closingPainting.width}
+              height={closingPainting.height}
+              alt={closingPainting.alt}
+              sizes="100vw"
+              isCover
+              objectPosition="45% 35%"
+              className="opacity-45"
+            />
+            <ArchiveCaption
+              art={closingPainting}
+              className={`absolute bottom-6 left-4 max-w-[calc(100%-2rem)] rounded-field bg-card px-3 py-2 sm:left-6 md:right-6 md:left-auto md:px-3.5 lg:right-[max(2rem,calc(50vw-688px))] ${PAINTING_LABEL_CLASS}`}
+            />
+          </figure>
+          <div className={`${CONTENT_CLASS} grid min-h-[80svh] gap-12 pt-16 pb-32 md:grid-cols-12 md:gap-x-6 md:py-24`}>
             <div className="flex flex-col gap-6 self-end md:col-span-6">
               <h2 id="landing-closing-title" className="text-hero" data-rise="ready">
                 Watch it happen.

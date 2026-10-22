@@ -55,6 +55,7 @@ export default async function CasePage({ params }: PageProps<"/cases/[slug]">) {
                   cables: seabedSummary.sources.cables,
                   pipelines: seabedSummary.sources.pipelines,
                   exaggeration: chooseSceneExaggeration(seabedSummary.elevationRange),
+                  drawnLineKinds: seabedSummary.drawnLineKinds,
                 }
               : null
           }

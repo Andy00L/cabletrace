@@ -33,7 +33,8 @@ export function decodeElevations(buffer: ArrayBuffer): Float32Array {
 // come out as flat terraces with steps between them (the southern Red Sea, the Taiwan blocks); one pass leaves the
 // steps standing and three round them off. The credit names the grid (scripts/seabed/build-seabed.ts, DEPTH_CREDITS).
 // Drawing only: the depth chart and the readouts sample the grid as published (src/lib/cases/case-series.ts), since
-// three passes move a point on a steep slope by tens of metres (Rubymar's anchorage: 46 m raw, 102 m smoothed).
+// three passes move a point on a steep slope by tens of metres (red-sea-south: up to 110 m, and 25 m or less at 99 in
+// 100 sea vertices).
 const EMODNET_SMOOTHING_PASSES = 1;
 const GEBCO_SMOOTHING_PASSES = 3;
 
