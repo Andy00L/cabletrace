@@ -8,6 +8,7 @@ import { StatusIsland } from "@/components/console/StatusIsland";
 import { Icon, type IconName } from "@/components/icons/Icon";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/SegmentedControl";
 import type { SeabedDetail } from "@/lib/console/console-state";
+import type { DrawnLineKinds } from "@/lib/seabed/load-seabed-summary";
 import { LAND_CREDIT } from "@/lib/seabed/scene-credits";
 import { CLOSE_UP_SCALE_NOTES, describeOverviewScale, type SceneExaggeration } from "@/lib/seabed/scene-scales";
 import { planViewReset } from "@/lib/seabed/scene/director/view-reset";
@@ -30,12 +31,13 @@ const DETAIL_OPTIONS: readonly SegmentOption<SeabedDetail>[] = [
   { value: "measured", label: "Measured" },
   { value: "illustrated", label: "Illustrated" },
 ];
+// The legend's lines; a kind the area does not draw (`drawnKind`) is left out, so the legend never names a missing line.
 const LEGEND_ITEMS = [
-  { label: "Track", stroke: "var(--color-ink)", width: 2 },
-  { label: "Anchor drag", stroke: "var(--color-alarm)", width: 3 },
-  { label: "Cable", stroke: "var(--color-cable)", width: 2.5 },
-  { label: "Pipeline", stroke: "var(--color-pipeline)", width: 3 },
-] as const;
+  { label: "Track", stroke: "var(--color-ink)", width: 2, drawnKind: null },
+  { label: "Anchor drag", stroke: "var(--color-alarm)", width: 3, drawnKind: null },
+  { label: "Cable", stroke: "var(--color-cable)", width: 2.5, drawnKind: "hasCables" },
+  { label: "Pipeline", stroke: "var(--color-pipeline)", width: 3, drawnKind: "hasPipelines" },
+] as const satisfies readonly { label: string; stroke: string; width: number; drawnKind: keyof DrawnLineKinds | null }[];
 // Credits for the data drawn in the view (docs/UI_DESIGN_SYSTEM.md, Map sources and credits). The land line is fixed
 // (src/lib/seabed/scene-credits.ts). Depth, cables and pipelines come from each area's seabed file
 // (scripts/seabed/build-seabed.ts writes them): an area outside Europe has its depth from another grid, and a route
@@ -46,13 +48,14 @@ const DEFAULT_SCENE_SUMMARY: SceneSummary = {
   cables: "OpenStreetMap contributors",
   pipelines: "EMODnet Human Activities",
   exaggeration: { water: 20, land: 10 },
+  drawnLineKinds: { hasCables: true, hasPipelines: true },
 };
 
 /**
  * Who made the depth grid and mapped the cables and pipelines of the area on screen, as its seabed file credits
- * them, and how much the overview exaggerates its relief (chooseSceneExaggeration).
+ * them, how much the overview exaggerates its relief (chooseSceneExaggeration), and which kinds of line it draws.
  */
-export type SceneSummary = { depth: string; cables: string; pipelines: string; exaggeration: SceneExaggeration };
+export type SceneSummary = { depth: string; cables: string; pipelines: string; exaggeration: SceneExaggeration; drawnLineKinds: DrawnLineKinds };
 
 type StageOverlaysProps = {
   stageElement: HTMLElement | null;
@@ -94,7 +97,8 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
   const { view, setView, detail, setDetail, isDirectorOn, setDirectorOn, shipCamera, setShipCamera } = useConsole();
   const [isFullScreen, setIsFullScreen] = useState(false);
   const isCloseUp = view === "closeup";
-  const { depth, cables, pipelines, exaggeration } = sceneSummary ?? DEFAULT_SCENE_SUMMARY;
+  const { depth, cables, pipelines, exaggeration, drawnLineKinds } = sceneSummary ?? DEFAULT_SCENE_SUMMARY;
+  const legendItems = LEGEND_ITEMS.filter((item) => item.drawnKind === null || drawnLineKinds[item.drawnKind]);
   const scaleNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail] : describeOverviewScale(exaggeration);
   // At the cut, both modes' sentences show, the current one first, so neither needs a switch to read.
   const otherCloseUpNote = isCloseUp ? CLOSE_UP_SCALE_NOTES[detail === "measured" ? "illustrated" : "measured"] : null;
@@ -158,7 +162,7 @@ export function StageOverlays({ stageElement, isCompact, isRailFloating, railWid
 
       <div className="absolute bottom-4 left-4 z-(--layer-stage-controls) flex items-center gap-2" data-label-blocker="true">
         <div className={`hidden flex-wrap gap-x-4 gap-y-1.5 rounded-field bg-card px-3.5 py-2.5 text-micro shadow-row ${isCloseUp ? "" : "md:flex"}`}>
-          {LEGEND_ITEMS.map((item) => (
+          {legendItems.map((item) => (
             <span key={item.label} className="inline-flex items-center gap-1.5">
               <svg width="22" height="8" viewBox="0 0 22 8" aria-hidden="true">
                 <path d="M1 4 H21" stroke={item.stroke} strokeWidth={item.width} strokeLinecap="round" />
