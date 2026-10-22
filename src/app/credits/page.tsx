@@ -82,7 +82,7 @@ export default function CreditsPage() {
                 <span className="text-small text-muted">
                   {picture.creator}, {picture.date}. The Metropolitan Museum of Art,{" "}
                   <a href={picture.licence.url} className="underline underline-offset-4" rel="noopener noreferrer">
-                    {picture.licence.name.toLowerCase()}
+                    {picture.licence.name}
                   </a>
                   .
                 </span>
