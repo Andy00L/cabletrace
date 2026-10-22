@@ -2,7 +2,7 @@
   "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
   "type": "frontend",
   "name": "The director picks the camera, the user takes it, the Director button gives it back (signed in)",
-  "description": "Validates the camera director on Eagle S: a plain case link starts with the director on, playing moves the camera from the establishing overview to the ship, picking a view turns the director off, and the Director button turns it back on.",
+  "description": "Validates the camera director on Eagle S: a plain case link starts with the director on, playing moves the camera from the establishing overview to the ship, picking a view turns the director off, and the Director button turns it back on. It plays 8 seconds, past the 10:26 to 10:28 close-up of the first cut (4 seconds paused right at its edge), so a slow pause still lands on the ship.",
   "priority": "p1",
   "planSteps": [
     {
@@ -31,7 +31,7 @@
     },
     {
       "type": "action",
-      "description": "Click the button labelled \"Play replay\" (data-testid replay-play), wait 4 seconds, then click \"Pause replay\""
+      "description": "Click the button labelled \"Play replay\" (data-testid replay-play), wait 8 seconds, then click \"Pause replay\""
     },
     {
       "type": "assertion",
