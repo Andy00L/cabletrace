@@ -42,7 +42,7 @@ export function CaseLedger({ cases, contentClassName }: CaseLedgerProps) {
             <li key={cableCase.slug} data-rise="ready" style={readRiseOrderStyle(Math.min(index, 6))}>
               <Link
                 href={`/cases/${cableCase.slug}`}
-                className={`group grid gap-x-6 gap-y-1 rounded-field px-5 py-4 transition-colors duration-140 ease-standard hover:bg-ink hover:text-card md:min-h-[76px] md:grid-cols-[150px_minmax(0,1fr)_minmax(0,260px)_120px] md:items-center ${index % 2 === 0 ? "bg-card" : "bg-soft"}`}
+                className={`group grid gap-x-6 gap-y-1 rounded-field px-5 py-4 transition-colors duration-140 ease-standard hover:bg-ink hover:text-card lg:min-h-[76px] lg:grid-cols-[150px_minmax(0,1fr)_minmax(0,260px)_120px] lg:items-center ${index % 2 === 0 ? "bg-card" : "bg-soft"}`}
                 data-testid={`case-card-${cableCase.slug}`}
               >
                 <span className="text-lead tabular-nums">{formatUtcDate(firstCutMs)}</span>
@@ -51,7 +51,7 @@ export function CaseLedger({ cases, contentClassName }: CaseLedgerProps) {
                   <span className="text-small text-muted group-hover:text-card/75">{cableCase.subtitle}</span>
                 </span>
                 <span className="text-small group-hover:text-card">{describeCutLines(cableCase)}</span>
-                <span className="flex items-center gap-1 text-small text-muted group-hover:text-card/75 md:justify-end">
+                <span className="flex items-center gap-1 text-small text-muted group-hover:text-card/75 lg:justify-end">
                   {cableCase.sources.length} sources
                   <Icon name="chevronRight" className="text-ink group-hover:text-card" />
                 </span>

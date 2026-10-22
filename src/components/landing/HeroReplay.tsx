@@ -189,7 +189,7 @@ export function HeroReplay({ footage, events, listTitle, consoleHref, listClassN
               aria-label="Move through the replay"
               className="h-11 min-w-0 flex-1 cursor-pointer accent-ink"
             />
-            <Link href={consoleHref} className="hidden flex-none text-label text-ink underline-offset-4 hover:underline sm:block">
+            <Link href={consoleHref} className="hidden flex-none text-label text-ink underline-offset-4 hover:underline lg:block">
               Open in the console
             </Link>
           </div>
