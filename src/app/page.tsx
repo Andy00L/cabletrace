@@ -116,7 +116,7 @@ export default async function LandingPage() {
                   </p>
                   <div className="flex flex-wrap items-center gap-3">
                     <DiscoverButton href={CONSOLE_PATH} label="Open the console" testId="open-console" />
-                    <Link href="/sign-in" className="flex h-12 items-center rounded-full px-4 text-label text-ink hover:bg-card/60" data-testid="landing-sign-in">
+                    <Link href="/sign-in" className="flex h-[52px] items-center rounded-full bg-card/85 px-5 text-label text-ink shadow-row transition-colors duration-140 ease-standard hover:bg-card" data-testid="landing-sign-in">
                       Sign in
                     </Link>
                   </div>

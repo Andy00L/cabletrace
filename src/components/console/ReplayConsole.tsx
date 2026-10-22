@@ -48,6 +48,9 @@ const RAIL_INSET_PX = 16;
 const MIN_RAIL_HEIGHT_PX = 240;
 // The folded rail's tab (CSS px, RailHoverTab).
 const RAIL_TAB_HEIGHT_PX = 48;
+// The anchor cam offers to grow only when its grown width beats its rest width by this much (CSS px, 1/6 of 360): on a
+// stage under about 400 px tall it could not grow at all, and its expand button did nothing (Andy, 22 Oct 2026).
+const MIN_ANCHOR_CAM_GROWTH_PX = 60;
 // Layouts (docs/UI_DESIGN_SYSTEM.md, Console, Layout): from 1024 px the full console with the charts in the dock;
 // from 768 px the rail floats over the stage as a sheet and the charts move into Ship mode; under 768 px the rail's
 // content lives in a bottom sheet and cards open as bottom sheets.
@@ -400,10 +403,13 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   // The 3D picture frames its subject in the part the floating rail leaves visible.
   const rightInsetPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
   const isAnchorCamShown = driver !== null && viewer !== null && isAnchorDown && drawnView !== "closeup";
-  const isAnchorCamGrown = isAnchorCamShown && !isPhone && isAnchorCamExpanded;
   // Grown, the anchor cam fits the stage with the folded rail's tab under it: 640 px wide, or as wide as the height
   // allows (a 720 px tall window leaves a 420 px stage), never narrower than at rest.
   const anchorCamGrownWidthPx = stageHeightPx === null ? ANCHOR_CAM_EXPANDED_WIDTH_PX : Math.max(ANCHOR_CAM_WIDTH_PX, Math.min(ANCHOR_CAM_EXPANDED_WIDTH_PX, readAnchorCamWidthForHeightPx(stageHeightPx - STAGE_INSET_PX * 2 - 12 - RAIL_TAB_HEIGHT_PX)));
+  // A stage too short to grow it noticeably shows no expand button, and a window grown before the stage shrank goes
+  // back to rest.
+  const canGrowAnchorCam = anchorCamGrownWidthPx - ANCHOR_CAM_WIDTH_PX >= MIN_ANCHOR_CAM_GROWTH_PX;
+  const isAnchorCamGrown = isAnchorCamShown && !isPhone && isAnchorCamExpanded && canGrowAnchorCam;
   const anchorCamWidthPx = isAnchorCamGrown ? anchorCamGrownWidthPx : ANCHOR_CAM_WIDTH_PX;
   // The rail starts under the anchor cam when both stand at the stage's right edge.
   const railTopPx = isAnchorCamShown && !isPhone ? STAGE_INSET_PX + readAnchorCamHeightPx(anchorCamWidthPx) + 12 : STAGE_INSET_PX;
@@ -511,7 +517,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
                 showRailTopPx={railTopPx}
                 sceneSummary={sceneSummary}
               />
-              {isAnchorCamShown && driver && viewer && <AnchorCamWindow driver={driver} port={viewer.director} presentation={isPhone ? "phone" : "desktop"} expandedWidthPx={anchorCamGrownWidthPx} />}
+              {isAnchorCamShown && driver && viewer && <AnchorCamWindow driver={driver} port={viewer.director} presentation={isPhone ? "phone" : "desktop"} expandedWidthPx={canGrowAnchorCam ? anchorCamGrownWidthPx : null} />}
               {isRailTabbed && (
                 <RailHoverTab
                   tabTopPx={railTabTopPx - STAGE_INSET_PX}

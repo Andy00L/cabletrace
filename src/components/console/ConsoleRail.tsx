@@ -22,11 +22,13 @@ const AisSignalCard = dynamic(() => import("@/components/console/AisSignalStrip"
 });
 
 const CARD_CLASS = "flex flex-col gap-3 rounded-row bg-card px-5 py-4.5 shadow-card";
-// Each mode's rail scrolls inside itself on a short stage. Its 24 px foot lets the last card scroll clear of the edge,
-// and it reaches 12 px past the cards on the right so its scrollbar sits in the stage's margin, not on a card's edge.
-// No fade mask on it: over the 3D view a mask is composited again every frame, 5 fps on Windows Chrome's integrated
-// GPU (57 to 52 fps playing, 21 Oct 2026).
-const RAIL_SCROLL_CLASS = "-mr-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-3 pb-6";
+// Each mode's rail scrolls inside itself on a short stage. Its 24 px foot lets the last card scroll clear of the edge.
+// It is exactly as wide as the cards, with their corners, so a card scrolled past its top edge is cut on the cards' own
+// curve, not on a straight line (Andy, 22 Oct 2026), and it draws no scrollbar: a native bar would need a gutter past
+// the cards, where the clip's corner no longer meets theirs. The wheel, touch, the keyboard and focus still scroll it,
+// and the card cut at its foot shows there is more. No fade mask on it: over the 3D view a mask is composited again
+// every frame, 5 fps on Windows Chrome's integrated GPU (57 to 52 fps playing, 21 Oct 2026).
+const RAIL_SCROLL_CLASS = "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-row pb-6 [scrollbar-width:none]";
 const ROW_BUTTON_CLASS = "grid w-full items-center gap-x-3 rounded-field px-2 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-page aria-[current=true]:bg-soft";
 
 function ShipSample() {

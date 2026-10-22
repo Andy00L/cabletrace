@@ -19,6 +19,9 @@ export function ConsoleSkeleton({ title, subtitle, summary }: { title: string; s
           <BrandMark size={28} />
           <span className="hidden text-card-title xl:inline">CableTrace</span>
         </Link>
+        <Link href="/live" prefetch={false} className="hidden h-10 flex-none items-center rounded-full px-3.5 text-label text-muted sm:flex">
+          Live
+        </Link>
         <h1 className="truncate text-label">{title}</h1>
         <span className="hidden text-small text-muted xl:inline">{subtitle}</span>
         <span className="ml-auto hidden h-11 w-[244px] flex-none rounded-full bg-soft lg:block" aria-hidden="true" />

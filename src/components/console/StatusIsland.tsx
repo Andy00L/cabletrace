@@ -41,19 +41,20 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
   return (
     // From 1400 px it sits centred in the top band, between the view switcher and the right column, where the status and
     // the countdown (about 450 px of pill) fit; narrower, and beside the grown anchor cam (640 px), it keeps the row under
-    // the view switcher.
-    <div className={`pointer-events-none absolute left-4 z-(--layer-stage-controls) flex justify-center ${isAnchorCamExpanded ? "" : "min-[1400px]:top-4 min-[1400px]:left-1/2 min-[1400px]:-translate-x-1/2"} ${isCloseUp ? "top-28" : "top-16"}`}>
+    // the view switcher. Opened, it ends above the bottom row of controls (the legend and the scale button, 40 px tall
+    // and 16 px in) and scrolls inside itself, so its last lines never sit under the legend on a short stage.
+    <div className={`pointer-events-none absolute bottom-[72px] left-4 z-(--layer-stage-controls) flex items-start justify-center ${isAnchorCamExpanded ? "" : "min-[1400px]:top-4 min-[1400px]:left-1/2 min-[1400px]:-translate-x-1/2"} ${isCloseUp ? "top-28" : "top-16"}`}>
       {/* One shape grows from pill to card: width and height transition between their auto sizes where the
           browser can (interpolate-size), and snap where it cannot; the corner radius follows. */}
       <div
-        className={`pointer-events-auto flex w-max max-w-[min(500px,calc(100vw-48px))] flex-col overflow-hidden bg-slate text-page shadow-row transition-[width,height,border-radius] duration-220 ease-enter [interpolate-size:allow-keywords] ${isOpen ? "rounded-row" : "rounded-full"}`}
+        className={`pointer-events-auto flex max-h-full w-max max-w-[min(500px,calc(100vw-48px))] flex-col overflow-hidden bg-slate text-page shadow-row transition-[width,height,border-radius] duration-220 ease-enter [interpolate-size:allow-keywords] ${isOpen ? "rounded-row" : "rounded-full"}`}
         data-label-blocker="true"
       >
         <button
           type="button"
           onClick={() => setIsOpen((wasOpen) => !wasOpen)}
           aria-expanded={isOpen}
-          className="flex h-10 w-full min-w-0 items-center justify-center gap-2.5 pr-3.5 pl-4 text-small font-medium whitespace-nowrap text-page"
+          className="flex h-10 w-full min-w-0 flex-none items-center justify-center gap-2.5 pr-3.5 pl-4 text-small font-medium whitespace-nowrap text-page"
           data-testid="replay-anchor-status"
           data-state={statusKind}
         >
@@ -72,7 +73,7 @@ export function StatusIsland({ isCloseUp }: { isCloseUp: boolean }) {
           <Icon name="chevronDown" size={16} className={`flex-none text-mist transition-transform duration-220 ease-standard ${isOpen ? "rotate-180" : ""}`} />
         </button>
         {isOpen && (
-          <div className="flex max-h-[min(55svh,480px)] w-[340px] max-w-full animate-layer-enter flex-col gap-2.5 overflow-y-auto px-4 pt-1 pb-4">
+          <div className="flex max-h-[min(55svh,480px)] min-h-0 w-[340px] max-w-full animate-layer-enter flex-col gap-2.5 overflow-y-auto px-4 pt-1 pb-4">
             {latestEvent ? (
               <>
                 <p className="flex items-baseline gap-2">
