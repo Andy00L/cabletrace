@@ -55,7 +55,7 @@ export function LandingStickyBar({ heroId, stateLine, action }: LandingStickyBar
 
   return (
     <div
-      className={`fixed inset-x-0 top-0 z-(--layer-panel) bg-paper shadow-selected transition-[translate,opacity] ${isShown ? "translate-y-0 opacity-100 duration-220 ease-enter" : "-translate-y-full opacity-0 duration-176 ease-exit"}`}
+      className={`fixed inset-x-0 top-0 z-(--layer-panel) bg-card transition-[translate,opacity] ${isShown ? "translate-y-0 opacity-100 duration-220 ease-enter" : "-translate-y-full opacity-0 duration-176 ease-exit"}`}
       inert={!isShown}
       data-testid="landing-sticky-bar"
       data-state={isShown ? "shown" : "hidden"}

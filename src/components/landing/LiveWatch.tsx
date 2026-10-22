@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import { readRiseOrderStyle } from "@/components/landing/rise-order";
 import { REGIONS } from "@/data/regions";
 import { readFlagFromMmsi } from "@/lib/globe/ship-identity";
 import type { LandingLive } from "@/lib/landing/landing-live";
@@ -7,10 +9,10 @@ import type { RecorderHealth } from "@/lib/recorder/recorder-summary";
 // The recorder keeps positions within 3 km of a cable.
 // sourceRef: supabase/migrations/20261017020000_live_recorder.sql (ingest_vessel_positions, near_cable_metres default 3000).
 const NEAR_CABLE_KILOMETRES = 3;
-/** What the big figure counts; the sticky bar repeats it once the hero has scrolled away (LandingStickyBar.tsx). */
+/** What the first ledger figure counts; the sticky bar repeats it once the hero has scrolled away (LandingStickyBar.tsx). */
 export const SHIPS_LAST_HOUR_PHRASE = `ships within ${NEAR_CABLE_KILOMETRES} km of a cable in the last hour`;
 
-// Short names for the card's region list, so the eight fit on three lines (board 13); the full names are in
+// Short names for the region list, so the eight fit two columns on a phone; the full names are in
 // src/data/regions and on /live.
 const REGION_SHORT_NAMES: Readonly<Record<string, string>> = {
   "gulf-of-finland": "Gulf of Finland",
@@ -68,74 +70,112 @@ function describeCrossing(crossing: CloseCrossing): string {
  * loop on the page, on the one thing that is live this minute. The regions stay still. Reduced motion drops the ring.
  */
 function LiveDot({ isLive, isPulsing = false }: { isLive: boolean; isPulsing?: boolean }) {
-  if (!isLive) return <span className="size-1.5 flex-none rounded-full bg-faint" aria-hidden="true" />;
-  if (!isPulsing) return <span className="size-1.5 flex-none rounded-full bg-live" aria-hidden="true" />;
+  if (!isLive) return <span className="size-2 flex-none rounded-full bg-faint" aria-hidden="true" />;
+  if (!isPulsing) return <span className="size-2 flex-none rounded-full bg-live" aria-hidden="true" />;
   return (
-    <span className="relative flex size-1.5 flex-none" aria-hidden="true" data-testid="live-pulse">
+    <span className="relative flex size-2 flex-none" aria-hidden="true" data-testid="live-pulse">
       <span className="absolute inset-0 rounded-full bg-live opacity-60 motion-safe:animate-ping motion-reduce:hidden" />
-      <span className="relative size-1.5 rounded-full bg-live" />
+      <span className="relative size-2 rounded-full bg-live" />
     </span>
   );
 }
 
+type LedgerFigure = { value: string; caption: string; testId?: string };
+
+/** The ledger's rows: what the recorder counted in the last hour, then what it watches. */
+function buildLedgerFigures(live: LandingLive): LedgerFigure[] {
+  const regionFigure: LedgerFigure = { value: String(REGIONS.length), caption: "regions, each read once a minute" };
+  if (!live.recorder.ok) return [regionFigure];
+  const { summary } = live.recorder.value;
+  return [
+    { value: summary.shipsLastHour.toLocaleString("en-US"), caption: SHIPS_LAST_HOUR_PHRASE, testId: "recorder-ships" },
+    { value: summary.positionsLastHour.toLocaleString("en-US"), caption: "positions recorded in the last hour" },
+    { value: summary.cablesWatched.toLocaleString("en-US"), caption: "cables and pipelines watched" },
+    regionFigure,
+  ];
+}
+
+type LiveWatchProps = {
+  live: LandingLive;
+  /** The live globe's still, beside the statement (src/lib/landing/replay-footage.ts). */
+  globe: ReactNode;
+  contentClassName: string;
+};
+
 /**
- * The landing's live watch, set straight into the sky of the first engraving like the type on a print (no card):
- * ships near cables in the last hour, the regions heard in the last 15 minutes, and the three latest close passes.
- * Every figure comes from the recorder, read at most once a minute; it says when. The positions' credit sits in the
- * footer of the same page (src/components/landing/LandingFooter.tsx).
+ * The landing's live section: the recorder's own figures set as a ledger, the regions heard in the last 15 minutes,
+ * and the three latest close passes as the console's list. Every figure comes from the recorder, read at most once a
+ * minute; it says when. The positions' credit is on /credits, linked from the footer.
  */
-export function LiveWatch({ live }: { live: LandingLive }) {
+export function LiveWatch({ live, globe, contentClassName }: LiveWatchProps) {
   const { recorder, crossings, heardRegionIds, readAt } = live;
   const heardIds = new Set(heardRegionIds.ok ? heardRegionIds.value : []);
   const state = recorder.ok ? recorder.value.health.kind : "unreachable";
+  const figures = buildLedgerFigures(live);
   return (
-    <section className="paper-halo flex flex-col gap-4 text-ink" data-testid="recorder-status" data-state={state} aria-labelledby="live-watch-title">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-ink/20 pb-2">
-        <h2 id="live-watch-title" className="text-label">Live watch</h2>
-        <span className="flex items-center gap-2 text-caption text-muted" data-testid="recorder-state">
-          <LiveDot isLive={state === "recording"} isPulsing />
-          {recorder.ok ? describeHealth(recorder.value.health) : "Unavailable"}, as of {formatUtcTime(readAt)}
-        </span>
-      </div>
-      {recorder.ok ? (
-        <div className="flex items-end gap-4">
-          <p className="text-display tabular-nums" data-testid="recorder-ships">{recorder.value.summary.shipsLastHour.toLocaleString("en-US")}</p>
-          <p className="max-w-[200px] pb-1 text-small text-muted">{SHIPS_LAST_HOUR_PHRASE}</p>
+    <section className={`${contentClassName} grid gap-14 lg:grid-cols-12 lg:gap-x-6`} data-testid="recorder-status" data-state={state} aria-labelledby="live-watch-title">
+      <div className="flex flex-col gap-8 lg:col-span-5">
+        <div className="flex flex-col gap-4">
+          <h2 id="live-watch-title" className="text-title sm:text-display" data-rise="ready">
+            <span className="text-muted">Right now,</span> ships near the cables.
+          </h2>
+          <p className="text-lead text-ink" data-rise="ready" style={readRiseOrderStyle(1)}>
+            A recorder reads every ship within {NEAR_CABLE_KILOMETRES} km of a watched cable or pipeline, once a minute, in {REGIONS.length} regions.
+          </p>
+          <p className="flex items-center gap-2 text-label text-ink" data-testid="recorder-state">
+            <LiveDot isLive={state === "recording"} isPulsing />
+            {recorder.ok ? describeHealth(recorder.value.health) : "Unavailable"}, as of {formatUtcTime(readAt)}
+          </p>
         </div>
-      ) : (
-        <p className="text-body text-muted">The recorder could not be read just now. The next read is within a minute.</p>
-      )}
-      <ul className="grid grid-cols-2 gap-x-6 gap-y-1" aria-label="Watched regions" data-testid="live-regions">
-        {REGIONS.map((region) => {
-          const isHeard = heardIds.has(region.id);
-          return (
-            <li key={region.id} className={`flex items-center gap-2 text-caption ${isHeard ? "text-ink" : "text-muted"}`} data-state={isHeard ? "heard" : "quiet"}>
-              <LiveDot isLive={isHeard} />
-              {REGION_SHORT_NAMES[region.id] ?? region.name}
-              {!isHeard && <span className="sr-only">, quiet in the last 15 minutes</span>}
-            </li>
-          );
-        })}
-      </ul>
-      <div className="flex flex-col" data-testid="live-crossings">
-        <h3 className="border-b border-ink/20 pb-2 text-caption text-muted">Closest passes, within {CLOSE_PASS_METRES} m of a cable</h3>
-        {!crossings.ok && <p className="mt-2 text-small text-muted">The latest passes could not be read just now.</p>}
-        {crossings.ok && crossings.value.length === 0 && <p className="mt-2 text-small text-muted">No ship came this close in the last hour.</p>}
-        {crossings.ok && crossings.value.length > 0 && (
-          <ol className="flex flex-col">
-            {crossings.value.map((crossing) => (
-              <li key={`${crossing.mmsi}-${crossing.cableName}`} className="flex items-baseline justify-between gap-4 border-b border-ink/10 py-2">
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-label">{crossing.cableName.replace(OSM_WAY_SUFFIX, "")}</span>
-                  <span className="text-caption font-normal text-muted">{describeCrossing(crossing)}</span>
-                </span>
-                <time dateTime={crossing.observedAt.toISOString()} className="flex-none text-caption text-muted tabular-nums">
-                  {formatUtcTime(crossing.observedAt)}
-                </time>
+        <ul className="grid grid-cols-2 gap-x-6 gap-y-2" aria-label="Watched regions" data-testid="live-regions">
+          {REGIONS.map((region) => {
+            const isHeard = heardIds.has(region.id);
+            return (
+              <li key={region.id} className={`flex items-center gap-2 text-small ${isHeard ? "text-ink" : "text-muted"}`} data-state={isHeard ? "heard" : "quiet"}>
+                <LiveDot isLive={isHeard} />
+                {REGION_SHORT_NAMES[region.id] ?? region.name}
+                {!isHeard && <span className="sr-only">, quiet in the last 15 minutes</span>}
               </li>
-            ))}
-          </ol>
-        )}
+            );
+          })}
+        </ul>
+        <div className="overflow-hidden rounded-inner" data-rise="ready" style={readRiseOrderStyle(2)}>
+          {globe}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-12 lg:col-span-6 lg:col-start-7 lg:pt-4">
+        {!recorder.ok && <p className="text-lead text-ink">The recorder could not be read just now. The next read is within a minute.</p>}
+        <dl className="flex flex-col gap-5" data-testid="landing-numbers">
+          {figures.map((figure, index) => (
+            <div key={figure.caption} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] items-baseline gap-x-6" data-rise="ready" style={readRiseOrderStyle(index)}>
+              <dt className="order-2 text-body text-ink">{figure.caption}</dt>
+              <dd className="order-1 text-right text-hero tabular-nums" data-testid={figure.testId}>
+                {figure.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <div className="flex flex-col gap-1 rounded-row bg-card p-3 shadow-card" data-testid="live-crossings" data-ui>
+          <h3 className="px-3 pt-2 pb-1 text-label text-muted">Closest passes, within {CLOSE_PASS_METRES} m of a cable</h3>
+          {!crossings.ok && <p className="px-3 py-2 text-small text-muted">The latest passes could not be read just now.</p>}
+          {crossings.ok && crossings.value.length === 0 && <p className="px-3 py-2 text-small text-muted">No ship came this close in the last hour.</p>}
+          {crossings.ok && crossings.value.length > 0 && (
+            <ol className="flex flex-col gap-0.5">
+              {crossings.value.map((crossing, index) => (
+                <li key={`${crossing.mmsi}-${crossing.cableName}`} className={`flex items-baseline justify-between gap-4 rounded-field px-3 py-2.5 ${index === 0 ? "bg-page" : ""}`}>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-label">{crossing.cableName.replace(OSM_WAY_SUFFIX, "")}</span>
+                    <span className="text-caption font-normal text-muted">{describeCrossing(crossing)}</span>
+                  </span>
+                  <time dateTime={crossing.observedAt.toISOString()} className="flex-none text-caption text-muted tabular-nums">
+                    {formatUtcTime(crossing.observedAt)}
+                  </time>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       </div>
     </section>
   );
