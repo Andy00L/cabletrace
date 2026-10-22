@@ -10,6 +10,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun test src",
     "perf": "bun scripts/perf/measure-pages.ts",
+    "footage": "bun scripts/landing-footage/build-footage.ts",
     "check:sources": "bun scripts/cases/check-sources.ts",
     "check:evidence": "bun scripts/checks/evidence-reach.ts",
     "check:keyboard": "bun scripts/checks/keyboard-path.ts",

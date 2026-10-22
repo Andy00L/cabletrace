@@ -381,3 +381,27 @@ drives it, above).
 loads, compressed; a one-minute scrub to the next drawn frame, median of 12): JavaScript 408.4 KB against 398.6 KB;
 scrub medians 327, 255 and 211 ms against 385, 308 and 496 ms. `bun run perf`: the 3D probe on `/diagnostics` measured
 4,685 ms (budget 6,000 ms) at a 68 ms average software frame.
+
+## Landing footage
+
+`bun run footage` (`scripts/landing-footage/`) records the front page's pictures from the real console, on the WSL
+hardware tier: the Eagle S time-lapse (25 Dec 2024, 10:00 to 17:00 UTC in 20 s at 30 frames a second, then 1.5 s held
+on the last frame) and three stills at 2x (the Vessel view with the anchor cam, the close-up at the cut, the live
+globe). Every frame draws its own moment through the viewer's lookdev hooks, so the video is smooth whatever the
+render speed; the camera is one scripted move, west of the drag looking along it. Two crops, desktop 1600 x 1000 and
+phone 900 x 1124 (4:2:0 video needs an even height), both with the console's stage overlays (labels, status pill,
+anchor cam). `src/lib/landing/replay-footage.ts` describes every file and maps replay time to video time.
+
+Options: `--only desktop|phone|stills`, `--preview` (six frames per crop, nothing encoded), `--skip-capture` (encode the
+frames already in `.scratch/landing-footage`), `--base-url` (use a running server instead of building one on 3190).
+
+Each file is encoded at the lowest CRF under its budget (x264 `slow`, SVT-AV1 preset 6, a keyframe every 2 s), and
+each poster is the video's first frame. Measured on 22 Oct 2026:
+
+| File | Budget | Size |
+| --- | --- | --- |
+| desktop MP4 (H.264) | 3.0 MB | 2.87 MB |
+| desktop WebM (AV1) | 2.2 MB | 2.12 MB |
+| phone MP4 (H.264) | 1.6 MB | 1.47 MB |
+| phone WebM (AV1) | 1.6 MB | 1.59 MB |
+| posters, AVIF and WebP | none | 71 to 123 KB |
