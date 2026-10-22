@@ -139,16 +139,16 @@ export default async function LandingPage() {
                 />
               </div>
               {/* The phone's band samples the part of the painting its 4:3 crop shows. */}
-              <AsciiPicture src={HERO_ASCII_SOURCE} region={[0.14, 0.72, 0.63, 0.26]} cellPx={6} ramp="dense" isInverted tone="ink" toneShare={0.2} fadeShare={0.65} className="h-24 w-full md:hidden" />
+              <AsciiPicture src={HERO_ASCII_SOURCE} region={[0.14, 0.72, 0.63, 0.26]} style="halftone" cellPx={5} isInverted tone="ink" toneShare={0.15} fadeShare={0.65} className="h-24 w-full md:hidden" />
               <ArchiveCaption
                 art={heroPainting}
                 className={`px-4 pt-3 sm:px-6 md:absolute md:bottom-8 md:left-6 md:px-3.5 lg:left-[max(2rem,calc(50vw-688px))] ${PAINTING_LABEL_CLASS}`}
               />
             </figure>
           </div>
-          {/* The painting's sea carries on as glyphs into the page (the ASCII layer); a phone's band sits in the figure,
-              between the painting and its caption. */}
-          <AsciiPicture src={HERO_ASCII_SOURCE} region={[0, 0.72, 1, 0.26]} cellPx={7} ramp="dense" isInverted tone="ink" toneShare={0.2} fadeShare={0.65} className="hidden h-40 w-full md:block" />
+          {/* The painting's sea carries on into the page as a halftone screen (the ASCII layer), a print's dots after the
+              watercolour; a phone's band sits in the figure, between the painting and its caption. */}
+          <AsciiPicture src={HERO_ASCII_SOURCE} region={[0, 0.72, 1, 0.26]} style="halftone" cellPx={6} isInverted tone="ink" toneShare={0.15} fadeShare={0.65} className="hidden h-40 w-full md:block" />
           <div className={`${CONTENT_CLASS} grid grid-cols-1 gap-y-8 pt-8 md:grid-cols-12 md:gap-x-6 md:pt-0`}>
             <HeroReplay
               footage={EAGLE_S_FOOTAGE}

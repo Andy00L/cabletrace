@@ -11,7 +11,8 @@ import { loadCaseSketch } from "@/lib/cases/load-case-sketch";
 const INTRO = "Subsea cable cuts by ships, replayed in 3D from the published record. Every position says how it is known.";
 // Dudley's night painting, the 1,200 px file the landing already serves (docs/UI_DESIGN_SYSTEM.md, ASCII layer).
 const NIGHT_PAINTING_SRC = "/landing/archive/albany-at-night-1200.webp";
-// Glyph cell width in CSS px: 7 px cells keep the moon, the clouds and the wave crests legible between the rows.
+// Braille cell width in CSS px: each 7 px cell carries 2 by 4 dots, so the moon, the clouds and the wave crests stay
+// legible between the rows at four times a glyph's detail.
 const NIGHT_SEA_CELL_PX = 7;
 // How far each glyph's own colour moves toward slate (the style board of 22 Oct 2026 asks for about a third), and the
 // share of the glyph rows that thin out into the slate at the bottom of the picture, so it ends without an edge.
@@ -30,7 +31,7 @@ export const metadata: Metadata = {
 
 // Every case with its sketch, grouped by region and newest first inside each region, as compact rows in two columns
 // from 768 px and three from 1,280 px, so a dozen cases fit one screen. The list sits on a slate field with Dudley's
-// night painting redrawn as glyphs behind its head (style board, 22 Oct 2026); the rows stay vellum. The sketches are
+// night painting redrawn in braille behind its head (style board, 22 Oct 2026); the rows stay vellum. The sketches are
 // read from the seabed files at build time.
 export default async function CasesPage() {
   const sketchList = await Promise.all(CABLE_CASES.map((cableCase) => loadCaseSketch(toReplaySceneInput(cableCase))));
@@ -43,8 +44,8 @@ export default async function CasesPage() {
         {/* The painting keeps its own proportions, so the list's height never stretches it; below it the field is plain slate. */}
         <AsciiPicture
           src={NIGHT_PAINTING_SRC}
+          style="braille"
           cellPx={NIGHT_SEA_CELL_PX}
-          ramp="dense"
           tone="slate"
           toneShare={NIGHT_SEA_TONE_SHARE}
           background="slate"

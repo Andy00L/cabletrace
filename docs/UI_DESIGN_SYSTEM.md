@@ -137,10 +137,19 @@ One move runs longer than `duration-hero`: the live globe's dive to a cut (1,600
 
 Approved by Andy on the style board of 22 Oct 2026, after ascii-magic.com: Dudley's paintings redrawn as glyphs, each glyph in the colour of the patch it replaces (`AsciiPicture`, `src/components/ascii/AsciiPicture.tsx`; the arithmetic in `src/lib/ascii/ascii-grid.ts`). It fills what would be an empty field, never carries meaning (hidden from assistive technology), and never sits under body text at more than low contrast.
 
-- **Where.** Under the front page's painting (its sea carries on as glyphs into the parchment), as plates beside sections that had empty space, behind the replay's dock and status (faint night sea on slate), and behind the cases page and the live globe (night sea on slate).
-- **Glyphs.** `dense` ramp (` .:-=+*#%@`) for cells of 4 to 6 px, where shapes must read; `fine` for bigger cells. Brightness is stretched to the patch's own range; on a light ground the ramp is inverted so dark patches carry the glyphs. A line is 1.5 cells tall; ui-monospace.
+- **Styles** (`AsciiStyle`, after ascii-magic.com's styles, Andy, 22 Oct 2026: "use different ones accordingly"). Each place takes the style that suits what sits on it:
+
+  | Place | Style | Why |
+  |---|---|---|
+  | Under the front page's painting | `halftone`, 6 px dots in the painting's colours, fading into `page` | A print screen after the watercolour: the painting turns to print, then to page. |
+  | Beside "Inside a replay" | `glyph` (`dense` ramp), 5 px, `dusk` on `slate`, shimmering | The one classic ASCII plate, where the page was empty; nothing sits on it. |
+  | The front page's case ledger | `binary`, 8 px 0s and 1s, half toned to `slate`, flipping slowly | The cases as data; faint enough for the heading on it. |
+  | The cases page | `braille`, 7 px cells of 2 by 4 dots, toned to `slate` | Four times a glyph's detail at the same size, so the night sea reads as texture behind the list. |
+  | The live globe's field | `dither`, 4 px pixels, toned to `slate`, still | Holds still beside the globe's own motion; costs nothing after one draw. |
+  | The replay's dock | `hatch`, engraved strokes, toned to `slate`, still | Horizontal lines run with the timeline and stay quiet behind the charts. |
+
 - **Fade.** The last rows thin out on a 4 x 4 Bayer pattern and pale toward the ground, so a band ends in the page without a gradient.
-- **Motion.** A plate on screen shimmers: 1.2% of its glyphs step one place on the ramp and back every 140 ms. Nothing moves under reduced motion or off screen.
+- **Motion.** A character style on screen may shimmer: 1.2% of its cells step one place on the ramp (a digit flips, a braille dot toggles) and back every 140 ms. Shapes hold still. Nothing moves under reduced motion or off screen.
 - **Cost.** One canvas draw per size change (a 1,440 by 200 px band is about 4,000 glyphs); the pictures are the 1,200 px files the page already serves.
 
 **Flip Text** (`src/components/ui/FlipText.tsx`, after ObsidianUI, MIT): a heading's letters turn once around their x axis and rise 8 px under the pointer, 400 ms `ease-enter`, CSS only. **Discover Button** (`src/components/ui/DiscoverButton.tsx`, after ObsidianUI, MIT): the main call to action, a pill whose arrow circle sweeps its fill across the label in 480 ms (a clip-path), `ink` on light and `dusk` on slate.

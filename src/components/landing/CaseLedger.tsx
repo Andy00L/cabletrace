@@ -29,9 +29,10 @@ const NIGHT_SOURCE = "/landing/archive/albany-at-night-1200.webp";
 export function CaseLedger({ cases, contentClassName }: CaseLedgerProps) {
   const sourceCount = cases.reduce((total, cableCase) => total + cableCase.sources.length, 0);
   return (
-    // A slate band the width of the page, the night painting in glyphs behind it (the ASCII layer), the cases on vellum.
+    // A slate band the width of the page, the night painting behind it in 0s and 1s (the ASCII layer: the record as
+    // data, its digits flipping slowly), the cases on vellum.
     <section aria-labelledby="cases-title" className="relative isolate overflow-hidden bg-slate py-20 text-page md:py-28">
-      <AsciiPicture src={NIGHT_SOURCE} region={[0, 0.05, 1, 0.95]} cellPx={7} ramp="dense" background="slate" tone="slate" toneShare={0.35} isShimmering className="absolute inset-0 -z-10 size-full" />
+      <AsciiPicture src={NIGHT_SOURCE} region={[0, 0.05, 1, 0.95]} style="binary" cellPx={8} background="slate" tone="slate" toneShare={0.5} isShimmering className="absolute inset-0 -z-10 size-full" />
       <div className={`${contentClassName} flex flex-col gap-14`}>
         <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <h2 id="cases-title" className="max-w-[760px] text-title sm:text-display" data-rise="ready">
