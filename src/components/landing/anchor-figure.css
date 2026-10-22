@@ -1,0 +1,235 @@
+/*
+ * The anchor figure in the console's own colours: Anatomy's light tone hierarchy (src/components/iso/iso.css) mixed
+ * from the design tokens in src/app/globals.css, never typed. Outlines are `ink`; the four shades are ink mixed toward
+ * `page`; faces and tops are `card`. The ship wears `ship` greys, the cable `cable` blues, the water a light tone of
+ * `cable` toward `page` deepening to the seabed, and the one accent, the cut and the torn ends, is `alarm`. Scoped to
+ * `.af`, so nothing here reaches the rest of the page.
+ */
+.iso.af {
+  --af-silt: color-mix(in oklab, var(--color-page), var(--color-ink) 30%);
+  --anatomy-page: var(--color-page);
+  --anatomy-card: var(--color-card);
+  --anatomy-paper: var(--color-card);
+  --anatomy-text: var(--color-muted);
+  --anatomy-strong: var(--color-ink);
+  --anatomy-muted: var(--color-muted);
+  --anatomy-face: var(--color-card);
+  --anatomy-top: color-mix(in oklab, var(--color-card), var(--color-page) 40%);
+  --anatomy-shade-0: color-mix(in oklab, var(--color-page), var(--color-ink) 34%);
+  --anatomy-shade-1: color-mix(in oklab, var(--color-page), var(--color-ink) 23%);
+  --anatomy-shade-2: color-mix(in oklab, var(--color-page), var(--color-ink) 14%);
+  --anatomy-shade-3: color-mix(in oklab, var(--color-page), var(--color-ink) 6%);
+  --anatomy-lit-top: var(--color-card);
+  --anatomy-lit-shade: color-mix(in oklab, var(--color-page), var(--color-ink) 18%);
+  --anatomy-hi: var(--color-ink);
+  --anatomy-mid: color-mix(in oklab, var(--color-ink) 70%, var(--color-page));
+  --anatomy-lo: color-mix(in oklab, var(--color-ink) 46%, var(--color-page));
+  --anatomy-faint: color-mix(in oklab, var(--color-ink) 22%, var(--color-page));
+  --anatomy-lit: var(--color-ink);
+  --anatomy-dot: var(--color-ink);
+  --anatomy-red: var(--color-alarm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* The ship: the console's ship grey for its plating, its shades the grey deepened toward ink. */
+.af .af-ship {
+  --anatomy-paper: color-mix(in oklab, var(--color-ship) 22%, var(--color-card));
+  --anatomy-face: color-mix(in oklab, var(--color-ship) 22%, var(--color-card));
+  --anatomy-top: color-mix(in oklab, var(--color-ship) 12%, var(--color-card));
+  --anatomy-lit-top: color-mix(in oklab, var(--color-ship) 8%, var(--color-card));
+  --anatomy-shade-0: color-mix(in oklab, var(--color-ship), var(--color-ink) 22%);
+  --anatomy-shade-1: var(--color-ship);
+  --anatomy-shade-2: color-mix(in oklab, var(--color-ship) 72%, var(--color-card));
+  --anatomy-shade-3: color-mix(in oklab, var(--color-ship) 46%, var(--color-card));
+  --anatomy-lit-shade: color-mix(in oklab, var(--color-ship) 60%, var(--color-card));
+}
+
+/* The cable: the console's cable blue, its armour rings a lighter blue, its outline the blue deepened toward ink. */
+.af .af-cable {
+  --anatomy-paper: color-mix(in oklab, var(--color-cable) 16%, var(--color-card));
+  --anatomy-face: color-mix(in oklab, var(--color-cable) 16%, var(--color-card));
+  --anatomy-top: color-mix(in oklab, var(--color-cable) 10%, var(--color-card));
+  --anatomy-lit-top: color-mix(in oklab, var(--color-cable) 10%, var(--color-card));
+  --anatomy-shade-0: color-mix(in oklab, var(--color-cable) 78%, var(--color-card));
+  --anatomy-shade-1: color-mix(in oklab, var(--color-cable) 58%, var(--color-card));
+  --anatomy-shade-2: color-mix(in oklab, var(--color-cable) 40%, var(--color-card));
+  --anatomy-shade-3: color-mix(in oklab, var(--color-cable) 24%, var(--color-card));
+  --anatomy-lit-shade: color-mix(in oklab, var(--color-cable) 40%, var(--color-card));
+  --anatomy-hi: color-mix(in oklab, var(--color-cable) 55%, var(--color-ink));
+  --anatomy-mid: var(--color-cable);
+  --anatomy-lo: color-mix(in oklab, var(--color-cable) 62%, var(--color-card));
+}
+
+/* The label row over the drawing and the readout under it; no rule, no fill, no shadow of their own. */
+.af-head,
+.af-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.af-head {
+  font-weight: 500;
+}
+.af-foot {
+  flex-direction: column;
+}
+.af-foot p {
+  margin: 0;
+}
+.af-readout {
+  font-variant-numeric: tabular-nums;
+}
+.af-hint {
+  color: var(--color-muted);
+}
+
+/* The stage takes what the label row and the readout leave, and centres a square drawing in it (container units). In
+   a parent with no height of its own it is a square of its own width. */
+.af-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  aspect-ratio: 1;
+  container-type: size;
+  cursor: grab;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.af-stage[data-held] {
+  cursor: grabbing;
+}
+.af-stage:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+.af-art {
+  position: absolute;
+  inset: 0;
+  width: min(100cqw, 100cqh);
+  height: min(100cqw, 100cqh);
+  margin: auto;
+}
+.af-art > svg,
+.af-art > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.af-art > .af-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.af-stage[data-gl] .af-plume-fallback {
+  display: none;
+}
+.af-silt-probe {
+  fill: var(--af-silt);
+  stroke: none;
+  visibility: hidden;
+}
+
+/* The water: a light tone of the cable blue toward the page, deeper toward the seabed, under everything in it. */
+.af-water {
+  stroke: none;
+}
+.af-water-stop-surface {
+  stop-color: var(--color-cable);
+  stop-opacity: 0.04;
+}
+.af-water-stop-seabed {
+  stop-color: var(--color-cable);
+  stop-opacity: 0.14;
+}
+
+/* Clay in section, darker with depth; the stand in the page's soft grey. */
+.af .af-clay-2 > .iso-fill {
+  fill: var(--color-soft);
+}
+.af .af-clay-1 > .iso-fill {
+  fill: color-mix(in oklab, var(--color-soft), var(--color-ink) 9%);
+}
+.af .af-clay-0 > .iso-fill {
+  fill: color-mix(in oklab, var(--color-soft), var(--color-ink) 17%);
+}
+.af .af-boottop > .iso-fill,
+.af .af-boottop > .iso-shade {
+  fill: var(--anatomy-shade-0);
+}
+.af-pocket {
+  fill: var(--anatomy-shade-0);
+  stroke: var(--anatomy-hi);
+  stroke-width: 0.5;
+}
+
+/* The furrow: its floor and far wall in shade, the berms of spoil a tone lighter. */
+.af-furrow-floor {
+  fill: var(--anatomy-shade-0);
+  stroke: none;
+}
+.af-furrow-wall {
+  fill: color-mix(in oklab, var(--color-page), var(--color-ink) 48%);
+  stroke: none;
+}
+.af-berm {
+  fill: var(--anatomy-shade-2);
+  stroke: var(--anatomy-lo);
+  stroke-width: 0.35;
+  stroke-linejoin: round;
+}
+
+/* The spoil the flukes push up: clay, a tone under the seabed's own. */
+.af .af-spoil > .iso-fill,
+.af .af-spoil > .iso-top {
+  fill: var(--anatomy-shade-3);
+}
+
+/* Stud links: card with an ink rule, the eye in shade, the stud across it. */
+.af-link {
+  fill: var(--anatomy-top);
+  stroke: var(--anatomy-hi);
+  stroke-width: 0.5;
+  stroke-linejoin: round;
+}
+.af-link-eye {
+  fill: var(--anatomy-shade-1);
+  stroke: var(--anatomy-mid);
+  stroke-width: 0.3;
+}
+.af-stud {
+  fill: none;
+  stroke: var(--anatomy-hi);
+  stroke-width: 0.55;
+  stroke-linecap: round;
+}
+
+/* The one accent: the parted cable's torn core and the tips of its splayed armour wires. */
+.af .af-cut {
+  stroke: var(--color-alarm);
+  stroke-width: 0.9;
+}
+.af .af-torn > .iso-fill,
+.af .af-torn > .iso-top,
+.af .af-torn > .iso-shade {
+  fill: var(--color-alarm);
+}
+.af .af-torn > .iso-edge {
+  stroke: var(--color-alarm);
+}
+.af-fibres circle {
+  fill: var(--color-card);
+  opacity: 1;
+}
+.af .af-surface-hatch {
+  stroke-width: 0.45;
+}
