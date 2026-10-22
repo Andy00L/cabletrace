@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { ArtPicture } from "@/components/landing/ArtPicture";
 import { EvidenceNote } from "@/components/landing/EvidenceNote";
-import { LandingFooter } from "@/components/landing/LandingFooter";
-import { LiveWatch } from "@/components/landing/LiveWatch";
+import { describeLandingRecord, LandingFooter } from "@/components/landing/LandingFooter";
+import { LandingStickyBar } from "@/components/landing/LandingStickyBar";
+import { LiveWatch, SHIPS_LAST_HOUR_PHRASE } from "@/components/landing/LiveWatch";
 import { NewestCaseNote } from "@/components/landing/NewestCaseNote";
 import { ProofNumbers, type ProofFigure } from "@/components/landing/ProofNumbers";
 import { SiteHeader } from "@/components/layout/SiteHeader";
@@ -10,6 +11,8 @@ import { CABLE_CASES } from "@/data/cases";
 import { EAGLE_S_2024 } from "@/data/cases/eagle-s-2024";
 import { REGIONS } from "@/data/regions";
 import { loadLandingLive } from "@/lib/landing/landing-live";
+import { ART_MANIFEST } from "@/components/landing/art-manifest";
+import type { CSSProperties } from "react";
 
 // The console opens on the Eagle S replay, the case every board and lookdev frame starts from.
 const CONSOLE_PATH = `/cases/${EAGLE_S_2024.slug}`;
@@ -18,6 +21,12 @@ const EVIDENCE_CUT_LABEL = "C-Lion1";
 const INK_PILL_CLASS =
   "flex h-12 items-center justify-center rounded-full bg-ink px-6 text-label text-card transition-colors duration-140 ease-standard hover:bg-ink-hover";
 const CONTENT_CLASS = "mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-20";
+// The hero block the sticky bar watches: once it has scrolled away, the bar brings its action back (LandingStickyBar).
+const HERO_BLOCK_ID = "landing-hero";
+// The furrow notes are placed in percentages of the furrow picture alone, not of the picture and its plate caption.
+const FURROW_RATIO_STYLE: CSSProperties & Record<`--${string}`, string> = {
+  "--furrow-ratio": `${ART_MANIFEST["art-2"].width} / ${ART_MANIFEST["art-2"].height}`,
+};
 
 function buildProofFigures(cablesWatched: number | null, positionsLastHour: number | null): ProofFigure[] {
   const sourceCount = CABLE_CASES.reduce((total, cableCase) => total + cableCase.sources.length, 0);
@@ -41,16 +50,20 @@ export default async function LandingPage() {
   const summary = live.recorder.ok ? live.recorder.value.summary : null;
   const figures = buildProofFigures(summary?.cablesWatched ?? null, summary?.positionsLastHour ?? null);
   const linesWatched = summary ? `${summary.cablesWatched} cables and pipelines` : "the cables and pipelines";
+  const stickyStateLine = summary ? `${summary.shipsLastHour.toLocaleString("en-US")} ${SHIPS_LAST_HOUR_PHRASE}` : null;
+  const closingRecord = describeLandingRecord({ cases: CABLE_CASES, cablesWatched: summary?.cablesWatched ?? null, regionCount: REGIONS.length });
 
   return (
-    <div className="min-h-dvh overflow-x-clip bg-paper">
+    // Every anchor target keeps clear of the sticky bar's 56 px when the page jumps to it.
+    <div className="min-h-dvh overflow-x-clip bg-paper [&_[id]]:scroll-mt-16">
+      <LandingStickyBar heroId={HERO_BLOCK_ID} stateLine={stickyStateLine} action={{ href: CONSOLE_PATH, label: "Open the console" }} />
       <main>
         {/* The gulf at anchor: the headline in its sky on the left, the live watch in its sky on the right. On a phone
             the sky holds the headline and the live watch follows the picture. */}
         <section aria-labelledby="landing-title" className="relative flex flex-col">
           <div className={`relative z-10 ${CONTENT_CLASS} lg:px-6`}>
             <SiteHeader current="home" />
-            <div className="flex max-w-[800px] flex-col gap-5 pt-8 lg:px-14 lg:pt-16">
+            <div id={HERO_BLOCK_ID} className="flex max-w-[800px] flex-col gap-5 pt-8 lg:px-14 lg:pt-16">
               <h1 id="landing-title" className="paper-halo text-title sm:text-hero">
                 Ships are crossing the world&apos;s cables right now.
               </h1>
@@ -67,11 +80,13 @@ export default async function LandingPage() {
               </div>
             </div>
           </div>
-          <div className="art-dissolve order-2 -mt-[48vw] md:-mt-[10vw] lg:-mt-[8vw]">
+          <div className="order-2 -mt-[48vw] md:-mt-[10vw] lg:-mt-[8vw]">
             <ArtPicture
               desktop="art-1"
               phone="art-1-phone"
               isPriority
+              hasPlateCaption
+              className="art-dissolve"
               alt="Engraving of a crude oil tanker at anchor in the Gulf of Finland, rocky pine shore in the foreground, a church and a lighthouse on the far coast, one vermilion buoy"
             />
           </div>
@@ -90,7 +105,10 @@ export default async function LandingPage() {
             1,280 px the water is too shallow for type, so both sit above the picture. */}
         {newestCase && evidenceCut && (
           <section aria-label="The newest case and its evidence" className="relative flex flex-col">
-            <div className={`relative z-10 ${CONTENT_CLASS} grid gap-10 md:grid-cols-2 xl:pointer-events-none xl:absolute xl:inset-0 xl:block xl:max-w-none xl:px-0`}>
+            <div
+              style={FURROW_RATIO_STYLE}
+              className={`relative z-10 ${CONTENT_CLASS} grid gap-10 md:grid-cols-2 xl:pointer-events-none xl:absolute xl:inset-x-0 xl:top-0 xl:block xl:aspect-(--furrow-ratio) xl:max-w-none xl:px-0`}
+            >
               <div className="xl:pointer-events-auto xl:absolute xl:top-[22%] xl:left-[4%] xl:w-[27%]">
                 <NewestCaseNote cableCase={newestCase} />
               </div>
@@ -98,10 +116,12 @@ export default async function LandingPage() {
                 <EvidenceNote cableCase={EAGLE_S_2024} cut={evidenceCut} />
               </div>
             </div>
-            <div className="art-dissolve-short order-2 -mt-[24vw] md:-mt-[4vw] xl:mt-0">
+            <div className="order-2 -mt-[24vw] md:-mt-[4vw] xl:mt-0">
               <ArtPicture
                 desktop="art-2"
                 phone="art-2-phone"
+                hasPlateCaption
+                className="art-dissolve-short"
                 alt="Engraving in section: a tanker on the surface, its chain running down to an anchor that ploughs a furrow across the seabed toward a cable, a vermilion mark where it frays"
               />
             </div>
@@ -116,16 +136,23 @@ export default async function LandingPage() {
               <h2 id="landing-closing-title" className="paper-halo max-w-[960px] text-title sm:text-display">
                 Every cut on file, replayed from its sources.
               </h2>
+              {closingRecord && (
+                <p className="paper-halo -mt-3 max-w-[720px] text-body text-muted tabular-nums" data-testid="landing-record">
+                  {closingRecord}
+                </p>
+              )}
               <Link href={CONSOLE_PATH} className={INK_PILL_CLASS}>
                 Open the console
               </Link>
             </div>
             <LandingFooter />
           </div>
-          <div className="art-dissolve-top order-2 -mt-[44vw] md:-mt-[14vw] lg:-mt-[13vw]">
+          <div className="order-2 -mt-[44vw] md:-mt-[14vw] lg:-mt-[13vw]">
             <ArtPicture
               desktop="art-3"
               phone="art-3-phone"
+              hasPlateCaption
+              className="art-dissolve-top"
               alt="Engraved globe seen from above the North Atlantic: Scandinavia and the Baltic, dotted sea routes, a compass rose, vermilion rings over the Gulf of Finland"
             />
           </div>

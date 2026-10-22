@@ -9,6 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 type Crop = { left: number; top: number; right: number; bottom: number };
 type ArtPiece = { name: string; crop: Crop; widths: number[] };
+type ArtPlate = { number: string; caption: string };
 
 const SOURCE_FOLDER = "ui-design/references/landing-art";
 const OUTPUT_FOLDER = "public/art";
@@ -27,6 +28,15 @@ const PIECES: ArtPiece[] = [
   { name: "art-3", crop: { left: 96, top: 0, right: 97, bottom: 86 }, widths: [960, 1600, 2400] },
   { name: "art-3-phone", crop: { left: 80, top: 0, right: 84, bottom: 104 }, widths: [600, 1200] },
 ];
+
+// The book-plate caption under each engraving on the landing (src/components/landing/ArtPicture.tsx): a plate number and
+// one line on what the picture shows, written from the pictures on 21 Oct 2026. A phone cut is the same scene cropped,
+// so it shares its piece's plate. Rewrite a caption when its piece is swapped.
+const PLATES: Record<string, ArtPlate> = {
+  "art-1": { number: "I", caption: "A tanker at anchor off a rocky shore of pines, a church and a lighthouse on the far coast, one vermilion buoy." },
+  "art-2": { number: "II", caption: "In section: a tanker's chain runs to an anchor ploughing the seabed, and the cable below frays at one vermilion mark." },
+  "art-3": { number: "III", caption: "Northern Europe on the globe, sea routes dotted in, a compass rose, vermilion rings at the mouth of the Gulf of Finland." },
+};
 
 function findMedian(values: number[]): number {
   const sorted = [...values].sort((first, second) => first - second);
@@ -81,6 +91,11 @@ export type ArtName = ${PIECES.map((piece) => `"${piece.name}"`).join(" | ")};
 export type ArtEntry = { width: number; height: number; widths: readonly number[] };
 
 export const ART_MANIFEST: Readonly<Record<ArtName, ArtEntry>> = ${JSON.stringify(manifest, null, 2)};
+
+export type ArtPlate = { number: string; caption: string };
+
+/** The plate caption under each engraving on the landing (ArtPicture.tsx); a phone cut shares its piece's plate. */
+export const ART_PLATES: Readonly<Record<Exclude<ArtName, \`\${string}-phone\`>, ArtPlate>> = ${JSON.stringify(PLATES, null, 2)};
 `;
 writeFileSync(MANIFEST_PATH, manifestSource);
 console.log(`[buildLandingArt] wrote ${MANIFEST_PATH}`);

@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { BrandMark } from "@/components/brand/BrandMark";
+import type { CableCase } from "@/lib/cases/case-file";
+import { formatUtcDate } from "@/lib/replay/format-utc";
 
 // The footer is laid into the sky above the globe engraving, like type on a print (Andy's reference, 20 Oct 2026):
-// the mark and one line, link columns, then the credits every page owes its sources and the hackathon line.
+// the mark and one line, link columns, then the credits every page owes its sources and the hackathon line. The groups
+// part by space and tone, never by a rule.
 const REPOSITORY_URL = "https://github.com/Andy00L/cabletrace";
 
 type FooterLink = { label: string; href: string; isExternal: boolean };
@@ -36,9 +39,36 @@ const FOOTER_COLUMNS: { title: string; links: FooterLink[] }[] = [
   },
 ];
 
+type LandingRecordInput = {
+  /** Every case on file, newest incident first (src/data/cases). */
+  cases: readonly CableCase[];
+  /** Lines the recorder watches, or null when it could not be read. */
+  cablesWatched: number | null;
+  regionCount: number;
+};
+
+/**
+ * The closing line's record under its headline: "10 cases on file, the newest on 30 Mar 2026. 1,204 cables and
+ * pipelines watched in 8 regions." Each sentence is dropped when its data is missing; null when both are.
+ */
+export function describeLandingRecord({ cases, cablesWatched, regionCount }: LandingRecordInput): string | null {
+  const sentences: string[] = [];
+  const newestCase = cases[0];
+  if (newestCase) {
+    const caseCount = cases.length === 1 ? "1 case" : `${cases.length.toLocaleString("en-US")} cases`;
+    const newestOn = formatUtcDate(Date.parse(newestCase.cuts[0].atUtc));
+    sentences.push(newestOn === "" ? `${caseCount} on file.` : `${caseCount} on file, the newest on ${newestOn}.`);
+  }
+  if (cablesWatched !== null && cablesWatched > 0) {
+    const regions = regionCount === 1 ? "1 region" : `${regionCount} regions`;
+    sentences.push(`${cablesWatched.toLocaleString("en-US")} cables and pipelines watched in ${regions}.`);
+  }
+  return sentences.length === 0 ? null : sentences.join(" ");
+}
+
 export function LandingFooter() {
   return (
-    <footer className="paper-halo flex flex-col gap-8" aria-label="Site">
+    <footer className="paper-halo flex flex-col gap-12" aria-label="Site">
       <div className="grid gap-8 md:grid-cols-[minmax(0,1fr)_auto]">
         <div className="flex max-w-[340px] flex-col gap-3">
           <span className="flex items-center gap-2.5 text-ink">
@@ -70,7 +100,7 @@ export function LandingFooter() {
           ))}
         </nav>
       </div>
-      <div className="flex flex-col gap-2 border-t border-ink/20 pt-4 text-caption font-normal text-muted md:flex-row md:justify-between md:gap-8">
+      <div className="flex flex-col gap-2 text-caption font-normal text-muted md:flex-row md:justify-between md:gap-8">
         <p className="max-w-[760px]">
           Ship positions: Fintraffic Digitraffic (CC BY 4.0) and aisstream.io. Depth: EMODnet Bathymetry (CC BY 4.0) and GEBCO. Land: Copernicus DEM GLO-30.
           Lines: OpenStreetMap contributors (ODbL). Art generated with Google Nano Banana.
