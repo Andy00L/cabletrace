@@ -71,13 +71,16 @@ const RIPPLE_NORMAL_MAP_URL = "/textures/sand-ripples-normal.jpg";
 const MIN_PROBED_WIDTH_DEVICE_PX = 2;
 // A close-up subject counts as hidden when the seabed is hit this much (units) before reaching it.
 const CLOSE_UP_HIDDEN_MARGIN = 0.3;
-// Wall time between two pictures of the anchor cam (ms). A GPU draws it at the window's size (openSecondPicture), so it
-// follows every frame the main view draws; a CPU renderer, whose frame already takes 0.3 to 0.5 s, refreshes it as a
-// still every 10 s.
-const SECOND_VIEW_INTERVAL_MS: Record<"gpu" | "cpu", number> = { gpu: 0, cpu: 10_000 };
+// Wall time between two pictures of the anchor cam (ms). A GPU draws it at the window's size (openSecondPicture) at most
+// every other frame of a 60 Hz display (25 ms sits between one frame, 16.7, and two, 33.3, so vsync jitter never
+// changes the count): 30 pictures a second, 40 at 120 Hz, every frame of a main view that runs at 30. With the window
+// open (and its fat lines fixed, webgpu-kit.ts), the Vessel view played at 54.7 to 55.9 fps on Windows Chrome's
+// integrated GPU drawing it every frame (p95 33.3 ms), at 56.1 to 59.2 every other frame (p95 16.8 ms;
+// docs/PERFORMANCE.md, "The anchor cam's cost"). A CPU renderer, whose frame already takes 0.3 to 0.5 s, refreshes it
+// as a still every 10 s.
+const SECOND_VIEW_INTERVAL_MS: Record<"gpu" | "cpu", number> = { gpu: 25, cpu: 10_000 };
 // On a GPU the window yields to the main view: after a frame longer than this (ms; a dropped frame at 60 Hz) it skips
-// one, unless its last picture is SECOND_VIEW_MAX_GAP_MS old (at least 20 a second). On Windows Chrome's integrated
-// GPU the Vessel view plays at 56 to 58 fps with it every frame (docs/PERFORMANCE.md, Smooth playback).
+// one, unless its last picture is SECOND_VIEW_MAX_GAP_MS old (at least 20 a second).
 const SECOND_VIEW_FRAME_BUDGET_MS = 20;
 const SECOND_VIEW_MAX_GAP_MS = 50;
 // The warm-up (warmUpBatch) runs on a replay without a new moment and without the reader's input for this long (ms),
@@ -827,6 +830,9 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     const dueSecondView = secondView && sinceSecondViewMs >= SECOND_VIEW_INTERVAL_MS[isGpuTier ? "gpu" : "cpu"] && !isSecondViewYielding ? secondView : null;
     const duePicture = dueSecondView ? readSecondPicture(dueSecondView) : null;
     if (dueSecondView && duePicture) lastSecondViewAt = now;
+    // A GPU window skipped on this frame is drawn on a later one: a calm scene (reduced motion) draws no frame unless
+    // asked, and would leave the window on an older moment than the stage.
+    if (secondView && !dueSecondView && isGpuTier) isDirty = true;
     if (dueSecondView && duePicture && !duePicture.isDrawnAfterStage) drawSecondView(dueSecondView, duePicture);
     // Any camera motion (the intro, the director easing, a drag, the follow camera) keeps the warm-up waiting.
     if (overview.camera.position.distanceToSquared(lastCameraPosition) > CAMERA_REST_KM_SQUARED || overview.controls.target.distanceToSquared(lastCameraTarget) > CAMERA_REST_KM_SQUARED) {
