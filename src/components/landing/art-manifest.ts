@@ -56,3 +56,21 @@ export const ART_MANIFEST: Readonly<Record<ArtName, ArtEntry>> = {
     ]
   }
 };
+
+export type ArtPlate = { number: string; caption: string };
+
+/** The plate caption under each engraving on the landing (ArtPicture.tsx); a phone cut shares its piece's plate. */
+export const ART_PLATES: Readonly<Record<Exclude<ArtName, `${string}-phone`>, ArtPlate>> = {
+  "art-1": {
+    "number": "I",
+    "caption": "A tanker at anchor off a rocky shore of pines, a church and a lighthouse on the far coast, one vermilion buoy."
+  },
+  "art-2": {
+    "number": "II",
+    "caption": "In section: a tanker's chain runs to an anchor ploughing the seabed, and the cable below frays at one vermilion mark."
+  },
+  "art-3": {
+    "number": "III",
+    "caption": "Northern Europe on the globe, sea routes dotted in, a compass rose, vermilion rings at the mouth of the Gulf of Finland."
+  }
+};
