@@ -7,10 +7,6 @@ import { CABLE_CASES } from "./index";
 
 // Every published case must pass its own consistency check and match the seabed file its replay loads.
 
-// Cut cables an area cannot draw because no licensable route map exists; each cut's placement says so
-// (src/data/cases/rubymar-2024.ts).
-const UNDRAWN_CUT_CABLES: Readonly<Record<string, readonly string[]>> = { "red-sea-south": ["SEACOM", "AAE-1", "EIG"] };
-
 function readSeabedFeatures(area: string) {
   const payload: unknown = JSON.parse(readFileSync(path.join(process.cwd(), "public", "seabed", `${area}-seabed.json`), "utf8"));
   return parseSeabedFeatures(payload);
@@ -21,13 +17,12 @@ describe.each(CABLE_CASES.map((cableCase) => [cableCase.slug, cableCase] as cons
     expect(findCaseProblems(cableCase)).toEqual([]);
   });
 
-  test("names only cables drawn in its seabed file, or listed as undrawn, and stays inside the block", () => {
+  test("names only cables drawn in its seabed file and stays inside the block", () => {
     const features = readSeabedFeatures(cableCase.seabedArea);
     expect(features.ok).toBe(true);
     if (!features.ok) return;
     const lineNames = new Set(features.value.lines.map((line) => line.name));
-    const undrawnNames = UNDRAWN_CUT_CABLES[cableCase.seabedArea] ?? [];
-    cableCase.cuts.forEach((cut) => expect(lineNames.has(cut.cableName) || undrawnNames.includes(cut.cableName)).toBe(true));
+    cableCase.cuts.forEach((cut) => expect(lineNames.has(cut.cableName)).toBe(true));
     const { west, east, south, north } = features.value.region;
     [...cableCase.track, ...cableCase.cuts].forEach((point) => {
       expect(point.longitude).toBeGreaterThan(west);

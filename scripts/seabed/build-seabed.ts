@@ -23,7 +23,17 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fromFile, type GeoTIFFImage } from "geotiff";
 import { measureSeabedFileVersions, SEABED_FILE_VERSIONS_PATH, writeSeabedFileVersionsModule } from "./seabed-file-versions";
-import { EE_S1_TRACED, TDM2_PLACED, TM3_DONGYIN_PLACED, TP3_PLACED, type Coordinate, type TracedLine } from "./traced-routes";
+import {
+  AAE1_RED_SEA_TRACED,
+  EE_S1_TRACED,
+  EIG_RED_SEA_TRACED,
+  SEACOM_RED_SEA_TRACED,
+  TDM2_PLACED,
+  TM3_DONGYIN_PLACED,
+  TP3_PLACED,
+  type Coordinate,
+  type TracedLine,
+} from "./traced-routes";
 
 type Region = { west: number; east: number; south: number; north: number };
 type Place = { name: string; longitude: number; latitude: number };
@@ -301,9 +311,9 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
   },
   // The southern Red Sea from the Hanish Islands to Bab-el-Mandeb, about 163 by 200 km: Mokha, Assab and Perim, the
   // waters where the Rubymar drifted and sank (Feb to Mar 2024) and the AAE-1, Seacom and EIG faults were reported.
-  // OpenStreetMap maps only FLAG Europe-Asia here; no operator or government route map of the three cut cables was
-  // found (TeleGeography's route data is not licensed for this use). GEBCO cells, one per vertex: about 451 m east
-  // to west and 463 m north to south.
+  // OpenStreetMap maps only FLAG Europe-Asia here (one vertex inside the box, so no line is drawn); the three cut
+  // cables are read off the Meta engineers' slide maps (traced-routes.ts). GEBCO cells, one per vertex: about 451 m
+  // east to west and 463 m north to south.
   "red-sea-south": {
     region: { west: 42.3, east: 43.8, south: 12.4, north: 14.2 },
     cellsPerVertex: { longitude: 1, latitude: 1 },
@@ -319,8 +329,9 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
       { name: "Perim", longitude: 43.42775, latitude: 12.65183 },
       { name: "Hanish Islands", longitude: 42.74052, latitude: 13.98912 },
     ],
-    tracedLines: [],
-    cablesCredit: OSM_CABLES_CREDIT,
+    tracedLines: [SEACOM_RED_SEA_TRACED, AAE1_RED_SEA_TRACED, EIG_RED_SEA_TRACED],
+    // The three lines share one source text, so it is credited once.
+    cablesCredit: `${OSM_CABLES_CREDIT}; ${SEACOM_RED_SEA_TRACED.source}`,
   },
 };
 
@@ -328,6 +339,9 @@ const SEABED_AREAS: Record<string, SeabedArea> = {
 const LAND_SHARE_THRESHOLD = 0.45;
 // Coastal water the depth grid calls dry still gets this depth (m) so the shoreline reads.
 const SHALLOW_WATER_METRES = -1.5;
+// A depth cell whose centre lies this close to a vertex footprint's edge (in cells) counts as inside it: floating-point
+// error is about 1e-12 cells, real offsets are whole or half cells (sampleDepth).
+const FOOTPRINT_EDGE_TOLERANCE_CELLS = 1e-6;
 // Lines keep points this far outside the region (degrees) so tubes reach the block edge.
 const CLIP_MARGIN_DEG = 0.03;
 // Douglas-Peucker tolerance for cable and pipeline lines (degrees, about 20 m).
@@ -403,12 +417,17 @@ async function readDepthGrid(downloadsDir: string, depth: DepthSource): Promise<
   }
 }
 
-/** Mean depth over the grid cells whose centres fall in the vertex footprint; NaN when none are valid. */
+/**
+ * Mean depth over the grid cells whose centres fall in the vertex footprint, edges included; NaN when none are valid.
+ * On a GEBCO block with one cell per vertex the vertices sit on cell corners, so the footprint's edges fall exactly on
+ * cell centres. Without the tolerance, rounding decided each edge on its own: about one sea vertex in five of
+ * red-sea-south got no cell at all and was written as SHALLOW_WATER_METRES, a stripe every second column.
+ */
 function sampleDepth(grid: DepthGrid, lattice: Lattice, longitude: number, latitude: number): number {
-  const firstColumn = Math.ceil((longitude - lattice.longitudeStep / 2 - grid.originLongitude) / grid.cellDeg);
-  const lastColumn = Math.floor((longitude + lattice.longitudeStep / 2 - grid.originLongitude) / grid.cellDeg);
-  const firstRow = Math.ceil((grid.originLatitude - latitude - lattice.latitudeStep / 2) / grid.cellDeg);
-  const lastRow = Math.floor((grid.originLatitude - latitude + lattice.latitudeStep / 2) / grid.cellDeg);
+  const firstColumn = Math.ceil((longitude - lattice.longitudeStep / 2 - grid.originLongitude) / grid.cellDeg - FOOTPRINT_EDGE_TOLERANCE_CELLS);
+  const lastColumn = Math.floor((longitude + lattice.longitudeStep / 2 - grid.originLongitude) / grid.cellDeg + FOOTPRINT_EDGE_TOLERANCE_CELLS);
+  const firstRow = Math.ceil((grid.originLatitude - latitude - lattice.latitudeStep / 2) / grid.cellDeg - FOOTPRINT_EDGE_TOLERANCE_CELLS);
+  const lastRow = Math.floor((grid.originLatitude - latitude + lattice.latitudeStep / 2) / grid.cellDeg + FOOTPRINT_EDGE_TOLERANCE_CELLS);
   let sum = 0;
   let count = 0;
   for (let row = Math.max(0, firstRow); row <= Math.min(grid.rows.length - 1, lastRow); row += 1) {
@@ -555,10 +574,12 @@ async function collectLines(downloadsDir: string, area: SeabedArea): Promise<Lin
       if (simplified.length >= 2) lines.push({ name, kind: isPower ? "power" : "telecom", points: simplified });
     }
   }
+  // Traced and placed lines are written vertex by vertex already, so they are not simplified again: that would drop a
+  // vertex snapped onto a published fault when it sits within the tolerance of its neighbours' line.
   for (const traced of area.tracedLines) {
     for (const run of splitIntoRuns(area.region, traced.points)) {
-      const simplified = simplifyLine(run).map(roundCoordinate);
-      if (simplified.length >= 2) lines.push({ name: traced.name, kind: traced.kind, points: simplified });
+      const rounded = run.map(roundCoordinate);
+      if (rounded.length >= 2) lines.push({ name: traced.name, kind: traced.kind, points: rounded });
     }
   }
   if (!area.pipelines) return lines;

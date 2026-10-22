@@ -266,8 +266,10 @@ and exits 2 without them. Today it exits 1: 14 of its 15 expectations hold (see 
   straight-line average between placed positions. Svalbard is the one replay built entirely from the ship's own AIS.
 - **Not every case names a culprit.** Rubymar's anchor is the cause the US National Security Council called "most
   likely", so every Rubymar event says probable. Norwegian police closed the Svalbard case as no criminal offence; the
-  replay shows the trawler's track and never says it cut the cable. Rubymar's cut positions are read off a map in
-  Meta's engineers' slides, and its cables are not drawn because no licensable route map exists.
+  replay shows the trawler's track and never says it cut the cable. Rubymar's cut positions and its three cut cables'
+  lines are read off maps in Meta's engineers' slides; beyond those maps the lines are schematic. Two of its track
+  positions stand on the probable finding itself: the ship is placed at the Seacom and EIG faults at their failure
+  times. The AAE-1 fault failed 15 minutes after Seacom's, 7.6 km away, so no drawn path passes it.
 - **The close-up is illustrated.** The anchor, chain, cable armour and torn ends at the cut are drawn to show what
   happens, labeled "illustrated"; the Measured switch shows only the surveyed seabed. Depth and land are drawn larger
   than life by a factor each area picks from its relief (20 and 10 in the Baltic, 10 and 3 in the Red Sea, 2 and 2
@@ -354,6 +356,7 @@ started from the Actions tab.
 | Water depth, Taiwan and Red Sea | GEBCO Compilation Group (2026) GEBCO 2026 Grid (doi:10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa) | public domain |
 | Land heights and coast       | Copernicus DEM GLO-30, produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA | Copernicus DEM licence, free with attribution |
 | Cables, seabed blocks and globe | OpenStreetMap contributors; EE-S1 traced off a Yle map (yle.fi/a/74-20056160); TP3 placed from Taiwan's Ministry of Digital Affairs and Coast Guard statements | ODbL 1.0; the derived files (`public/globe/cables.json`, the lines in `public/seabed/*-seabed.json`) are offered under ODbL 1.0 |
+| Cable routes, Red Sea (SEACOM, AAE-1, EIG) | Traced off the maps in Nick Harrington and Michael Cuddington (Meta), "Misinformation in the Red Sea" (LINX slides, Nov 2024); schematic beyond them | no licence published; credited |
 | Pipelines                    | EMODnet Human Activities                                                                | CC BY 4.0                     |
 | Globe land                   | Natural Earth 1:50m                                                                     | public domain                 |
 | Named seas on the globe      | Natural Earth 1:50m marine areas, drawn into `public/globe/seas.json` by `scripts/globe/build-seas.ts` | public domain                 |

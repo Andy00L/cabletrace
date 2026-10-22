@@ -7,9 +7,11 @@ import type { CableCase } from "@/lib/cases/case-file";
 // likely" and the cable protection committee "generally accepted". No investigation has published a formal one,
 // and the case says so wherever it names the ship as the cause.
 // No free AIS archive covers the Red Sea, and the abandoned ship sent none; every position is placed from a
-// statement, a satellite image or a slide map and says how in `placement`.
-// The cut cables' routes are not drawn: OpenStreetMap maps none of them here and no operator or government route
-// map with a usable licence was found, so the scene shows the cut markers without a cable line.
+// statement, a satellite image or a slide map and says how in `placement`. Two of them stand on the probable finding
+// itself: the ship is placed at the Seacom and EIG faults at their failure times, so the drawn path passes both. The
+// AAE-1 fault cannot be on any path (it failed 15 minutes after Seacom's, 7.6 km away), and its cut says so.
+// The cut cables' lines are read off the same slides' maps (scripts/seabed/traced-routes.ts): OpenStreetMap maps none
+// of them here, and the slides draw all three. Beyond the slide maps the lines are schematic.
 
 const ATTACK_CITATION = {
   sourceId: 1,
@@ -49,9 +51,12 @@ const ICPC_CITATION = {
 // How each cut is read off the slides' summary map; the ship marker there is the satellite position above.
 const SLIDE_PLACEMENT =
   "Read off the Meta engineers' LINX slide map 'Rubymar summary' (9 km scale bar, north up), in two versions of the map whose readings agree within 80 m, as an offset from the 24 Feb ship marker, which is taken at the satellite position the same slides print (13.282934 N 43.010001 E).";
-// Every cut says why its cable has no drawn line.
-const NO_ROUTE_NOTE =
-  "The cable's route is not drawn: OpenStreetMap maps none of the three cut cables here, and no operator or government route map with a usable licence was found.";
+// Every cut says where its cable's line comes from (scripts/seabed/traced-routes.ts).
+const ROUTE_NOTE =
+  "The cable's line is traced off the same slides' red route drawings (the summary map and the wider slide 29 map) from 13.38 N to 12.75 N; north and south of that it is schematic: straight legs toward its published landings, kept over water.";
+// The two track points placed at a fault stand on the probable finding, and say so.
+const AT_FAULT_PLACEMENT =
+  "Placed at the fault at the time the slides give for its optical failure, on the probable finding that Rubymar's dragging anchor cut the cable there; no source places the ship at that minute.";
 
 export const RUBYMAR_2024: CableCase = {
   slug: "rubymar-2024",
@@ -99,6 +104,24 @@ export const RUBYMAR_2024: CableCase = {
       citations: [SATELLITE_POSITION_CITATION, SATELLITE_TIME_CITATION, { sourceId: 7, quote: "Close proximity to failed cables (<5km)" }, { sourceId: 7, quote: "Dimensions are consistent" }],
     },
     {
+      atUtc: "2024-02-24T09:30:00Z",
+      longitude: 43.00571,
+      latitude: 13.32476,
+      precision: "area",
+      place: "At the Seacom fault (placed on the probable finding)",
+      placement: `${AT_FAULT_PLACEMENT} The point is the Seacom cut's, read off the slide map. From the satellite position it is 4.67 km in 2.0 hours, about 1.25 knots, against about 0.27 knots averaged from the attack position to the satellite image (66.3 km in 131.5 hours).`,
+      citations: [OTDR_CITATION, { sourceId: 7, quote: "09:30UTC Optical" }, NSC_CITATION, ICPC_CITATION],
+    },
+    {
+      atUtc: "2024-02-24T21:00:00Z",
+      longitude: 42.9619,
+      latitude: 13.33986,
+      precision: "area",
+      place: "At the EIG fault (placed on the probable finding)",
+      placement: `${AT_FAULT_PLACEMENT} The point is the EIG cut's, read off the slide map. From the Seacom fault it is 5.0 km in 11.5 hours, about 0.24 knots.`,
+      citations: [OTDR_CITATION, { sourceId: 7, quote: "21:00UTC Optical" }, NSC_CITATION, ICPC_CITATION],
+    },
+    {
       atUtc: "2024-02-26T12:00:00Z",
       longitude: 42.95811,
       latitude: 13.37522,
@@ -141,7 +164,7 @@ export const RUBYMAR_2024: CableCase = {
       longitude: 43.00571,
       latitude: 13.32476,
       precision: "area",
-      placement: `${SLIDE_PLACEMENT} The 'SEACOM Fault' marker sits 4.65 km north and 0.46 km west of it, at a bend in the cable corridor, 2.4 km from the 'General Fault Locations' point on the slides' chart (13.3241 N 42.9836 E). The time is the '09:30UTC Optical' marker the slides draw at the same bend; Seacom gave only the date. ${NO_ROUTE_NOTE}`,
+      placement: `${SLIDE_PLACEMENT} The 'SEACOM Fault' marker sits 4.65 km north and 0.46 km west of it, at a bend in the cable corridor, 2.4 km from the 'General Fault Locations' point on the slides' chart (13.3241 N 42.9836 E). The time is the '09:30UTC Optical' marker the slides draw at the same bend; Seacom gave only the date. ${ROUTE_NOTE}`,
       citations: [OTDR_CITATION, { sourceId: 7, quote: "09:30UTC Optical" }, WHICH_CABLES_CITATION, SEACOM_OUTAGE_CITATION],
     },
     {
@@ -152,7 +175,7 @@ export const RUBYMAR_2024: CableCase = {
       longitude: 42.94285,
       latitude: 13.35576,
       precision: "area",
-      placement: `${SLIDE_PLACEMENT} The 'AAE-1 Fault' marker sits 8.10 km north and 7.27 km west of it. The time is the '09:45TC Optical' marker, the north-west of the slides' two later optical markers, matched to the north-west fault by position; the slides do not name the cable at that marker. ${NO_ROUTE_NOTE}`,
+      placement: `${SLIDE_PLACEMENT} The 'AAE-1 Fault' marker sits 8.10 km north and 7.27 km west of it. The time is the '09:45TC Optical' marker, the north-west of the slides' two later optical markers, matched to the north-west fault by position; the slides do not name the cable at that marker. No drawn path can pass this fault: it failed 15 minutes after Seacom's, 7.6 km away (about 30 km/h for a ship dragging its anchor), so the replay's path passes 1.65 km from it. ${ROUTE_NOTE}`,
       citations: [OTDR_CITATION, { sourceId: 7, quote: "09:45TC Optical" }, WHICH_CABLES_CITATION],
     },
     {
@@ -163,7 +186,7 @@ export const RUBYMAR_2024: CableCase = {
       longitude: 42.9619,
       latitude: 13.33986,
       precision: "area",
-      placement: `${SLIDE_PLACEMENT} The 'EIG Fault' marker sits 6.33 km north and 5.21 km west of it, 1.5 km from UKMTO's 2 Mar position. The time is the '21:00UTC Optical' marker, south-east of the 09:45 one, matched to this fault by position; the slides do not name the cable at that marker. ${NO_ROUTE_NOTE}`,
+      placement: `${SLIDE_PLACEMENT} The 'EIG Fault' marker sits 6.33 km north and 5.21 km west of it, 1.5 km from UKMTO's 2 Mar position. The time is the '21:00UTC Optical' marker, south-east of the 09:45 one, matched to this fault by position; the slides do not name the cable at that marker. ${ROUTE_NOTE}`,
       citations: [OTDR_CITATION, { sourceId: 7, quote: "21:00UTC Optical" }, WHICH_CABLES_CITATION],
     },
   ],
