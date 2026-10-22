@@ -26,7 +26,7 @@ const TOAST_DURATION_MS = 2400;
 
 type CopyState = { kind: "idle" } | { kind: "copied" } | { kind: "failed" };
 
-/** The console's top bar: the mark, the case switcher, the place and date, the mode control, copy link, shortcuts. */
+/** The console's top bar: the mark, the Live link, the case switcher, the place and date, the mode control, copy link, shortcuts. */
 export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherItem[] }) {
   const { consoleCase, mode, setMode, openLayer } = useConsole();
   const [copyState, setCopyState] = useState<CopyState>({ kind: "idle" });
@@ -69,6 +69,14 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
         <BrandMark size={28} />
         <span className="hidden text-card-title xl:inline">CableTrace</span>
       </Link>
+      {/* The live globe one press from a replay, as from the site's bar (Andy, 22 Oct 2026); the case list is the
+          switcher's "All cases". Under 640 px the case's name needs the room, and Live moves into the switcher.
+          Not prefetched, as in SiteHeader: the globe's code loads when the link is followed. */}
+      <nav aria-label="Sections" className="hidden flex-none sm:flex">
+        <Link href="/live" prefetch={false} className="flex h-10 items-center rounded-full px-3.5 text-label text-muted transition-colors duration-140 ease-standard hover:text-ink" data-testid="console-live-link">
+          Live
+        </Link>
+      </nav>
       <Popover.Root
         onOpenChange={(isOpen) => {
           if (isOpen) loadSketches();
@@ -109,10 +117,16 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
                 </Link>
               );
             })}
-            <Link href="/cases" className="flex min-h-11 items-center gap-1 rounded-field px-3 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page">
-              All cases
-              <Icon name="chevronRight" />
-            </Link>
+            <div className="flex items-center justify-between">
+              <Link href="/cases" className="flex min-h-11 items-center gap-1 rounded-field px-3 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page">
+                All cases
+                <Icon name="chevronRight" />
+              </Link>
+              <Link href="/live" prefetch={false} className="flex min-h-11 items-center gap-1 rounded-field px-3 text-label text-ink transition-colors duration-140 ease-standard hover:bg-page sm:hidden">
+                Live globe
+                <Icon name="chevronRight" />
+              </Link>
+            </div>
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>

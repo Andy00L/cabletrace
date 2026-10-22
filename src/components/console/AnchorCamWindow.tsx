@@ -33,8 +33,9 @@ type AnchorCamWindowProps = {
   port: DirectorViewerPort;
   /** `phone`: folded to a pill until pressed, then as wide as the stage. */
   presentation: "desktop" | "phone";
-  /** The grown window's width (CSS px): up to ANCHOR_CAM_EXPANDED_WIDTH_PX, less on a stage too short for it. */
-  expandedWidthPx: number;
+  /** The grown window's width (CSS px): up to ANCHOR_CAM_EXPANDED_WIDTH_PX, less on a stage too short for it; null
+   * when the stage leaves no room to grow it, so it shows no expand button. */
+  expandedWidthPx: number | null;
 };
 
 function WindowButton({ icon, label, isPressed, onClick, testId }: { icon: IconName; label: string; isPressed: boolean; onClick: () => void; testId: string }) {
@@ -103,7 +104,7 @@ export function AnchorCamWindow({ driver, port, presentation, expandedWidthPx }:
     );
   }
 
-  const width = presentation === "phone" ? undefined : isExpanded ? expandedWidthPx : ANCHOR_CAM_WIDTH_PX;
+  const width = presentation === "phone" ? undefined : isExpanded && expandedWidthPx !== null ? expandedWidthPx : ANCHOR_CAM_WIDTH_PX;
   return (
     <section
       aria-label="Anchor cam"
@@ -128,7 +129,9 @@ export function AnchorCamWindow({ driver, port, presentation, expandedWidthPx }:
           {presentation === "phone" ? (
             <WindowButton icon="collapse" label="Fold the anchor cam" isPressed={false} onClick={() => setIsFolded(true)} testId="anchor-cam-fold" />
           ) : (
-            <WindowButton icon={isExpanded ? "collapse" : "expand"} label={isExpanded ? "Shrink the anchor cam" : "Expand the anchor cam"} isPressed={isExpanded} onClick={() => setAnchorCamExpanded(!isExpanded)} testId="anchor-cam-expand" />
+            expandedWidthPx !== null && (
+              <WindowButton icon={isExpanded ? "collapse" : "expand"} label={isExpanded ? "Shrink the anchor cam" : "Expand the anchor cam"} isPressed={isExpanded} onClick={() => setAnchorCamExpanded(!isExpanded)} testId="anchor-cam-expand" />
+            )
           )}
         </div>
       </div>
