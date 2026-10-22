@@ -21,5 +21,5 @@ export const SEABED_FILE_VERSIONS: Readonly<Record<string, string>> = {
   "taiwan-keelung-terrain.bin": "29774608ee88",
   "taiwan-penghu-seabed.json": "5005180e6670",
   "taiwan-penghu-terrain.bin": "beff853e6579",
-  "terrain-worker.js": "2a218e2e5159",
+  "terrain-worker.js": "f66aa1ce7af5",
 };

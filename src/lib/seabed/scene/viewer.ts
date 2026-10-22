@@ -14,7 +14,8 @@ import { hideOverlappingLabels, type LabelRoom } from "@/lib/seabed/scene/labels
 import { buildCloseUp, type CloseUpScene } from "@/lib/seabed/scene/close-up";
 import { findNearestCable, findNearestPass, sampleTrack, type CableRun, type TrackSample } from "@/lib/seabed/scene/director/hover-readout";
 import type { CameraPose, DirectorSubjects, DirectorViewerPort, SecondView, ViewerFrame } from "@/lib/seabed/scene/director/viewer-port";
-import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneSubject, type SceneTarget } from "@/lib/seabed/scene/overview";
+import { chooseFollowBearing, easeFollowBearing, placeFollowOffset, PREFERRED_BEARING, type FollowBearing, type FollowOffset } from "@/lib/seabed/scene/follow-sight";
+import { buildOverview, OVERVIEW_FOV_DEGREES, type OverviewViewName, type SceneSubject, type SceneTarget, type VesselFrame } from "@/lib/seabed/scene/overview";
 import { chooseScenePalette } from "@/lib/seabed/scene/scene-look";
 import { createSoftDotTexture } from "@/lib/seabed/scene/textures";
 import { SKY_HDRI_URL } from "@/lib/seabed/scene/water-surface";
@@ -34,6 +35,8 @@ const COMPACT_LABEL_WIDTH_PX = 640;
 const RADIANS_PER_DEGREE = Math.PI / 180;
 // The follow camera sits off the vessel's starboard quarter, close enough to read the deck, and eases toward it.
 // Offsets are in drawn ship lengths (tuned on Eagle S, 228.6 m drawn 1.37 km long), so every hull fills the frame alike.
+// Where land stands between that spot and the deck it swings round the ship to the nearest clear bearing instead
+// (follow-sight.ts): Hai Hong Gong 66, held in a bay of Dongyin, had the island's 0.7 km drawn slope across its bow.
 const FOLLOW_BEHIND_LENGTHS = 1.06;
 const FOLLOW_SIDE_LENGTHS = 1.13;
 const FOLLOW_ABOVE_LENGTHS = 0.45;
@@ -44,6 +47,15 @@ const FOLLOW_AIM_ABOVE_LENGTHS = 0.036;
 // this many times farther off, this many ship lengths higher, and aims this share of the way to the anchor.
 const FOLLOW_DRAG_FRAMING = { reach: 1.9, riseLengths: 0.2, aimShare: 0.44 } as const;
 const FOLLOW_EASE_PER_SECOND = 3.5;
+// The follow camera's sight line to the deck (follow-sight.ts), in drawn ship lengths: it must pass this far over the
+// land; a bearing nearer the usual spot wins the camera back only when it clears by this much more; a raise is this
+// tall; the stretch next to the hull (where it lies against the shore) is not tested. Tuned on Hai Hong Gong 66: on
+// the GPU tiers' full grid the usual spot's sight line cuts 89 m into Dongyin's drawn slope, and a turn of 30 degrees
+// clears it by 64 m (the software tier's half grid draws the slope lower, and its usual spot stays clear).
+const FOLLOW_SIGHT_LENGTHS = { clearance: 0.1, hysteresis: 0.1, liftStep: 0.25, nearDeckSkip: 0.6 } as const;
+const FOLLOW_SIGHT_MAX_LIFT_STEPS = 4;
+const FOLLOW_SIGHT_AZIMUTH_STEP_RADIANS = 15 * RADIANS_PER_DEGREE;
+const FOLLOW_SIGHT_SAMPLE_COUNT = 32;
 // The follow camera counts as arrived within this distance (km), and stops asking for frames.
 const FOLLOW_SETTLED_KM = 0.002;
 // A press that ends within this distance (CSS px) and time of where it started is a click; anything longer orbits.
@@ -673,6 +685,47 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
   let drawnFrameCount = 0;
   const followPosition = new THREE.Vector3();
   const followTarget = new THREE.Vector3();
+  // The follow camera's bearing (follow-sight.ts): chosen again only when the ship, its heading or the framing moved
+  // (followSightInputs holds what the last choice saw), and eased toward on the follow easing.
+  let chosenFollowBearing: FollowBearing = PREFERRED_BEARING;
+  let easedFollowBearing: FollowBearing = PREFERRED_BEARING;
+  const followSightInputs = { x: Number.NaN, z: Number.NaN, headingX: Number.NaN, headingZ: Number.NaN, behindKm: Number.NaN, sideKm: Number.NaN, aboveKm: Number.NaN };
+
+  /** The bearing the follow camera heads for: the held one while nothing moved, else chosen again (follow-sight.ts). */
+  function readFollowBearing(vesselFrame: VesselFrame, offset: FollowOffset): FollowBearing {
+    const { position, heading, drawnLengthKm } = vesselFrame;
+    const inputs = followSightInputs;
+    const hasMoved =
+      inputs.x !== position.x ||
+      inputs.z !== position.z ||
+      inputs.headingX !== heading.x ||
+      inputs.headingZ !== heading.z ||
+      inputs.behindKm !== offset.behindKm ||
+      inputs.sideKm !== offset.sideKm ||
+      inputs.aboveKm !== offset.aboveKm;
+    if (!hasMoved) return chosenFollowBearing;
+    Object.assign(inputs, { x: position.x, z: position.z, headingX: heading.x, headingZ: heading.z, ...offset });
+    const choice = chooseFollowBearing({
+      shipPosition: position,
+      deckHeightKm: FOLLOW_AIM_ABOVE_LENGTHS * drawnLengthKm,
+      heading,
+      offset,
+      heldBearing: chosenFollowBearing,
+      sampleTerrainY: overview.sampleDrawnHeight,
+      tuning: {
+        clearanceKm: FOLLOW_SIGHT_LENGTHS.clearance * drawnLengthKm,
+        hysteresisKm: FOLLOW_SIGHT_LENGTHS.hysteresis * drawnLengthKm,
+        azimuthStepRadians: FOLLOW_SIGHT_AZIMUTH_STEP_RADIANS,
+        liftStepKm: FOLLOW_SIGHT_LENGTHS.liftStep * drawnLengthKm,
+        maxLiftSteps: FOLLOW_SIGHT_MAX_LIFT_STEPS,
+        sampleCount: FOLLOW_SIGHT_SAMPLE_COUNT,
+        nearDeckSkipKm: FOLLOW_SIGHT_LENGTHS.nearDeckSkip * drawnLengthKm,
+      },
+    });
+    // Nothing clear even raised: the camera keeps its usual spot rather than a bearing that is no better.
+    chosenFollowBearing = choice.kind === "clear" ? choice.bearing : PREFERRED_BEARING;
+    return chosenFollowBearing;
+  }
 
   // Test hooks on the canvas: what the last frame showed and how many frames were drawn, so a screenshot tool
   // (scripts/lookdev) can wait until the picture it asked for has been drawn and has stopped changing.
@@ -730,18 +783,25 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
       // anchor on the seabed share the frame.
       const anchorPosition = overview.readAnchorPosition();
       const reach = anchorPosition ? FOLLOW_DRAG_FRAMING.reach : 1;
-      const behindKm = FOLLOW_BEHIND_LENGTHS * drawnLengthKm * reach;
-      const sideKm = FOLLOW_SIDE_LENGTHS * drawnLengthKm * reach;
-      const aboveKm = (FOLLOW_ABOVE_LENGTHS + (anchorPosition ? FOLLOW_DRAG_FRAMING.riseLengths : 0)) * drawnLengthKm;
-      followPosition.set(position.x - heading.x * behindKm - heading.z * sideKm, position.y + aboveKm, position.z - heading.z * behindKm + heading.x * sideKm);
+      const offset: FollowOffset = {
+        behindKm: FOLLOW_BEHIND_LENGTHS * drawnLengthKm * reach,
+        sideKm: FOLLOW_SIDE_LENGTHS * drawnLengthKm * reach,
+        aboveKm: (FOLLOW_ABOVE_LENGTHS + (anchorPosition ? FOLLOW_DRAG_FRAMING.riseLengths : 0)) * drawnLengthKm,
+      };
+      const ease = isCalm ? 1 : 1 - Math.exp(-elapsedSeconds * FOLLOW_EASE_PER_SECOND);
+      // A swing round the ship turns the bearing on the follow easing, so the camera travels round the hull, not
+      // through it; at the usual bearing the offset is exactly the starboard quarter's.
+      const targetBearing = readFollowBearing(vesselFrame, offset);
+      easedFollowBearing = easeFollowBearing(easedFollowBearing, targetBearing, ease);
+      const placed = placeFollowOffset(heading, offset, easedFollowBearing);
+      followPosition.set(position.x + placed.x, position.y + placed.y, position.z + placed.z);
       const aimAheadKm = FOLLOW_AIM_AHEAD_LENGTHS * drawnLengthKm;
       followTarget.set(position.x + heading.x * aimAheadKm, position.y + FOLLOW_AIM_ABOVE_LENGTHS * drawnLengthKm, position.z + heading.z * aimAheadKm);
       if (anchorPosition) followTarget.lerp(anchorPosition, FOLLOW_DRAG_FRAMING.aimShare);
-      const ease = isCalm ? 1 : 1 - Math.exp(-elapsedSeconds * FOLLOW_EASE_PER_SECOND);
       overview.camera.position.lerp(followPosition, ease);
       overview.controls.target.lerp(followTarget, ease);
       overview.camera.lookAt(overview.controls.target);
-      isCameraEasing = overview.camera.position.distanceTo(followPosition) > FOLLOW_SETTLED_KM;
+      isCameraEasing = overview.camera.position.distanceTo(followPosition) > FOLLOW_SETTLED_KM || easedFollowBearing !== targetBearing;
     } else if (cameraMove) {
       const amount = clampValue((now - cameraMove.startedAt) / cameraMove.durationMs, 0, 1);
       const eased = easeOutCubic(amount);

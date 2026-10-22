@@ -170,6 +170,7 @@ baselines were rewritten for that choice on 20 Oct 2026, 27 per tier, 81 in all:
 | `eagle-s-2024-overview-1026`, `eagle-s-2024-vessel-1040`, `eagle-s-2024-vessel-1150` | New shots from the ship branch (the approach, the drag, the ship leaving), first baselines |
 | WebGPU: nine overviews and `eagle-s-2024-after-drag`, rewritten again the same day | They had been taken before the refinement appeared. The refinement counted as a pending asset only once its compile started, two frames after the first, so a capture could settle on the first frame and miss the vessel, the wakes and the water. It now counts from the first frame. Against the hardware frames of the same run the new WebGPU frames differ by 0.21 to 1.87% of pixels, the old ones by 2.0 to 14.3% (Hong Tai 58 the most: the old frame had no ship) |
 | Software: `eagle-s-2024-top`, `newnew-polar-bear-2023-overview`, rewritten 21 Oct 2026 with Andy's approval | The map's tubes became polyline tubes (PR 63): their edges rasterise a little differently on SwiftShader, 0.56% and 0.65% of pixels along the tubes. The hardware and WebGPU frames did not move |
+| Software, hardware and WebGPU: the overview and vessel frames of `hai-hong-gong-66-2026`, `hong-tai-58-2025` and `minlianyu-60138-2025` (18 files), rewritten 21 Oct 2026 with Andy's approval for the Taiwan Strait cases | Darker shallow water in the Taiwan region (`scene-look.ts`, `shallowDarkening` 0.1), and Hai Hong Gong 66's follow camera turned 30 degrees off Dongyin (`follow-sight.ts`). Minlianyu 60138 lies off Dongyin too and draws in the same palette, so its frames moved with the water. Against the old baselines: 13.8 to 69.3% of pixels differ on the overviews, 20 to 92% on the vessel views. No frame of another case moved. WebGPU: the same six frames, rewritten the same night (13.7 to 68.5% on the overviews, 28 to 92% on the vessel views against the old baselines); no other WebGPU frame moved |
 
 A change that moves them needs his approval again before `--update` (plan: ambition pass, 4.4). The harness never
 grades its own renders.
@@ -345,6 +346,36 @@ runs.
 | Casing against the ground, lowest frame | 3.44:1 | 3.02:1 | 2.92:1 |
 | Scrub to frame, median | 15 ms | 12.5 ms | 16.5 ms |
 | Page load to settled frame, median (the refinement included) | 5,285 ms | 4,612 ms | 7,272 ms |
+
+**Taiwan shallow water and the follow camera's sight line (21 Oct 2026, every tier).** Hong Tai 58's
+casing failed on WebGPU because look C's shallow stops are light: its cable runs over 15 to 25 m of water, drawn
+`#7D9CA9` around the casing. The Taiwan region's ramp now takes 0.1 of OKLCH lightness off its 5 m stop, fading to
+nothing at 100 m (lightness 0.62 to 0.49, from 0.72 to 0.49; same hues); the Baltic's ramp, and so every other case,
+is unchanged. A first try at 0.06 brought the hardware tier only to 3.32:1. Hai Hong Gong 66's Vessel view had its
+follow camera behind the island's drawn slope; the camera now tests its sight line to the deck and turns to the
+nearest clear bearing (`src/lib/seabed/scene/follow-sight.ts`, docs/PERFORMANCE.md). Before rewriting, both tiers ran
+against the old baselines: only the six Taiwan frames moved; Svalbard's software overview read 3.23% once and 0.25%
+(its usual) on three other runs, a capture that did not repeat. WebGPU, against its old baselines: only the six
+Taiwan frames moved, and every colour, seabed and casing check passed (the column below). After rewriting, software
+and hardware exit 0, 27 of 27 frames:
+
+| Check | Software (27 frames) | Hardware (27 frames) | WebGPU (27 frames) |
+| --- | --- | --- | --- |
+| `cable` exact | 40 of 40 | 79 of 79 | 79 of 79 |
+| `pipeline` exact | 48 of 48 | 119 of 121 | 119 of 121 |
+| `alarm` exact | 261 of 261 | 256 of 259 | 256 of 259 |
+| `suspect` exact | 66 of 67 | 66 of 67 | 66 of 67 |
+| Seabed within 4 of its token | 1,773 of 1,782, worst frame 94.4% | 7,187 of 7,193, worst frame 98.6% | 7,111 of 7,128, worst frame 97.9% |
+| `hong-tai-58-2025-overview` casing (target 3.3:1) | no cable probe 2 device px wide at this tier's pixel ratio | **3.53:1** on `#6D8E95` (3.02:1 before) | **3.44:1** on `#6E9098` (2.92:1 before) |
+| Other Taiwan overviews' casings | 4.41 to 4.61:1 | 4.51 to 4.81:1 | 4.56 to 4.75:1 |
+| Casing against the ground, lowest frame | 3.44:1 | 3.49:1 | 3.44:1 |
+
+After the WebGPU rewrite, two full runs matched all 27 pictures to their baselines (0.00 to 0.27% differ) but exited
+1: the bare-canvas run's probes missed on frames whose pictures matched. `minlianyu-60138-2025-overview` found its
+cable probes on dark label pixels (`#1C282B`, 0 of 7) in both runs, and `rubymar-2024-overview`, a case this change
+does not touch, lost its alarm and seabed probes in the second. Run alone, Minlianyu passed twice (7 of 7, 4.75:1) and
+Rubymar once (28 of 28, 223 of 223 seabed). The probe capture, not the frame, is what fails there (How the harness
+drives it, above).
 
 **Against `main` (dfb8b44), SwiftShader, three alternating rounds each** (`/cases/eagle-s-2024`, all JavaScript the page
 loads, compressed; a one-minute scrub to the next drawn frame, median of 12): JavaScript 408.4 KB against 398.6 KB;

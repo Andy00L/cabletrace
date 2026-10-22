@@ -209,6 +209,11 @@ export type OverviewScene = {
   /** The vessel's last drawn frame, or null while it is not on the map yet. */
   readVesselFrame: () => VesselFrame | null;
   /**
+   * The drawn terrain's height (scene km, at the area's exaggeration) at a point, negative infinity outside the block
+   * where nothing is drawn: the follow camera tests its sight line to the ship against it (follow-sight.ts).
+   */
+  sampleDrawnHeight: (sceneX: number, sceneZ: number) => number;
+  /**
    * Where a target sits in the scene and the label naming it now, or null while it is not drawn (the vessel before
    * its first position).
    */
@@ -1457,6 +1462,7 @@ export function buildOverview(options: OverviewOptions): OverviewScene {
     cableDirection,
     primaryCutChain: primaryCutChain?.ok ? primaryCutChain.value : null,
     readVesselFrame: () => vesselFrame,
+    sampleDrawnHeight: (sceneX, sceneZ) => (Math.abs(sceneX) > projection.widthKm / 2 || Math.abs(sceneZ) > projection.depthKm / 2 ? Number.NEGATIVE_INFINITY : sampleSeabedHeight(sceneX, sceneZ)),
     locateTarget,
     readPickables,
     setCompactLabels,
