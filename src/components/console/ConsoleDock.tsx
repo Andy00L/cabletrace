@@ -18,18 +18,20 @@ const CHART_UNITS_WIDE = 1000;
 const CHART_UNITS_TALL = 64;
 const CHART_PADDING_UNITS = 4;
 
-// The dock's ASCII night sea (docs/UI_DESIGN_SYSTEM.md, ASCII layer and Console, Dock and status): the sea under the
-// Albany in Dudley's night painting, as fractions of the picture (left, top, width, height), about as wide for its
-// height as the dock. Cells of 6 px on the dense ramp, each glyph 45% of the way to slate, so the sea stays a texture
-// under the dock's text (measured in the Console section of the design doc).
+// The dock's night sea (docs/UI_DESIGN_SYSTEM.md, ASCII layer and Console, Dock and status): the sea under the Albany
+// in Dudley's night painting, as fractions of the picture (left, top, width, height), about as wide for its height as
+// the dock, drawn in the hatch style Andy picked for the dock (engraved horizontal strokes on 4 px lines, each stroke
+// as thick as its patch is bright, held still). Every stroke goes 65% of the way to slate: strokes cover about half
+// the band, three times what glyphs cover, and at the glyphs' 45% the brightest stood at 3.1:1 on slate, louder than
+// the texture it is meant to be (measured in the Console section of the design doc).
 const DOCK_SEA_PICTURE = "/landing/archive/albany-at-night-1200.webp";
 const DOCK_SEA_REGION = [0, 0.74, 1, 0.26] as const;
-const DOCK_SEA_CELL_PX = 6;
-const DOCK_SEA_TONE_SHARE = 0.45;
+const DOCK_SEA_CELL_PX = 4;
+const DOCK_SEA_TONE_SHARE = 0.65;
 // Every line of text in the dock carries a slate halo, as the scene's labels carry a vellum one (map-label-halo): the
-// glyphs right around a letter fall back to slate. Over bare glyphs mist text would drop to 3.5:1 at the 95th
-// percentile; with the halo the ground behind it stays near slate (measured in the Console section of the design
-// doc). It inherits; the AIS strip's vellum card over the timeline turns it off.
+// strokes right around a letter fall back to slate, so the dock's small mist text keeps close to its 6.0:1 on slate
+// (measured in the Console section of the design doc). It inherits; the AIS strip's vellum card over the timeline
+// turns it off.
 const SLATE_HALO_CLASS = "[text-shadow:0_0_2px_var(--color-slate),0_0_4px_var(--color-slate),0_0_4px_var(--color-slate),0_0_8px_var(--color-slate)]";
 
 type ChartKind = "speed" | "distance" | "depth";
@@ -251,8 +253,8 @@ function TimelineWithSignal() {
 
 /**
  * The dock under the stage, a slate band (the night sea, Andy's style board of 22 Oct 2026): transport and timeline,
- * and on wide screens the three charts, over a faint ASCII redraw of the painting's sea. The glyph canvas draws once
- * per size change and shimmers on a 140 ms timer while on screen, never per frame (AsciiPicture). It is not clipped by
+ * and on wide screens the three charts, over a faint engraved redraw of the painting's sea. The canvas draws once per
+ * size change and holds still (hatch never shimmers), so it costs nothing per frame (AsciiPicture). It is not clipped by
  * the section itself, so the AIS strip can float out over the stage; its own wrapper clips it to the corners, and the
  * content rows are positioned so they paint over it.
  */
@@ -261,7 +263,7 @@ export function ConsoleDock({ showCharts }: { showCharts: boolean }) {
   return (
     <section aria-label="Replay controls" className={`relative flex flex-none flex-col gap-3.5 rounded-card bg-slate px-5 pt-4 pb-3.5 text-page shadow-card ${SLATE_HALO_CLASS}`} data-console-dock>
       <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-card" aria-hidden="true">
-        <AsciiPicture src={DOCK_SEA_PICTURE} region={DOCK_SEA_REGION} cellPx={DOCK_SEA_CELL_PX} ramp="dense" tone="slate" toneShare={DOCK_SEA_TONE_SHARE} isShimmering className="size-full" />
+        <AsciiPicture src={DOCK_SEA_PICTURE} region={DOCK_SEA_REGION} cellPx={DOCK_SEA_CELL_PX} style="hatch" tone="slate" toneShare={DOCK_SEA_TONE_SHARE} className="size-full" />
       </div>
       <div className="relative flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-6">
         <ReplayTransport input={input} clock={clock} localTime={consoleCase.localTime} />
