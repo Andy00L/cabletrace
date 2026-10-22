@@ -81,7 +81,7 @@ export function createLandTexture(polygons: LandPolygons, { box, width, height }
       land.closePath();
     }
   }
-  context.fillStyle = WEBGL_COLORS.land;
+  context.fillStyle = WEBGL_COLORS.page;
   context.fill(land, "evenodd");
   context.strokeStyle = SCENE_COLORS.seabedContour;
   context.lineWidth = COAST_WIDTH_PX * (width / 4096);
