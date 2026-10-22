@@ -150,7 +150,7 @@ Approved by Andy on the style board of 22 Oct 2026, after ascii-magic.com: Dudle
 
 - **Fade.** The last rows thin out on a 4 x 4 Bayer pattern and pale toward the ground, so a band ends in the page without a gradient.
 - **Motion.** A character style on screen may shimmer: 1.2% of its cells step one place on the ramp (a digit flips, a braille dot toggles) and back every 140 ms. Shapes hold still. Nothing moves under reduced motion or off screen.
-- **Cost.** One canvas draw per size change (a 1,440 by 200 px band is about 4,000 glyphs); the pictures are the 1,200 px files the page already serves.
+- **Cost.** One canvas draw per size change, once the box has held its size for 200 ms (a 1,440 by 200 px band is about 4,000 glyphs); the pictures are the 1,200 px files the page already serves. The canvas draws in software (`willReadFrequently`), so it never competes with the 3D view for the GPU.
 
 **Flip Text** (`src/components/ui/FlipText.tsx`, after ObsidianUI, MIT): a heading's letters turn once around their x axis and rise 8 px under the pointer, 400 ms `ease-enter`, CSS only. **Discover Button** (`src/components/ui/DiscoverButton.tsx`, after ObsidianUI, MIT): the main call to action, a pill whose arrow circle sweeps its fill across the label in 480 ms (a clip-path), `ink` on light and `dusk` on slate.
 

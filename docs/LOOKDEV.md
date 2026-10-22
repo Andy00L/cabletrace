@@ -242,6 +242,12 @@ from WSL, so Playwright cannot drive it. `scripts/lookdev/webgpu-capture.ts` dri
   ResizeObserver callback, after the animation frames of the frame the window grew in): a frame drawn in between
   placed the probes for the old 1,390 x 450 canvas, and on 21 Oct 2026 every WebGPU frame that judges colours failed
   them, on main as on the branch, while the pictures matched their baselines.
+- Chrome shoots soon after that resize, without waiting for the page. Until 22 Oct 2026 the viewer drew its frame at
+  the new size on the next animation frame, so a busy main thread (the console dock's ASCII canvas redrawing on the
+  same resize) let Chrome shoot the old 1,390 x 450 frame stretched to 1,408 x 602: 2 frames in 8 on one run in two.
+  On the GPU tiers the viewer now draws that frame inside its ResizeObserver callback, before the browser paints
+  (`redrawAfterResize`; the software tier keeps the next frame, as a CPU frame is too slow to hold layout for), and the ASCII canvas redraws only once its box has held its size for 200 ms: 0 such frames
+  in 4 runs of the 8 Eagle S shots.
 - The proxy marks every page it rewrites `no-store`. The profile keeps Chrome's HTTP cache between runs, and the case
   page came back from it in the next run of the same shot: the bare-canvas run ran the look run's agent, so the labels
   stayed over the drag track's probes (0 of 21 exact on Minlianyu 60138's overview, 21 of 21 once fixed). The bare

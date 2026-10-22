@@ -47,6 +47,10 @@ const HATCH_MIN_THICKNESS_PX = 0.5;
 // on the next tick (about 7 changes a second; slow enough to read as the sea breathing, not as noise).
 const SHIMMER_INTERVAL_MS = 140;
 const SHIMMER_SHARE = 0.012;
+// A resize redraws once the box has held its size this long (ms): a window drag redraws once, not on every step, and
+// the redraw never lands in the frame where the 3D view redraws at its new size (a WebGPU lookdev capture shot the
+// stage's old frame on 22 Oct 2026 while the dock's canvas was redrawing).
+const RESIZE_SETTLE_MS = 200;
 
 function readToneRgb(element: HTMLElement, tone: AsciiTone): Rgb | null {
   return parseHexColour(getComputedStyle(element).getPropertyValue(`--color-${tone}`).trim());
@@ -71,7 +75,9 @@ export function AsciiPicture({ src, region = [0, 0, 1, 1], style = "glyph", cell
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const context = canvas.getContext("2d");
+    // Drawn in software (willReadFrequently): a few thousand small marks need no GPU, and a GPU-backed 2D canvas
+    // competes with the WebGPU globe for the same device, which made the globe drop frames beside it.
+    const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) return;
     const image = new Image();
     image.decoding = "async";
@@ -81,6 +87,9 @@ export function AsciiPicture({ src, region = [0, 0, 1, 1], style = "glyph", cell
     const lineHeight = isCharacterStyle ? cellPx * CHARACTER_LINE_HEIGHT_CELLS : cellPx;
     let backgroundColour: string | null = null;
     let shimmerTimer = 0;
+    let resizeTimer = 0;
+    let drawnWidth = 0;
+    let drawnHeight = 0;
     let shiftedCellIndexes: number[] = [];
     let isOnScreen = false;
     const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -115,6 +124,9 @@ export function AsciiPicture({ src, region = [0, 0, 1, 1], style = "glyph", cell
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width === 0 || height === 0 || !image.complete || image.naturalWidth === 0) return;
+      if (width === drawnWidth && height === drawnHeight) return;
+      drawnWidth = width;
+      drawnHeight = height;
       const pixelRatio = Math.min(MAX_PIXEL_RATIO, window.devicePixelRatio || 1);
       canvas.width = Math.round(width * pixelRatio);
       canvas.height = Math.round(height * pixelRatio);
@@ -125,7 +137,7 @@ export function AsciiPicture({ src, region = [0, 0, 1, 1], style = "glyph", cell
       const sampler = document.createElement("canvas");
       sampler.width = columns * across;
       sampler.height = rows * down;
-      const samplerContext = sampler.getContext("2d");
+      const samplerContext = sampler.getContext("2d", { willReadFrequently: true });
       if (!samplerContext) return;
       samplerContext.imageSmoothingQuality = "high";
       samplerContext.drawImage(image, regionLeft * image.naturalWidth, regionTop * image.naturalHeight, regionWidth * image.naturalWidth, regionHeight * image.naturalHeight, 0, 0, sampler.width, sampler.height);
@@ -169,7 +181,10 @@ export function AsciiPicture({ src, region = [0, 0, 1, 1], style = "glyph", cell
     image.onload = draw;
     image.onerror = () => console.error(`[AsciiPicture] could not load ${src}`);
     image.src = src;
-    const resizeObserver = new ResizeObserver(draw);
+    const resizeObserver = new ResizeObserver(() => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(draw, RESIZE_SETTLE_MS);
+    });
     resizeObserver.observe(canvas);
     const visibilityObserver = new IntersectionObserver((entries) => {
       isOnScreen = entries.some((entry) => entry.isIntersecting);
@@ -179,6 +194,7 @@ export function AsciiPicture({ src, region = [0, 0, 1, 1], style = "glyph", cell
     reducedMotionQuery.addEventListener("change", updateShimmer);
     return () => {
       window.clearInterval(shimmerTimer);
+      window.clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       visibilityObserver.disconnect();
       reducedMotionQuery.removeEventListener("change", updateShimmer);
