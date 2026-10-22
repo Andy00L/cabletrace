@@ -165,8 +165,9 @@ body {
 @keyframes landing-shutter {
   from { clip-path: inset(0 0 100% 0); }
 }
+/* The hero's painting settles from closer than the footage (--settle-from), since text sits over it. */
 @keyframes landing-settle {
-  from { transform: scale(1.12); }
+  from { transform: scale(var(--settle-from, 1.12)); }
 }
 @utility landing-shutter {
   animation: landing-shutter 1100ms cubic-bezier(0.76, 0, 0.24, 1) both;

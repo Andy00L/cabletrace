@@ -54,7 +54,7 @@ export function AnchorStory({ statements, figure, caption, contentClassName }: A
         How a dragged anchor cuts a cable
       </h2>
       {/* Held: the figure, and below 1,024 px the active statement under it, on the page's ground. */}
-      <div className="sticky top-14 z-10 -mx-4 flex flex-col gap-3 bg-page px-4 pt-2 pb-4 sm:-mx-6 sm:px-6 lg:top-[14vh] lg:col-span-6 lg:col-start-7 lg:row-span-5 lg:row-start-1 lg:mx-0 lg:block lg:self-start lg:p-0">
+      <div className="sticky top-14 z-10 -mx-4 flex flex-col gap-3 bg-paper px-4 pt-2 pb-4 sm:-mx-6 sm:px-6 lg:top-[14vh] lg:col-span-6 lg:col-start-7 lg:row-span-5 lg:row-start-1 lg:mx-0 lg:block lg:self-start lg:p-0">
         <div className="h-[50svh] overflow-hidden lg:h-[560px] lg:overflow-visible">
           <AnchorFigureStage stage={activeStage}>{figure}</AnchorFigureStage>
         </div>
