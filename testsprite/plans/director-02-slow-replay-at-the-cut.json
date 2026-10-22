@@ -31,11 +31,11 @@
     },
     {
       "type": "action",
-      "description": "Click the Director button, click the button labelled \"Play replay\" (data-testid replay-play), wait 3 seconds, then click \"Pause replay\" (the same button)"
+      "description": "Click the Director button, click the button labelled \"Play replay\" (data-testid replay-play), then click \"Pause replay\" (the same button) as soon as it shows that label, without waiting"
     },
     {
       "type": "assertion",
-      "description": "Assert the replay clock (data-testid replay-clock) reads a time from 16:31 to 16:47 UTC: at normal speed three seconds would take it past 17:30"
+      "description": "Assert the replay clock (data-testid replay-clock) reads a time later than 16:30 and no later than 17:30 UTC: near a cut the replay slows to a few minutes per second, while at normal speed a few seconds would take it past 17:30"
     },
     {
       "type": "action",

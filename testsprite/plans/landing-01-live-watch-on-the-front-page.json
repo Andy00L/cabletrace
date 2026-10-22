@@ -1,8 +1,8 @@
 {
  "projectId": "1821635f-b9f9-4187-97ed-855e901ac01f",
  "type": "frontend",
- "name": "Front page shows the live watch without signing in",
- "description": "The public landing page loads signed out, with its headline, the live watch card read from the recorder, the eight watched regions, the newest case and the numbers on file.",
+ "name": "Front page replays the Eagle S and shows the live watch without signing in",
+ "description": "The public landing page loads signed out with its headline, the hero replay whose moment list moves the footage, every case on file, the recorder's live figures and the eight watched regions, and the open-a-replay panel.",
  "priority": "p0",
  "planSteps": [
   {
@@ -11,11 +11,23 @@
   },
   {
    "type": "assertion",
-   "description": "Assert the main heading reads \"Ships are crossing the world's cables right now.\" and the URL path is still / (no redirect to sign in)"
+   "description": "Assert the main heading reads \"Every cable cut, replayed.\" and the URL path is still / (no redirect to sign in)"
+  },
+  {
+   "type": "action",
+   "description": "In the hero, if the play button (data-testid hero-play) is labelled \"Pause the replay\", click it once so the replay is paused; then, in the moment list (data-testid hero-moments), click the row that reads \"Cinia detects a fault on C-Lion1\""
   },
   {
    "type": "assertion",
-   "description": "Assert the live watch card (data-testid recorder-status) is shown with a data-state of recording, failing, stale, never-ran or unreachable, and that unless it is unreachable its ship count (data-testid recorder-ships) is a whole number"
+   "description": "Assert the hero clock (data-testid hero-clock) reads 16:44 and the clicked row is marked as the current step (aria-current=step)"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the case list (data-testid landing-cases) holds 10 rows, each with a data-testid that starts with case-card-, and that the source card (data-testid landing-evidence) quotes Cinia"
+  },
+  {
+   "type": "assertion",
+   "description": "Assert the live section (data-testid recorder-status) has a data-state of recording, failing, stale, never-ran or unreachable, and that unless it is unreachable its ship count (data-testid recorder-ships) is a whole number"
   },
   {
    "type": "assertion",
@@ -23,7 +35,7 @@
   },
   {
    "type": "assertion",
-   "description": "Assert the newest case (data-testid latest-cases) holds one case card whose data-testid starts with case-card-, the figures row (data-testid landing-numbers) shows 4 figures, and the evidence card (data-testid landing-evidence) quotes Cinia"
+   "description": "Assert the open-a-replay panel (data-testid open-replay) offers 10 cases in its Case list and four views: Overview, From above, Vessel and At the cut"
   }
  ]
 }

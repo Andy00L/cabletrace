@@ -27,7 +27,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the \"Case file\" row (data-testid download-case-file) is a link with href \"/cases/eagle-s-2024/case-file\" and a download attribute \"cabletrace-eagle-s-2024.json\""
+      "description": "Assert the \"Case file\" row (data-testid download-case-file) is a link whose href ends with \"/cases/eagle-s-2024/case-file\" (a relative path or the same path on this site's full URL) and whose download attribute is \"cabletrace-eagle-s-2024.json\""
     },
     {
       "type": "assertion",

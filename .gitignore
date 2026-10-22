@@ -1,5 +1,7 @@
-# Local agent kit, never committed
+# Local agent kit, never committed (with the skills installer's lock file and the taste skill's working folder)
 .claude/
+skills-lock.json
+.taste-skill/
 
 # Local planning map and design workspace, never committed
 plan/
