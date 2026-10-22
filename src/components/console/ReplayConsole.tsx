@@ -3,12 +3,13 @@
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CaseStill } from "@/components/cases/CaseStill";
-import { ANCHOR_CAM_HEIGHT_PX, ANCHOR_CAM_WIDTH_PX, AnchorCamWindow } from "@/components/console/AnchorCamWindow";
+import { ANCHOR_CAM_EXPANDED_WIDTH_PX, ANCHOR_CAM_WIDTH_PX, AnchorCamWindow, readAnchorCamHeightPx, readAnchorCamWidthForHeightPx } from "@/components/console/AnchorCamWindow";
 import { ConsoleControllerContext, type ConsoleController } from "@/components/console/console-context";
 import { ConsoleDock } from "@/components/console/ConsoleDock";
 import { ConsoleLayers } from "@/components/console/ConsoleLayers";
 import { ConsoleRail } from "@/components/console/ConsoleRail";
 import { ConsoleTopBar, type CaseSwitcherItem } from "@/components/console/ConsoleTopBar";
+import { RailHoverTab } from "@/components/console/RailHoverTab";
 import { StageOverlays, type SceneSummary } from "@/components/console/StageOverlays";
 import { REPLAY_SCRUBBER_ID } from "@/components/replay/ReplayTimeline";
 import { SeabedView } from "@/components/replay/SeabedView";
@@ -41,6 +42,12 @@ const STAGE_INSET_PX = 16;
 // The rail's width and its inset from the stage edge (docs/UI_DESIGN_SYSTEM.md, Console, Layout), in CSS px.
 const RAIL_WIDTH_PX = 360;
 const RAIL_INSET_PX = 16;
+// Under the anchor cam the floating rail needs at least this much height (CSS px: a whole card, 263 px are left at
+// 1440 x 900); with less, it folds to a tab that opens it over the stage (RailHoverTab). On Andy's laptop window the
+// rail under the anchor cam was a 70 px sliver (21 Oct 2026).
+const MIN_RAIL_HEIGHT_PX = 240;
+// The folded rail's tab (CSS px, RailHoverTab).
+const RAIL_TAB_HEIGHT_PX = 48;
 // Layouts (docs/UI_DESIGN_SYSTEM.md, Console, Layout): from 1024 px the full console with the charts in the dock;
 // from 768 px the rail floats over the stage as a sheet and the charts move into Ship mode; under 768 px the rail's
 // content lives in a bottom sheet and cards open as bottom sheets.
@@ -142,6 +149,10 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   const [isWide, setIsWide] = useState(() => matchesMedia(WIDE_LAYOUT_QUERY));
   const [hasFloatingRail, setHasFloatingRail] = useState(() => matchesMedia(FLOATING_RAIL_QUERY));
   const [stageElement, setStageElement] = useState<HTMLElement | null>(null);
+  const [stageHeightPx, setStageHeightPx] = useState<number | null>(null);
+  const [isAnchorCamExpanded, setAnchorCamExpanded] = useState(false);
+  // Counts the reader's mode picks: a rail folded to its tab opens on each one, so "Ship details" shows them.
+  const [modePickCount, setModePickCount] = useState(0);
   const [viewer, setViewer] = useState<SeabedViewer | null>(null);
   const [driver, setDriver] = useState<CameraDriver | null>(null);
   const [shipCamera, setShipCameraState] = useState<ShipCamera>("follow");
@@ -203,6 +214,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   const setMode = useCallback(
     (mode: ConsoleMode) => {
       setIsRailOpen(true);
+      setModePickCount((count) => count + 1);
       updateUi({ mode }, "replace");
     },
     [updateUi],
@@ -388,9 +400,41 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
   // The 3D picture frames its subject in the part the floating rail leaves visible.
   const rightInsetPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX : 0;
   const isAnchorCamShown = driver !== null && viewer !== null && isAnchorDown && drawnView !== "closeup";
+  const isAnchorCamGrown = isAnchorCamShown && !isPhone && isAnchorCamExpanded;
+  // Grown, the anchor cam fits the stage with the folded rail's tab under it: 640 px wide, or as wide as the height
+  // allows (a 720 px tall window leaves a 420 px stage), never narrower than at rest.
+  const anchorCamGrownWidthPx = stageHeightPx === null ? ANCHOR_CAM_EXPANDED_WIDTH_PX : Math.max(ANCHOR_CAM_WIDTH_PX, Math.min(ANCHOR_CAM_EXPANDED_WIDTH_PX, readAnchorCamWidthForHeightPx(stageHeightPx - STAGE_INSET_PX * 2 - 12 - RAIL_TAB_HEIGHT_PX)));
+  const anchorCamWidthPx = isAnchorCamGrown ? anchorCamGrownWidthPx : ANCHOR_CAM_WIDTH_PX;
   // The rail starts under the anchor cam when both stand at the stage's right edge.
-  const railTopPx = isAnchorCamShown && !isPhone ? STAGE_INSET_PX + ANCHOR_CAM_HEIGHT_PX + 12 : STAGE_INSET_PX;
-  const rightColumnPx = isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : isAnchorCamShown && !isPhone ? ANCHOR_CAM_WIDTH_PX + RAIL_INSET_PX * 2 : STAGE_INSET_PX;
+  const railTopPx = isAnchorCamShown && !isPhone ? STAGE_INSET_PX + readAnchorCamHeightPx(anchorCamWidthPx) + 12 : STAGE_INSET_PX;
+  // Too little room under the anchor cam (a short window, or the window grown): the rail folds to a tab, which stays in
+  // the stage even when the window leaves it almost nothing.
+  const isRailTabbed = isRailFloating && isAnchorCamShown && (isAnchorCamGrown || (stageHeightPx !== null && stageHeightPx - railTopPx - STAGE_INSET_PX < MIN_RAIL_HEIGHT_PX));
+  const railTabTopPx = stageHeightPx === null ? railTopPx : Math.max(STAGE_INSET_PX, Math.min(railTopPx, stageHeightPx - STAGE_INSET_PX - RAIL_TAB_HEIGHT_PX));
+  const rightColumnPx = Math.max(isRailFloating ? RAIL_WIDTH_PX + RAIL_INSET_PX * 2 : STAGE_INSET_PX, isAnchorCamShown && !isPhone ? anchorCamWidthPx + RAIL_INSET_PX * 2 : STAGE_INSET_PX);
+  // The stage's height, for the rail's room under the anchor cam: follows the window, which React does not own.
+  useEffect(() => {
+    if (!stageElement) return;
+    const measure = () => setStageHeightPx(stageElement.clientHeight);
+    measure();
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(stageElement);
+    return () => resizeObserver.disconnect();
+  }, [stageElement]);
+  const railSummary = (() => {
+    switch (ui.mode) {
+      case "replay":
+        return `${consoleCase.vessel.name}, ${consoleCase.windowDaysLabel} minute by minute`;
+      case "ship":
+        return `${consoleCase.vessel.name}, vessel inspector`;
+      case "evidence":
+        return "How the track is placed, cuts and sources";
+      default: {
+        const unhandledMode: never = ui.mode;
+        return unhandledMode;
+      }
+    }
+  })();
   // Hands the new insets to the camera driver, which reads them every frame outside React (a ref, so a change costs no
   // render of its own).
   useEffect(() => {
@@ -410,6 +454,8 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
       shipCamera,
       setShipCamera: driver ? setShipCamera : null,
       directorPort: viewer?.director ?? null,
+      isAnchorCamExpanded: isAnchorCamGrown,
+      setAnchorCamExpanded,
       setView,
       setMode,
       setDetail,
@@ -419,7 +465,7 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
       focusTarget,
       caseFileSha256,
     }),
-    [input, consoleCase, series, clock, ui, drawnView, isDirectorOn, setDirectorOn, shipCamera, driver, setShipCamera, viewer, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256],
+    [input, consoleCase, series, clock, ui, drawnView, isDirectorOn, setDirectorOn, shipCamera, driver, setShipCamera, viewer, isAnchorCamGrown, setView, setMode, setDetail, openLayer, closeLayer, seekTo, focusTarget, caseFileSha256],
   );
 
   return (
@@ -465,8 +511,17 @@ export function ReplayConsole({ input, consoleCase, series, switcherCases, scene
                 showRailTopPx={railTopPx}
                 sceneSummary={sceneSummary}
               />
-              {isAnchorCamShown && driver && viewer && <AnchorCamWindow driver={driver} port={viewer.director} presentation={isPhone ? "phone" : "desktop"} />}
-              {isRailFloating && (
+              {isAnchorCamShown && driver && viewer && <AnchorCamWindow driver={driver} port={viewer.director} presentation={isPhone ? "phone" : "desktop"} expandedWidthPx={anchorCamGrownWidthPx} />}
+              {isRailTabbed && (
+                <RailHoverTab
+                  tabTopPx={railTabTopPx - STAGE_INSET_PX}
+                  widthPx={RAIL_WIDTH_PX}
+                  summary={railSummary}
+                  openRequest={modePickCount}
+                  renderRail={(foldRail) => <ConsoleRail onHide={foldRail} showsCharts={!isWide} />}
+                />
+              )}
+              {isRailFloating && !isRailTabbed && (
                 <div
                   className="absolute right-4 bottom-4 z-(--layer-panel) flex flex-col gap-3"
                   style={{ width: RAIL_WIDTH_PX, top: railTopPx }}
