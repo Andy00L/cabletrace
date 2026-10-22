@@ -11,6 +11,9 @@ export const WEBGL_COLORS = {
   depthDeep: "#C2CECD",
   depth40: "#DAE2E1",
   land: "#FAFAF8",
+  // Parchment (--color-page): the live globe's land since the Dudley palette (22 Oct 2026), so the globe on its slate
+  // field is not a white ball. The 3D seabed keeps `land`, which its lookdev baselines hold.
+  page: "#F2EADA",
   ship: "#A8A8A2",
   live: "#2E9E5B",
   density: "#3F7E86",

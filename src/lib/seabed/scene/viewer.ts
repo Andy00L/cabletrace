@@ -574,8 +574,13 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     closeUpLabels.setSize(width, height);
     markDirty();
   }
-  // Syncs the canvas with its container: the card resizes with the page, not only with the window.
-  const resizeObserver = new ResizeObserver(resize);
+  // Syncs the canvas with its container: the card resizes with the page, not only with the window. The frame at the
+  // new size is drawn right here, before the browser paints (redrawAfterResize), so no frame shows the old picture
+  // stretched to the new size.
+  const resizeObserver = new ResizeObserver(() => {
+    resize();
+    redrawAfterResize();
+  });
   resizeObserver.observe(container);
   resize();
   // Nothing is drawn while the view is scrolled out of sight.
@@ -1138,6 +1143,20 @@ export async function createSeabedViewer(options: ViewerOptions): Promise<Result
     }
     if (activeView === "closeup" && closeUp) renderCloseUp(closeUp, now / 1000, deltaSeconds);
     else renderOverview(now, elapsedSeconds, deltaSeconds);
+  }
+
+  /**
+   * Draws the current view at once, from the ResizeObserver callback, which runs after the animation frames of the
+   * frame the size changed in: left to the next frame, the browser would paint the old picture stretched once (a
+   * WebGPU lookdev capture shot that frame on 22 Oct 2026). GPU tiers only: a software frame takes over 0.1 s, too long
+   * to hold the page's layout for, and it moved the software lookdev frames by a fraction of a pixel. Nothing before
+   * the first frame, nothing off screen; scene motion does not step.
+   */
+  function redrawAfterResize() {
+    if (!isGpuTier || lastFrameAt === null || !isOnScreen) return;
+    const now = performance.now();
+    if (activeView === "closeup" && closeUp) renderCloseUp(closeUp, now / 1000, 0);
+    else renderOverview(now, 0, 0);
   }
 
   // The room's prefiltered reflections, made the first time something needs them (the close-up's metal, the refinement

@@ -9,6 +9,7 @@ import { LiveGlobeStage, type WorldLinesState } from "@/components/live/LiveGlob
 import { DraftCasesCard, type DraftCasesState } from "@/components/live/LiveDraftCases";
 import { IncidentCard, IncidentsCard } from "@/components/live/LiveIncidents";
 import { LiveLineCard, type LineScanState } from "@/components/live/LiveLineCard";
+import { LiveNightSea } from "@/components/live/LiveNightSea";
 import { DetectionsCard, MomentCard, ShipCard, type DetailsState, type DetectionsState } from "@/components/live/LiveRail";
 import { BusiestSeasCard, SeaCard, TierBreadcrumb, TierLadder, type Crumb } from "@/components/live/LiveTiers";
 import { addFrameToCoverage, createCoverage, renderCoverageMask } from "@/lib/globe/coverage";
@@ -834,11 +835,12 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
     <div className={`flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 sm:px-6 ${isWide ? "" : "overflow-y-auto"}`}>
       <section
         aria-label="Globe of the recorded day"
-        className={`relative overflow-hidden rounded-card bg-soft shadow-card ${isWide ? "min-h-0 flex-1" : "h-[56svh] min-h-[320px] flex-none"}`}
+        className={`relative overflow-hidden rounded-card bg-slate shadow-card ${isWide ? "min-h-0 flex-1" : "h-[56svh] min-h-[320px] flex-none"}`}
         data-testid="live-globe"
         data-frame-count={entries.length}
         data-ship-count={moment?.frame.shipCount ?? 0}
       >
+        <LiveNightSea />
         <div ref={globeHostRef} className="absolute inset-0">
           <LiveGlobeStage
             watchedLines={watchedLines}
@@ -913,7 +915,7 @@ export function LiveDay({ entries, frameSource, watchedLines, watchedRegions, in
           <Popover.Root>
             <Popover.Trigger
               aria-label="How the globe is drawn and data credits"
-              className="grid size-10 place-items-center rounded-full bg-card text-ink shadow-row transition-shadow duration-140 ease-standard hover:shadow-raised data-[state=open]:shadow-selected"
+              className="grid size-10 place-items-center rounded-full bg-card text-ink transition-colors duration-140 ease-standard hover:bg-page focus-visible:shadow-[0_0_0_2px_var(--color-slate),0_0_0_4px_var(--color-dusk)]! data-[state=open]:bg-soft"
               data-testid="live-credits"
             >
               <Icon name="info" />

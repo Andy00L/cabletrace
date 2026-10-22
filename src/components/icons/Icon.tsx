@@ -7,6 +7,7 @@ const ICON_PATHS = {
   chevronDown: <path d="M6 8.5 10 12.5 14 8.5" />,
   chevronRight: <path d="M8 5.5 12.5 10 8 14.5" />,
   chevronLeft: <path d="M12 5.5 7.5 10 12 14.5" />,
+  arrowRight: <path d="M4 10h12M11 5l5 5-5 5" />,
   close: <path d="M6 6 14 14M14 6 6 14" />,
   link: (
     <>

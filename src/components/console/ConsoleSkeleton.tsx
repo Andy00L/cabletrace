@@ -38,16 +38,17 @@ export function ConsoleSkeleton({ title, subtitle, summary }: { title: string; s
             <div className="flex-1 rounded-row bg-card shadow-card" />
           </div>
         </div>
-        <div className="flex h-[196px] flex-none flex-col gap-4 rounded-card bg-card p-5 shadow-card max-lg:h-[132px]" aria-hidden="true">
+        {/* The dock is a slate band (ConsoleDock), so its ghost is too: nothing flips from light to dark on load. */}
+        <div className="flex h-[196px] flex-none flex-col gap-4 rounded-card bg-slate p-5 shadow-card max-lg:h-[132px]" aria-hidden="true">
           <div className="flex items-center gap-4">
-            <span className="size-11 flex-none rounded-full bg-soft" />
-            <span className="h-6 w-28 flex-none rounded-chip bg-soft" />
-            <span className="h-1.5 flex-1 rounded-full bg-soft" />
+            <span className="size-11 flex-none rounded-full bg-slate-raised" />
+            <span className="h-6 w-28 flex-none rounded-chip bg-slate-raised" />
+            <span className="h-1.5 flex-1 rounded-full bg-slate-raised" />
           </div>
           <div className="hidden min-h-0 flex-1 gap-6 lg:flex">
-            <span className="flex-1 rounded-field bg-page" />
-            <span className="flex-1 rounded-field bg-page" />
-            <span className="flex-1 rounded-field bg-page" />
+            <span className="flex-1 rounded-field bg-slate-raised" />
+            <span className="flex-1 rounded-field bg-slate-raised" />
+            <span className="flex-1 rounded-field bg-slate-raised" />
           </div>
         </div>
       </div>

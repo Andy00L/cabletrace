@@ -35,7 +35,7 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the row \"Cinia detects a fault on C-Lion1\" is the list's current row: it is highlighted on the grey tone and its list item (li) has aria-current=\"step\", and no other row is highlighted"
+      "description": "Assert the row \"Cinia detects a fault on C-Lion1\" is the list's current row: it is highlighted on the tan tone and its list item (li) has aria-current=\"step\", and no other row is highlighted"
     },
     {
       "type": "action",

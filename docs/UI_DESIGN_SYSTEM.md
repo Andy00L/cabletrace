@@ -12,16 +12,21 @@ Theme: light only for the first version. Palette approved by Andy on 2026-10-16 
 
 | Token | Hex | Use | Contrast |
 |---|---|---|---|
-| `page` | `#F3F3F1` | The field under everything. Warm neutral, never the cool `#F3F4F6` family. | |
-| `paper` | `#F9F1E2` | The sign-in, sign-up and account pages only: the median paper of Andy's engravings, so the art dissolves into the page (approved on the style board, 19 Oct 2026). The console and, since its redesign on 21 Oct 2026, the landing keep `page`. | `ink` 16.4:1, `muted` 5.5:1 on it |
-| `card` | `#FFFFFF` | Cards, list rows, the map frame | |
-| `soft` | `#E8E8E5` | Second buttons, segmented control track, disabled fill | |
-| `ink` | `#141414` | Text, icons, the main action fill | 18.4:1 on card, 16.7:1 on page |
-| `ink-hover` | `#2B2B29` | Main action on hover | |
-| `muted` | `#62625D` | Secondary text, unselected segments | 6.1:1 on card, 5.5:1 on page, 5.0:1 on soft |
-| `faint` | `#9A9A94` | Disabled text, decorative ticks. Never body text. | 2.8:1 on card |
+| `page` | `#F2EADA` | Parchment: the field under everything, the 1865 painting's sky lifted. | `ink` 14.5:1, `muted` 5.9:1 |
+| `paper` | `#F9F1E2` | The sign-in, sign-up and account pages: the median paper of Andy's engravings (style board, 19 Oct 2026). | `ink` 16.4:1, `muted` 5.5:1 on it |
+| `card` | `#FBF7EE` | Vellum: cards, list rows, the map frame (never pure white). | `ink` 16.2:1, `muted` 6.6:1 |
+| `soft` | `#E7DCC4` | Tan: second buttons, segmented control track, selected rows, disabled fill | `muted` 5.2:1 |
+| `ink` | `#1C1A16` | Sepia-black: text, icons, the main action fill | 16.2:1 on card, 14.5:1 on page |
+| `ink-hover` | `#36322A` | Main action on hover | |
+| `muted` | `#5F584C` | Secondary text, unselected segments | 6.6:1 on card, 5.9:1 on page, 5.2:1 on soft |
+| `faint` | `#A39A88` | Disabled text, decorative ticks. Never body text. | |
+| `slate` | `#2B2E2A` | The night sea: dark bands (the replay's dock and status, the cases page and the globe's field) | `page` 11.5:1, `mist` 6.0:1, `dusk` 7.8:1 on it |
+| `slate-raised` | `#3A3D38` | Controls and tracks on slate | |
+| `mist` | `#A9AD9F` | Secondary text on slate | 6.0:1 on slate |
+| `dusk` | `#DFBF84` | Accent on slate: play, playhead, the Discover Button's fill there | 7.8:1 on slate |
+| `brass` | `#8A6A2E` | Accent on light: links, focus rings. As text only on `card` (4.7:1; 4.2:1 on page) | |
 
-There is no brand accent. The interactive color is `ink`: one ink pill per view.
+The interface tones come from Robert Charles Dudley's *The Great Eastern Under Weigh, July 23rd, 1865*, the front page's painting (approved by Andy on the style board of 22 Oct 2026, replacing the grey `#F3F3F1` field and white cards). The interactive colour is still `ink` on light (one ink pill per view) and `dusk` on slate; `brass` marks links and focus. The data colours below did not change, and neither did the 3D scene.
 
 ### Data
 
@@ -128,6 +133,27 @@ One move runs longer than `duration-hero`: the live globe's dive to a cut (1,600
 - **Icon rail.** A `page` capsule of 44px round targets, 20px icons at 1.6px stroke, no labels. The current page sits on a `card` disc with `shadow-selected`. New alerts show an 8px `alarm` dot.
 - **Icons.** One custom set: 20px grid, 1.6px stroke, round caps and joins.
 
+## ASCII layer
+
+Approved by Andy on the style board of 22 Oct 2026, after ascii-magic.com: Dudley's paintings redrawn as glyphs, each glyph in the colour of the patch it replaces (`AsciiPicture`, `src/components/ascii/AsciiPicture.tsx`; the arithmetic in `src/lib/ascii/ascii-grid.ts`). It fills what would be an empty field, never carries meaning (hidden from assistive technology), and never sits under body text at more than low contrast.
+
+- **Styles** (`AsciiStyle`, after ascii-magic.com's styles, Andy, 22 Oct 2026: "use different ones accordingly"). Each place takes the style that suits what sits on it:
+
+  | Place | Style | Why |
+  |---|---|---|
+  | Under the front page's painting | `halftone`, 6 px dots in the painting's colours, fading into `page` | A print screen after the watercolour: the painting turns to print, then to page. |
+  | Beside "Inside a replay" | `glyph` (`dense` ramp), 5 px, `dusk` on `slate`, shimmering | The one classic ASCII plate, where the page was empty; nothing sits on it. |
+  | The front page's case ledger | `binary`, 8 px 0s and 1s, half toned to `slate`, flipping slowly | The cases as data; faint enough for the heading on it. |
+  | The cases page | `braille`, 7 px cells of 2 by 4 dots, toned to `slate` | Four times a glyph's detail at the same size, so the night sea reads as texture behind the list. |
+  | The live globe's field | `dither`, 4 px pixels, toned to `slate`, still | Holds still beside the globe's own motion; costs nothing after one draw. |
+  | The replay's dock | `hatch`, engraved strokes, toned to `slate`, still | Horizontal lines run with the timeline and stay quiet behind the charts. |
+
+- **Fade.** The last rows thin out on a 4 x 4 Bayer pattern and pale toward the ground, so a band ends in the page without a gradient.
+- **Motion.** A character style on screen may shimmer: 1.2% of its cells step one place on the ramp (a digit flips, a braille dot toggles) and back every 140 ms. Shapes hold still. Nothing moves under reduced motion or off screen.
+- **Cost.** One canvas draw per size change, once the box has held its size for 200 ms (a 1,440 by 200 px band is about 4,000 glyphs); the pictures are the 1,200 px files the page already serves. The canvas draws in software (`willReadFrequently`), so it never competes with the 3D view for the GPU.
+
+**Flip Text** (`src/components/ui/FlipText.tsx`, after ObsidianUI, MIT): a heading's letters turn once around their x axis and rise 8 px under the pointer, 400 ms `ease-enter`, CSS only. **Discover Button** (`src/components/ui/DiscoverButton.tsx`, after ObsidianUI, MIT): the main call to action, a pill whose arrow circle sweeps its fill across the label in 480 ms (a clip-path), `ink` on light and `dusk` on slate.
+
 ## Signature element: the signal
 
 The cable under watch carries a faint 12px halo of `cable` at 12% and a short white light that runs along it while the line is healthy. At a break the line stops on both sides of the cut and the break marker (a white disc with an `alarm` ring and center) sits in the gap. Placement: the map, empty states and the sign-in art. Nowhere else.
@@ -168,7 +194,7 @@ The case replay is one screen (boards 6 to 11 on the style board canvas). The do
 
 | Width | Layout |
 |---|---|
-| 1024 px and up | 56 px top bar on the `page` tone (mark, case switcher, place and date, the mode control Replay, Ship, Evidence, copy link, shortcuts). Under it the stage: the 3D view in one `card`-radius tile, 16 px from the edges. Over the stage's right edge the rail: 360 px of white cards, 16 px inset, folding away to give the view the whole width; the camera frames the subject in the clear part while it is open. Under the stage the dock: transport, timeline and three charts on the replay's time axis. |
+| 1024 px and up | 56 px top bar on the `page` tone (mark, case switcher, place and date, the mode control Replay, Ship, Evidence, copy link, shortcuts). Under it the stage: the 3D view in one `card`-radius tile, 16 px from the edges. Over the stage's right edge the rail: 360 px of vellum cards, 16 px inset, folding away to give the view the whole width; the camera frames the subject in the clear part while it is open. Under the stage the dock, a slate band (Dock and status, below): transport, timeline and three charts on the replay's time axis. |
 | 768 to 1023 px | The rail becomes a sheet over the stage's right side, opened from a button on the stage. The dock keeps the transport and the timeline; the charts move into Ship mode. |
 | Under 768 px | The stage takes the top of the screen, the transport and the timeline sit under it, and the rail's content lives in a bottom sheet with two snap points: folded, its handle and the mode switch (96 px); open, 85% of the screen with its content scrolling inside. Drag the header or press the handle; picking a mode, or a link that names one, opens it. Popovers become bottom sheets. The page never scrolls. 16 px gutter, 44 px targets. |
 
@@ -191,6 +217,16 @@ The director frames every shot on the overview scene with the storyboard's metho
 **Labels** keep 8 px inside the stage (a label cut by the edge slides back in; one mostly outside hides) and never sit on a control or card: the console marks those `data-label-blocker` (the stage controls, the status island, the rail, the anchor cam, the cards), and the label placer hides a label that would cover one (`labels.ts`, `hideOverlappingLabels`).
 
 While the 3D view loads, the stage shows one progress line in two parts, the seabed and then the ship and scene (`stage-loading`, `data-state` seabed or ship); the console's skeleton draws the same card at its first step.
+
+### Dock and status
+
+Approved by Andy on the style board of 22 Oct 2026 ("Dock and status" in slate): the dock and the anchor status are the console's two dark pieces; every card stays vellum on parchment.
+
+- **Dock** (`ConsoleDock`). A `slate` band with Dudley's night sea engraved behind it (`AsciiPicture`, `hatch` style, Andy's pick for the dock: the Albany painting's lower 26%, horizontal strokes on 4 px lines, each as thick as its patch is bright, every stroke 65% toward `slate`, held still). Strokes cover about 46% of the band, so they take more toning than glyphs: at 45% the brightest stood at 3.1:1 on slate. Measured on the 1440 x 900 render at 65%: 1.1:1 against slate at the median, 1.6:1 at the 95th percentile, 2.1:1 at the brightest. Every line of text in the dock carries a slate halo (2, 4, 4 and 8 px, as `map-label-halo` does in vellum) so the strokes around a letter fall back to slate: behind the dock's `mist` text the ground holds it at 4.4 to 5.4:1 at the 95th percentile and 4.2 to 4.9:1 at the 99th (5.5 to 5.9:1 at the median; over bare strokes it would keep 3.7:1 at the 95th), `dusk` labels at 4.5:1 or more at the 99th, `page` at 7.4:1 or more. The AIS strip's vellum card over the timeline drops the halo. The canvas draws once per size change and never animates. The console's skeleton draws the dock in `slate` with `slate-raised` ghosts.
+- **Transport.** Play is a `dusk` disc with a `slate` glyph (7.8:1), `page` on hover; the UTC clock in `page`, "UTC" and the local time in `mist`.
+- **Timeline.** Track `slate-raised`, the played part `dusk`, the drag window `alarm` at 40% and `alarm` where played, event ticks `faint` (4.9:1) and faults `alarm`. The head is a `dusk` ring on `slate`; its focus ring is `slate` then `dusk`. A cut keeps the signature break marker (a `card` disc in an `alarm` ring); its label is `dusk` text, because `alarm` on slate is 3.0:1, enough for a mark, never for text.
+- **Anchor status** (`StatusIsland`). A `slate` pill with `page` text, the `alarm` dot and the countdown and chevron in `mist`. Opened, its quotes sit on `slate-raised` (`page` text 9.2:1, `mist` 4.8:1) and its source numbers are `dusk` links.
+- **Light parts.** Text links on `card` are `brass` (4.7:1) with a `brass` underline at 40%: the source numbers and "Ship details". On a selected row they turn `ink`, since brass on `soft` is 3.7:1. Selected rows (the current event, the open card's row in Evidence, the ship's name while its card is open, the current case in the switcher) sit on `soft`; hover stays `page`. The anchor cam's frame is `slate`.
 
 ### Layers
 
@@ -228,7 +264,16 @@ Evidence mode ends with the case file: `/cases/<slug>/case-file`, a JSON downloa
 
 ### Charts
 
-The dock's three charts share the timeline's window: speed over ground (`ink`), distance to the nearest mapped cable or pipeline (`cable`), and water under the ship (`muted` line over a `depth-40` fill, depth growing downward). A stretch bounded by a placed position is drawn dashed and the chart says how it was derived under its title; a stretch between two AIS fixes is solid. The drag window is a 5% `alarm` band, the cursor a 1 px `ink` line with a ring on the value. Built by `src/lib/cases/case-series.ts` on the server.
+The dock's three charts share the timeline's window: speed over ground, distance to the nearest mapped cable or pipeline, and water under the ship (a line over a fill, depth growing downward). A stretch bounded by a placed position is drawn dashed and the chart says how it was derived under its title; a stretch between two AIS fixes is solid. Built by `src/lib/cases/case-series.ts` on the server. Each surface has its own tones (`CaseCharts`, `surface`), every line at 3:1 or more against its ground:
+
+| | On `slate` (the dock) | On `card` (Ship mode under 1024 px) |
+|---|---|---|
+| Speed | `page` line, 11.5:1 | `ink` |
+| Nearest line | `cable` mixed 75% with `page` (`#608BD9`), 4.1:1; `cable` itself is 2.8:1 on slate | `cable` |
+| Water | `mist` line (6.0:1) over `mist` at 16% | `muted` line over `depth-40` |
+| Titles, units, axis, note | `page`; `mist` | `ink`; `muted`, axis `faint` |
+| Drag window | `alarm` at 10% | `alarm` at 5% |
+| Cursor | 1 px `page`, value ring on `slate` | 1 px `ink`, value ring on `card` |
 
 ### Components
 
@@ -238,7 +283,7 @@ Primitives are written in `src/components/ui/` on the tokens above. Behaviour co
 |---|---|---|
 | Dialog, Sheet | `@radix-ui/react-dialog` 1.3.1 (MIT), structure after shadcn/ui's dialog and sheet (MIT) | Written without `cn` or `tailwind-merge`: tailwind-merge would treat our `text-label` size and `text-ink` colour as one conflicting group. Tokens only; `scrim`; focus returns to the trigger. |
 | Popover | `@radix-ui/react-popover` 1.3.1 (MIT), structure after shadcn/ui's popover | Same rules; `shadow-popover`, radius `row`. |
-| Anchor status island | Idea from bencho.dev `dynamic-island` (MIT, Lorenzo Cabra, https://bencho.dev/blocks/dynamic-island) | Kept: the pill and its expanded card are one shape; width, height and corner transition together (`interpolate-size`, a snap where unsupported) and the content fades in. Dropped: the spring, the demo activities, `lucide-react`, the blur, the overshoot, the black fill (a white pill keeps one ink control per view). Code written here. |
+| Anchor status island | Idea from bencho.dev `dynamic-island` (MIT, Lorenzo Cabra, https://bencho.dev/blocks/dynamic-island) | Kept: the pill and its expanded card are one shape; width, height and corner transition together (`interpolate-size`, a snap where unsupported) and the content fades in. Dropped: the spring, the demo activities, `lucide-react`, the blur, the overshoot. The fill is `slate` since 22 Oct 2026 (Dock and status, above). Code written here. |
 | Timeline snapping | Idea from bencho.dev `time-scrubber` (MIT) | Kept: releasing the scrubber near an event or a cut lands on it. The ruler and fling were not adopted: the native range input keeps the keyboard and screen reader path the tests use. |
 | Toast | Idea from bencho.dev `toast-stack` (MIT) | One toast at a time ("Link copied"), bottom centre, `duration-standard`; no stack, no hover fan. |
 | Icons | `src/components/icons/` | One set drawn here on a 20 px grid, 1.6 px stroke, round caps and joins. No `lucide-react`. |
@@ -250,7 +295,7 @@ The landing, the case list, the live globe, the watchlist and the WebGL check sh
 | Page | 1024 px and up | Under 1024 px |
 |---|---|---|
 | Landing | See "Landing" below. | |
-| Case list | Cases grouped by region (Gulf of Finland, Central Baltic, Norway and Svalbard, Taiwan Strait, Red Sea; `src/lib/cases/case-regions.ts`), newest first in each, as compact rows: a 112 px sketch beside place, date, title and one line of facts. Three columns from 1,280 px, two from 768 px, so a dozen cases fit one screen. | One column. |
+| Case list | Under the bar, a `slate` field (radius 24) fills the page: Dudley's night painting as glyphs at its top (`AsciiPicture`, 7 px cells, `dense` ramp, 35% toward `slate`, the last 20% of its rows thinning into the slate, shimmering on screen), at its own 1,200 by 729 proportions so a long list never stretches it. On it the head: "Cases" in `page` with Flip Text, the intro in `mist`, the count ("10 cases in 5 regions") in `mist` at the far end; the head and the region names carry a `slate` text halo (blurred 3, 8 and 14 px) so the glyphs fade out around them. Then the cases grouped by region (Gulf of Finland, Central Baltic, Norway and Svalbard, Taiwan Strait, Red Sea; `src/lib/cases/case-regions.ts`), region names in `page` and their counts in `mist`, newest first in each, as compact `card` rows: a 112 px sketch (map colours unchanged) beside place, date, title and one line of facts. A shadow does not read on slate, so a row has none: on hover it steps to `page`, and its focus ring is `dusk` on a `slate` gap. Three columns from 1,280 px, two from 768 px, so a dozen cases fit one screen. Measured on the render, 22 Oct 2026: the intro in `mist` 6.0:1 on its median background pixel and 5.7:1 on the brightest 5%; the title in `page` 10.3:1 on the brightest 5%; rows `ink` 16.2:1, `muted` 6.6:1. | One column. The painting spans the field's width (about 218 px tall at 390 px), so its moonlit clouds sit behind the intro: `mist` 6.0:1 median, 4.4:1 on the brightest 5%. |
 | Watchlist | Two cards side by side: alerts of the last 24 hours (the detector's findings on a watched ship, a watched cable, or a cable cut in a watched case; `alarm` for an alert, `ink` for a watch) and the watched items with a remove button each. Signed out, the page sends the reader to sign in. | The two cards stack. |
 | Sign in, sign up (board 16) | On `paper`, the threads engraving rising from the bottom; Clerk's form centred, 420 px, styled as a plate: Google first as the ink pill, the email code under it, the development-tier note below (`src/components/account/AccountPage.tsx`). | Same, full width with the 16 px gutter. |
 
@@ -262,10 +307,10 @@ The public front door (`src/app/page.tsx`), redesigned on 21 Oct 2026 with the t
 
 | Section | 1024 px and up | Under 1024 px |
 |---|---|---|
-| Hero | Dudley's *The Great Eastern Under Weigh, July 23rd, 1865* fills the band behind the bar, at up to 88svh (820 px): the `hero` headline "Every cable cut, replayed.", the `lead` sentence, the ink pill "Open the console" (`open-console`) and "Sign in" sit in its evening sky, and its caption is a small `card` label on its sea, bottom left. Under the band, the Eagle S moments (`hero-moments`) on the left; on the right the stage, the console's own footage and dock in a `card` window (`HeroReplay`), rising 148 px over the painting's sea. | Headline, sentence and actions on `page`, then the painting at 4:3 with its caption under it, then the stage, then the moments. |
-| Inside a replay | Three statements, each beside the real thing at its own size: the Vessel view with the anchor cam (still), the cut (still), and the console's source card for the C-Lion1 placement (`landing-evidence`). The rows differ in width. | Each statement above its picture. |
+| Hero | Dudley's *The Great Eastern Under Weigh, July 23rd, 1865* fills the band behind the bar, at up to 88svh (820 px): the `hero` headline "Every cable cut, replayed." in Flip Text, the `lead` sentence, the Discover Button "Open the console" (`open-console`) and "Sign in" sit in its evening sky, and its caption is a small `card` label on its sea, bottom left. Under the band its sea carries on for 160 px as glyphs (the ASCII layer) thinning into the page. Then the Eagle S moments (`hero-moments`) on the left; on the right the stage, the console's own footage and dock in a `card` window (`HeroReplay`), rising 288 px over the glyphs and the painting's sea. | Headline, sentence and actions on `page`, then the painting at 4:3, its 96 px glyph band and its caption, then the stage, then the moments. |
+| Inside a replay | "Inside a replay" (Flip Text) and its sentence on the left, and on the right, where the page was empty, a 340 px plate of the Great Eastern in glyphs, `dusk` on `slate`, shimmering. Then three statements, each beside the real thing at its own size: the Vessel view with the anchor cam (still), the cut (still), and the console's source card for the C-Lion1 placement (`landing-evidence`). The rows differ in width. | The heading, then the plate (224 px), then each statement above its picture. |
 | Anchor | "How a dragged anchor cuts a cable": the anchor figure (below) held in a 560 px sticky box on the right while three statements scroll on the left, "The anchor drops.", "It drags along the seabed.", "The cable parts.", each with the model's own numbers; the one in the middle of the screen is in `ink` (the others `muted`) and sets the figure's stage (`AnchorStory`). The figure's caption follows, at `body` in `ink`. | The figure and the active statement hold together under the sticky bar (the figure in a 50svh box) while empty markers scroll past, so no text slides under the figure. |
-| Cases | A two-line `display` heading (count of cases in `muted`, count of sources in `ink`) and "See every case"; every case as one band, `card` and `soft` alternating: the first cut's date, the case and where, the lines cut, the source count (`landing-cases`, `case-card-<slug>`). A band turns `ink` on hover and opens the replay. | Each band stacks date, case, lines and sources. |
+| Cases | A `slate` band the width of the page with the night painting in glyphs behind it: a two-line `display` heading (count of cases in `mist`, count of sources in `page`) and the Discover Button "See every case" in `dusk`; every case as one band, `card` and `soft` alternating: the first cut's date, the case and where, the lines cut, the source count (`landing-cases`, `case-card-<slug>`). A band turns `dusk` on hover and opens the replay. | Each band stacks date, case, lines and sources. |
 | Live | The statement, the recorder's state with the page's one pulse, the eight regions and the live globe's still on the left; on the right the recorder's figures as a ledger at `hero` size, right-aligned on one edge with their captions beside (`landing-numbers`, `recorder-ships`), and the three closest passes as the console's list (`live-crossings`). | One column. |
 | Archive | The page's one rest: "Cable faults have been hunted since 1865." beside Dudley's bow of the Great Eastern on 2 August 1865, the cable broken and lost and the grapnel ready, then his deck scene of 31 July 1865 the full width of the page, each captioned with its title linked to the Met (`src/lib/landing/archive-art.ts`). | One column. |
 | Close | Dudley's *The Albany Buoying a Bight of the Cable of 1865 on the Night of August 26th, 1866* at 45% on `ink` (white text stays at 4.5:1 or more over its brightest cloud), its caption a `card` label bottom right: "Watch it happen." at `hero` size bottom-left with the record line (`describeLandingRecord`), and the console's first step already open on the right: a case list, the four views and "Open the replay" (`OpenReplayDialog`, `open-replay`). | The line, then the panel, the caption at the bottom. |
@@ -298,7 +343,8 @@ Fig 1 (`src/components/landing/AnchorFigure.tsx`) shows how a dragged anchor par
 
 `/live` shows the last 24 hours of ship frames (one every 10 minutes, written by `supabase/functions/collect-ship-frames`) on a 3D globe, in the replay console's shell: the section bar, the stage, the rail floating over its right edge from 1024 px, and the dock. It is a recorded day, never real time, and the stage says so.
 
-- **Globe** (`src/lib/globe/globe-viewer.ts`). Natural Earth land in `land` on `depth-40` water, a 1 px coast in the seabed contour tone, the limb darkened a little so the sphere reads round, and a faint `depth-40` rim against the page. Northern Europe (12 W to 45 E, 48 to 72 N), where the replays and the recorder are, sits on a sharper patch so coasts stay crisp when the camera flies down to a ship.
+- **Field** (`src/components/live/LiveNightSea.tsx`, since 22 Oct 2026). The stage is `slate`, and behind the globe's transparent canvas Dudley's night painting runs as faint glyphs (`AsciiPicture`, 7 px cells, `dense` ramp, 55% toward `slate`), so the globe floats on the night sea. The canvas keeps the painting's 1,200 by 729 proportions and covers the stage through container units, anchored at the bottom so the sea stays in view; the loading, empty and failed states sit on the same field. It shimmers like every plate; measured beside the globe's loop on a software renderer, it did not slow it (about 10 ms a second of main thread at rest; a drag turned the globe at 7 to 13 fps with it and 5.5 to 12.5 without, within run-to-run noise). Everything over the stage stays on `card`: the recorded-day label, the breadcrumb, the ladder, the legend, the notes and the rail's cards (ink 16.2:1, muted 6.6:1 on them). The credits button on slate takes a `dusk` focus ring and steps to `page` on hover, since a shadow does not read there.
+- **Globe** (`src/lib/globe/globe-viewer.ts`). Natural Earth land in `page` (parchment, since 22 Oct 2026, so the globe on slate is not a white ball; the 3D seabed keeps `land`) on `depth-40` water, a 1 px coast in the seabed contour tone, the limb darkened a little so the sphere reads round, and a faint `depth-40` rim against the slate field. Northern Europe (12 W to 45 E, 48 to 72 N), where the replays and the recorder are, sits on a sharper patch so coasts stay crisp when the camera flies down to a ship.
 - **Tiers** (`src/lib/globe/globe-tier.ts`, chosen by Andy on 20 Oct 2026, board 25). Zoom by sea, not by land. Planet from 2 Earth radii out (the opening view, 3.6), Sea from 1.18 (the ladder flies to 1.45), Strait closer (1.1), and Ship: the picked ship at 1.04 (the closest the camera comes), kept under the stage's centre as the day plays until a drag, another flight, another pick or a zoom out past Strait (`followShip`). A zoom ladder (the segmented control; Ship always takes the press, and with no ship picked, or one the frames at that minute do not hold, a note under the ladder says why it did not fly and what to do, `live-ship-tier-note`) and a breadcrumb ("World > Baltic Sea > Gulf of Finland > ship", hidden at Planet) sit under the recorded-day label (on a phone the ladder moves under the dock, so the stage keeps at most two rows of controls); each step flies there in 900 ms. The address keeps `tier` and `at` (longitude, latitude) and reopens the view without a flight.
 - **Density** (Planet, `src/lib/globe/ship-density.ts`). The moment's ships counted in cells of about 220 by 220 km (2 degree bands, fewer cells toward the poles), one dot per occupied cell whose area grows with its count up to 150 ships, 2.6 to 14 px on a 900 px stage and smaller on a shorter one (down to 55%, a phone), fading as its cell turns toward the limb. Between 1.8 and 2.3 Earth radii the dots cross over with the ship dots on a smoothstep. Tone: `density` at 78% (Andy's pick on board 25).
 - **Seas** (`src/lib/globe/sea-areas.ts`, `public/globe/seas.json`, built by `scripts/globe/build-seas.ts`). Natural Earth's 1:50m marine areas drawn into quarter-degree cells, arms counted for their sea (the Gulf of Finland for the Baltic), each sea grown 2 degrees into the coastal gaps so a ship in port counts. At Planet the 30 busiest seas get a stacked label (name, ship count) on their most open-water cell, busiest first where two collide (the seabed's label placer).

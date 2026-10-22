@@ -57,8 +57,9 @@ export function CaseSketchMap({ sketch, vesselName }: { sketch: CaseSketch; vess
 
 /**
  * One case as a row on the case list (grouped by region), whose whole surface opens its replay: a small sketch beside
- * the place, date, title and one line of facts, so a dozen cases fit one screen. On hover the shadow deepens and
- * nothing moves, and the case's seabed starts loading (WarmCaseLink).
+ * the place, date, title and one line of facts, so a dozen cases fit one screen. The row is vellum on the list's slate
+ * field, where a shadow does not read: on hover it steps down to parchment and nothing moves, and the case's seabed
+ * starts loading (WarmCaseLink). Its focus ring is dusk, since the house ring's ink is lost on slate.
  */
 export function CaseCard({ cableCase, sketch }: { cableCase: CableCase; sketch: CaseSketch | null }) {
   const cutsLabel = cableCase.cuts.map((cut) => cut.label).join(", ");
@@ -68,7 +69,7 @@ export function CaseCard({ cableCase, sketch }: { cableCase: CableCase; sketch: 
     <WarmCaseLink
       href={`/cases/${cableCase.slug}`}
       area={cableCase.seabedArea}
-      className="grid grid-cols-[112px_minmax(0,1fr)] items-center gap-3.5 rounded-row bg-card p-2 shadow-card transition-shadow duration-140 ease-standard hover:shadow-raised"
+      className="grid grid-cols-[112px_minmax(0,1fr)] items-center gap-3.5 rounded-row bg-card p-2 transition-colors duration-140 ease-standard hover:bg-page focus-visible:shadow-[0_0_0_2px_var(--color-slate),0_0_0_4px_var(--color-dusk)]!"
       testId={`case-card-${cableCase.slug}`}
     >
       <div className="aspect-video">{map}</div>
