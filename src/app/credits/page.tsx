@@ -21,6 +21,13 @@ const DATA_CREDITS: Credit[] = [
     licence: "Copernicus DEM licence, free with attribution",
   },
   { what: "Cables, seabed blocks and globe", source: "OpenStreetMap contributors", href: "https://www.openstreetmap.org/copyright", licence: "ODbL 1.0" },
+  {
+    what: "Cable routes, Red Sea (SEACOM, AAE-1, EIG)",
+    source: "Traced off the maps in Nick Harrington and Michael Cuddington (Meta), Misinformation in the Red Sea, LINX slides, Nov 2024; schematic beyond them",
+    // The archived copy the Rubymar case cites (src/data/cases/rubymar-2024.ts, source 7).
+    href: "https://web.archive.org/web/20261017164505/https://www.linx.net/wp-content/uploads/2024/11/Misinformation-in-the-Red-Sea-1.pdf",
+    licence: "No licence published; credited",
+  },
   { what: "Pipelines", source: "EMODnet Human Activities", href: "https://emodnet.ec.europa.eu/en/human-activities", licence: "CC BY 4.0" },
   { what: "Globe land and named seas", source: "Natural Earth 1:50m", href: "https://www.naturalearthdata.com/about/terms-of-use/", licence: "Public domain" },
   { what: "Sand ripple detail", source: "Poly Haven, Aerial Beach 01 by Rob Tuytel", href: "https://polyhaven.com/a/aerial_beach_01", licence: "CC0" },
