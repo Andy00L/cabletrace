@@ -11,7 +11,7 @@
     },
     {
       "type": "action",
-      "description": "Type testsprite+clerk_test@example.com in the \"Email address\" field and click Continue"
+      "description": "Type testsprite-live-03+clerk_test@example.com in the \"Email address\" field and click Continue"
     },
     {
       "type": "action",
@@ -27,7 +27,15 @@
     },
     {
       "type": "assertion",
-      "description": "Assert the tier box (data-testid live-tier) has data-tier \"planet\", and in the zoom ladder (data-testid live-tier-ladder) the \"Planet\" button has aria-pressed=\"true\" and the \"Ship\" button is disabled"
+      "description": "Assert the tier box (data-testid live-tier) has data-tier \"planet\", and in the zoom ladder (data-testid live-tier-ladder) the \"Planet\" button has aria-pressed=\"true\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Ship\" in the zoom ladder (data-testid live-tier-ladder) without picking a ship first"
+    },
+    {
+      "type": "assertion",
+      "description": "Assert a note (data-testid live-ship-tier-note) says \"Pick a ship first\", and the tier box (data-testid live-tier) still has data-tier \"planet\""
     },
     {
       "type": "assertion",

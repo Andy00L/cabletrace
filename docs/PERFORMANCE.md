@@ -620,3 +620,27 @@ cannot fill the form: its proxy sends a session token made through Clerk's Backe
 (`scripts/lookdev/session-token.ts`). Clerk test addresses and Backend API sessions are for the development instance;
 a production instance needs another route in for these tools.
 
+
+## The front page after its redesign (22 Oct 2026)
+
+`bun run perf` on the production build of PR 72 (the console's footage as the hero): LCP 228 ms (224 to 276), CLS 0,
+no failed request over 5 runs, JavaScript on `/` 197.3 KB compressed of the 200 KB budget. The hero's poster is the
+largest paint; the video (WebM, MP4 for the browsers that cannot play it) starts after it and pauses off screen.
+
+On an emulated mid-range phone (390 x 844 at DPR 3, Chrome's CPU slowed 4 times, about 9 Mb/s down and 60 ms round
+trip; `.scratch/taste/phone-perf.ts`, three cold runs each), production after the merge: LCP 1,396, 1,492 and 1,428 ms,
+CLS 0, no long task. The local build measured 1,712, 1,324 and 1,308 ms the same way.
+
+**Replay smoothness, the same night.** The Eagle S Vessel view played at 42 to 46 fps on Windows Chrome (WebGPU), its
+ship's step change on screen 2.2 to 2.6 px (p95), against 57 fps and 0.22 px when PR 64 was measured. To tell the code
+from the machine, the PR 64 deployment and production's (e880aa5) were measured alternately on the same machine, one
+run each, twice (`windows-frame-pacing.ts`, the Vessel link above):
+
+| Run | PR 64 (006a7c7) | main (e880aa5) |
+| --- | --- | --- |
+| Playing 8 s, fps | 45.4, 39.2 | 37.6, 38.7 |
+| Frames over 25 ms | 114, 114 | 104, 101 |
+| Ship's step change on screen, p95 | 2.82, 1.65 px | 2.09, 2.53 px |
+
+The two builds play alike: the machine drew slower that night than when PR 64 measured 0.22 px, and no change since
+PR 64 slowed the replay.

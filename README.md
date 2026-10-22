@@ -304,7 +304,7 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 
 | Plan | Flow | What a regression there would break |
 | --- | --- | --- |
-| `console-01` | Front page, the newest case, open it | The way in: a card that opens the wrong case or a 3D view that never loads |
+| `console-01` | Front page, the list of cases, open the first | The way in: a case band that opens the wrong case or a 3D view that never loads |
 | `console-02` | Case list grouped by region, open Yi Peng 3 | Region grouping, sketches, the track-evidence line on each card |
 | `console-03` | Eagle S opens on its first position | The opening minute (10:26, not the window start), defaults, anchor status |
 | `console-04` | Play and pause | The clock moving, Pause holding it, the anchor status matching the minute |
@@ -320,7 +320,7 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 | `live-01` | Live globe, the Eagle S incident, Fly to the seabed | The recorded day loading, and the dive landing on the cut's minute and card |
 | `live-02` | Feed check on `/live` | The verdict text matching its state, with the 90% and 95% targets |
 | `live-03` | Zoom by sea: Planet, a sea, back up, a link to the Baltic, the Gulf of Finland | The busiest seas ranked, each tier's card, breadcrumb and address |
-| `landing-01` | The front page signed out | The live watch, its region states and crossings, with no account |
+| `landing-01` | The front page signed out | The hero replay jumping to a picked moment, every case on file, the recorder's live figures and regions, with no account |
 | `landing-02` | Open the console from the front page, sign in | The gate sending a reader to sign-in and back into the console |
 | `account-01` | The sign-in page | Google first and an email code, the gate's own wording |
 | `account-02` | A shared replay link, signed out | The link surviving sign-in, minute and card included |
@@ -333,8 +333,10 @@ browser tests in `testsprite/plans` are the suite. Each plan asserts what a read
 | `diagnostics-01` | WebGL check from the header, Measure again | The map and 3D probes rendering, the renderer and frame timings |
 | `routes-01` | `/api/health` signed out, then an unknown case signed in | The health contract and a 404 instead of a broken console |
 
-Every plan signs in with a Clerk test address (its code is always 424242 and no email is sent) before it opens an
-app page; `routes-01` reads `/api/health` signed out first. No plan depends on another, and each runs the same
+Every plan signs in with its own Clerk test address, `testsprite-<plan>+clerk_test@example.com` (its code is always
+424242 and no email is sent), before it opens an app page. Clerk limits verification code requests per address: with
+one shared address, 2 to 4 of the 29 tests in a run that starts them together were blocked at sign-in.
+`routes-01` reads `/api/health` signed out first. No plan depends on another, and each runs the same
 before and after the app goes behind sign-in. Each plan's steps and assertions were run with Playwright against
 cabletrace.vercel.app and against the sign-in gate's preview, at 1280 x 720: 20 of 20 passed on both. The newer ones were
 walked the same way: `director-01` and `director-02` passed every step on production, `live-03` 7 of 7 checks on a
