@@ -7,11 +7,11 @@ const CLERK_APPEARANCE = {
   // Under Tailwind's utilities (src/app/globals.css declares the layer order), so classes passed to Clerk win.
   cssLayerName: "clerk",
   variables: {
-    colorPrimary: "#141414",
-    colorText: "#141414",
-    colorTextSecondary: "#62625D",
-    colorBackground: "#FFFFFF",
-    colorInputBackground: "#F3F3F1",
+    colorPrimary: "#1C1A16",
+    colorText: "#1C1A16",
+    colorTextSecondary: "#5F584C",
+    colorBackground: "#FBF7EE",
+    colorInputBackground: "#F2EADA",
     colorDanger: "#D93A26",
     colorSuccess: "#2E9E5B",
     fontFamily: "var(--font-tiktok-sans), 'TikTok Sans Fallback', sans-serif",

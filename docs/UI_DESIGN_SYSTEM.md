@@ -12,16 +12,21 @@ Theme: light only for the first version. Palette approved by Andy on 2026-10-16 
 
 | Token | Hex | Use | Contrast |
 |---|---|---|---|
-| `page` | `#F3F3F1` | The field under everything. Warm neutral, never the cool `#F3F4F6` family. | |
-| `paper` | `#F9F1E2` | The sign-in, sign-up and account pages only: the median paper of Andy's engravings, so the art dissolves into the page (approved on the style board, 19 Oct 2026). The console and, since its redesign on 21 Oct 2026, the landing keep `page`. | `ink` 16.4:1, `muted` 5.5:1 on it |
-| `card` | `#FFFFFF` | Cards, list rows, the map frame | |
-| `soft` | `#E8E8E5` | Second buttons, segmented control track, disabled fill | |
-| `ink` | `#141414` | Text, icons, the main action fill | 18.4:1 on card, 16.7:1 on page |
-| `ink-hover` | `#2B2B29` | Main action on hover | |
-| `muted` | `#62625D` | Secondary text, unselected segments | 6.1:1 on card, 5.5:1 on page, 5.0:1 on soft |
-| `faint` | `#9A9A94` | Disabled text, decorative ticks. Never body text. | 2.8:1 on card |
+| `page` | `#F2EADA` | Parchment: the field under everything, the 1865 painting's sky lifted. | `ink` 14.5:1, `muted` 5.9:1 |
+| `paper` | `#F9F1E2` | The sign-in, sign-up and account pages: the median paper of Andy's engravings (style board, 19 Oct 2026). | `ink` 16.4:1, `muted` 5.5:1 on it |
+| `card` | `#FBF7EE` | Vellum: cards, list rows, the map frame (never pure white). | `ink` 16.2:1, `muted` 6.6:1 |
+| `soft` | `#E7DCC4` | Tan: second buttons, segmented control track, selected rows, disabled fill | `muted` 5.2:1 |
+| `ink` | `#1C1A16` | Sepia-black: text, icons, the main action fill | 16.2:1 on card, 14.5:1 on page |
+| `ink-hover` | `#36322A` | Main action on hover | |
+| `muted` | `#5F584C` | Secondary text, unselected segments | 6.6:1 on card, 5.9:1 on page, 5.2:1 on soft |
+| `faint` | `#A39A88` | Disabled text, decorative ticks. Never body text. | |
+| `slate` | `#2B2E2A` | The night sea: dark bands (the replay's dock and status, the cases page and the globe's field) | `page` 11.5:1, `mist` 6.0:1, `dusk` 7.8:1 on it |
+| `slate-raised` | `#3A3D38` | Controls and tracks on slate | |
+| `mist` | `#A9AD9F` | Secondary text on slate | 6.0:1 on slate |
+| `dusk` | `#DFBF84` | Accent on slate: play, playhead, the Discover Button's fill there | 7.8:1 on slate |
+| `brass` | `#8A6A2E` | Accent on light: links, focus rings. As text only on `card` (4.7:1; 4.2:1 on page) | |
 
-There is no brand accent. The interactive color is `ink`: one ink pill per view.
+The interface tones come from Robert Charles Dudley's *The Great Eastern Under Weigh, July 23rd, 1865*, the front page's painting (approved by Andy on the style board of 22 Oct 2026, replacing the grey `#F3F3F1` field and white cards). The interactive colour is still `ink` on light (one ink pill per view) and `dusk` on slate; `brass` marks links and focus. The data colours below did not change, and neither did the 3D scene.
 
 ### Data
 
@@ -127,6 +132,18 @@ One move runs longer than `duration-hero`: the live globe's dive to a cut (1,600
 - **Detection card.** A 10px `alarm` dot, the heading, the UTC time; a two-column list of the measured signals; Replay (main) and Dismiss (second).
 - **Icon rail.** A `page` capsule of 44px round targets, 20px icons at 1.6px stroke, no labels. The current page sits on a `card` disc with `shadow-selected`. New alerts show an 8px `alarm` dot.
 - **Icons.** One custom set: 20px grid, 1.6px stroke, round caps and joins.
+
+## ASCII layer
+
+Approved by Andy on the style board of 22 Oct 2026, after ascii-magic.com: Dudley's paintings redrawn as glyphs, each glyph in the colour of the patch it replaces (`AsciiPicture`, `src/components/ascii/AsciiPicture.tsx`; the arithmetic in `src/lib/ascii/ascii-grid.ts`). It fills what would be an empty field, never carries meaning (hidden from assistive technology), and never sits under body text at more than low contrast.
+
+- **Where.** Under the front page's painting (its sea carries on as glyphs into the parchment), as plates beside sections that had empty space, behind the replay's dock and status (faint night sea on slate), and behind the cases page and the live globe (night sea on slate).
+- **Glyphs.** `dense` ramp (` .:-=+*#%@`) for cells of 4 to 6 px, where shapes must read; `fine` for bigger cells. Brightness is stretched to the patch's own range; on a light ground the ramp is inverted so dark patches carry the glyphs. A line is 1.5 cells tall; ui-monospace.
+- **Fade.** The last rows thin out on a 4 x 4 Bayer pattern and pale toward the ground, so a band ends in the page without a gradient.
+- **Motion.** A plate on screen shimmers: 1.2% of its glyphs step one place on the ramp and back every 140 ms. Nothing moves under reduced motion or off screen.
+- **Cost.** One canvas draw per size change (a 1,440 by 200 px band is about 4,000 glyphs); the pictures are the 1,200 px files the page already serves.
+
+**Flip Text** (`src/components/ui/FlipText.tsx`, after ObsidianUI, MIT): a heading's letters turn once around their x axis and rise 8 px under the pointer, 400 ms `ease-enter`, CSS only. **Discover Button** (`src/components/ui/DiscoverButton.tsx`, after ObsidianUI, MIT): the main call to action, a pill whose arrow circle sweeps its fill across the label in 480 ms (a clip-path), `ink` on light and `dusk` on slate.
 
 ## Signature element: the signal
 

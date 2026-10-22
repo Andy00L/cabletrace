@@ -10,16 +10,25 @@
  */
 @theme {
   --color-*: initial;
-  --color-page: #F3F3F1;
-  /* The landing and sign-in pages' paper: the median paper of Andy's engravings, approved on the style board on
-     2026-10-19 (docs/UI_DESIGN_SYSTEM.md, Landing). The console keeps `page`. */
+  /* The interface tones come from Dudley's The Great Eastern Under Weigh (1865), the front page's painting: its sky
+     lifted to parchment and vellum, its night sea as slate, its dusk band as the accents. Approved by Andy on the
+     style board of 22 Oct 2026 (docs/UI_DESIGN_SYSTEM.md, Palette). The data colours below them did not change. */
+  --color-page: #F2EADA;
+  /* The sign-in and account pages' paper: the median paper of Andy's engravings (style board, 2026-10-19). */
   --color-paper: #F9F1E2;
-  --color-card: #FFFFFF;
-  --color-soft: #E8E8E5;
-  --color-ink: #141414;
-  --color-ink-hover: #2B2B29;
-  --color-muted: #62625D;
-  --color-faint: #9A9A94;
+  --color-card: #FBF7EE;
+  --color-soft: #E7DCC4;
+  --color-ink: #1C1A16;
+  --color-ink-hover: #36322A;
+  --color-muted: #5F584C;
+  --color-faint: #A39A88;
+  /* Dark bands (the replay's dock and status, the cases page and the globe's field), text on them in page or mist. */
+  --color-slate: #2B2E2A;
+  --color-slate-raised: #3A3D38;
+  --color-mist: #A9AD9F;
+  /* Accents: dusk on slate (play, playhead), brass on light (links, focus); brass text needs card under it (4.7:1). */
+  --color-dusk: #DFBF84;
+  --color-brass: #8A6A2E;
   --color-cable: #2F6BD8;
   --color-pipeline: #B66E12;
   --color-pipeline-text: #8A520D;
@@ -187,6 +196,100 @@ body {
   .landing-shutter,
   .landing-settle {
     animation: none;
+  }
+}
+
+/* Flip Text (src/components/ui/FlipText.tsx): a letter turns once around its x axis and rises 8 px under the pointer. */
+.flip-glyph {
+  display: inline-block;
+  transition: transform 400ms var(--ease-enter);
+}
+.flip-glyph:hover {
+  transform: translateY(-8px) rotateX(360deg);
+}
+
+/* Discover Button (src/components/ui/DiscoverButton.tsx): the arrow's circle sweeps across the label on hover or focus,
+   480 ms on ObsidianUI's own curve; a clip-path, so nothing relays. */
+.discover-button {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  min-height: 52px;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-card);
+  color: var(--color-ink);
+  font-size: var(--text-label);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: scale 140ms var(--ease-standard);
+}
+.discover-button:active {
+  scale: 0.98;
+}
+.discover-button:focus-visible {
+  outline: 2px solid var(--color-brass);
+  outline-offset: 3px;
+}
+.discover-fill {
+  position: absolute;
+  inset: 3px;
+  z-index: -1;
+  border-radius: 999px;
+  background: var(--color-ink);
+  clip-path: inset(0 calc(100% - 46px) 0 0 round 999px);
+  transition: clip-path 480ms cubic-bezier(0.65, 0, 0.076, 1);
+}
+.discover-icon {
+  display: grid;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  color: var(--color-card);
+  transition: transform 480ms cubic-bezier(0.65, 0, 0.076, 1);
+}
+.discover-label {
+  padding: 0 22px 0 6px;
+  transition: color 320ms var(--ease-standard);
+}
+.discover-button:hover .discover-fill,
+.discover-button:focus-visible .discover-fill {
+  clip-path: inset(0 0 0 0 round 999px);
+}
+.discover-button:hover .discover-icon,
+.discover-button:focus-visible .discover-icon {
+  transform: translateX(6px);
+}
+.discover-button:hover .discover-label,
+.discover-button:focus-visible .discover-label {
+  color: var(--color-card);
+}
+.discover-button-dusk {
+  background: var(--color-slate-raised);
+  color: var(--color-page);
+}
+.discover-button-dusk .discover-fill {
+  background: var(--color-dusk);
+}
+.discover-button-dusk .discover-icon,
+.discover-button-dusk:hover .discover-label,
+.discover-button-dusk:focus-visible .discover-label {
+  color: var(--color-slate);
+}
+@media (prefers-reduced-motion: reduce) {
+  .flip-glyph,
+  .discover-button,
+  .discover-fill,
+  .discover-icon,
+  .discover-label {
+    transition: none;
+  }
+  .flip-glyph:hover {
+    transform: none;
   }
 }
 
