@@ -31,6 +31,11 @@ export type ScenePalette = {
 type MeasuredRegion = {
   centre: { longitude: number; latitude: number };
   depthRamp: readonly [number, string][];
+  /**
+   * OKLCH lightness taken off the shallowest seabed stop, fading to none at the deepest (0 keeps look C's ramp as
+   * approved). Raised where the white casings of the data lines must stand out from light shallow water.
+   */
+  shallowDarkening: number;
   /** Land bands of the block: the shore (0 to 3 m), low land (3 to 30 m), high ground (over 30 m). */
   shoreBandHex: string;
   lowLandHex: string;
@@ -59,6 +64,7 @@ const BALTIC: MeasuredRegion = {
     [87.5, "#020B07"],
     [100, "#030B07"],
   ],
+  shallowDarkening: 0,
   shoreBandHex: "#1E2B1B",
   lowLandHex: "#1E2A19",
   highLandHex: "#172314",
@@ -80,6 +86,11 @@ const TAIWAN: MeasuredRegion = {
     [87.5, "#071420"],
     [100, "#050C16"],
   ],
+  // Hong Tai 58's cable runs over shallow water, where look C's ramp drew the ground #7D9CA9 and its white casing stood
+  // 2.92:1 from it on WebGPU, under the 3:1 the lookdev requires (docs/LOOKDEV.md). 0.1 darker at 5 m, and
+  // proportionally less down to the deepest stop (lightness 0.62 at 5 m to 0.49 at 100 m), keeps the hues and the
+  // shallow-light to deep-dark order and puts the hardware tier at 3.53:1; 0.06 reached only 3.32:1.
+  shallowDarkening: 0.1,
   shoreBandHex: "#3E4C3A",
   lowLandHex: "#4C5841",
   highLandHex: "#36432B",
@@ -174,8 +185,9 @@ function deriveBlockBase(topHex: string): string {
 
 /**
  * Look C for a region. Land: the shore band at the reference's sunlit slope, low land at its open ground, high ground
- * at its forest. Seabed: the measured hue of each depth stop, its lightness running from the sunlit slope at 5 m to the
- * shaded slope at the deepest stop (shallow clearly lighter than deep), at the open ground's chroma. Sky and haze: the
+ * at its forest. Seabed: the measured hue of each depth stop, its lightness running from the sunlit slope at 5 m (less
+ * the region's shallowDarkening) to the shaded slope at the deepest stop (shallow clearly lighter than deep), at the
+ * open ground's chroma. Sky and haze: the
  * reference's own. The hemisphere's ground light is the measured sea surface's hue at the open ground's tone.
  */
 function buildReferencePalette(region: MeasuredRegion): ScenePalette {
@@ -185,7 +197,8 @@ function buildReferencePalette(region: MeasuredRegion): ScenePalette {
   const lastStopIndex = Math.max(1, region.depthRamp.length - 1);
   const depthRamp = region.depthRamp.map(([stop, hex], index): [number, string] => {
     const share = index / lastStopIndex;
-    return [stop, oklchToHex({ lightness: sunlit.lightness + (shaded.lightness - sunlit.lightness) * share, chroma: openGround.chroma, hue: hexToOklch(hex).hue })];
+    const lightness = sunlit.lightness + (shaded.lightness - sunlit.lightness) * share - region.shallowDarkening * (1 - share);
+    return [stop, oklchToHex({ lightness, chroma: openGround.chroma, hue: hexToOklch(hex).hue })];
   });
   const blockTopHex = referenceMidToneHex(region.bareGroundHex, REFERENCE.sunlitSlopeHex);
   return {

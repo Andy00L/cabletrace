@@ -450,6 +450,29 @@ The branch as merged, two runs of each link, Windows Chrome on WebGPU:
 On WebGL on the same GPU (`--webgl`), the Vessel view with the anchor cam every frame played at 59.7 fps, one frame
 over 25 ms.
 
+### The follow camera's sight line (21 Oct 2026, night)
+
+Hai Hong Gong 66 is held in a bay of Dongyin, whose drawn slope rises 0.7 km within half a kilometre of the hull, and
+the Vessel view's follow camera stood behind it. The camera now tests the sight line from its spot to the deck against
+the drawn terrain (`chooseFollowBearing`, `src/lib/seabed/scene/follow-sight.ts`: 32 samples, the last 0.6 ship
+lengths next to the hull left out) and, when land cuts it, turns its offset about the ship to the nearest bearing that
+clears it, 15 degrees at a time either way, raising it only when no bearing clears. A bearing nearer the usual spot
+takes the camera back only once it clears by 0.1 ship lengths more, and the bearing eases on the follow easing (the
+short way round), so the camera travels round the hull and does not flip as the replay moves. The choice runs again
+only when the ship, its heading or the framing changed: one sight line (32 height samples) per frame of playback while
+the usual spot is clear, none while paused. At the usual bearing the offset is the starboard quarter's, computed as
+before, so no other case's frame moved (lookdev, docs/LOOKDEV.md).
+
+The shake fixed in PR 64 is judged by the ship's step change on screen while playing (`recordMotion`). The WSL
+hardware tier (Mesa d3d12, about 19 fps here, so its numbers are far above Windows Chrome's) with the same metric,
+Eagle S's Vessel view playing 8 s, one run each: main 7.72 px p95 (172 frames), branch 7.24 px (150 frames). Hai Hong
+Gong 66's Vessel view, the ship held: 0 px on both. The Windows Chrome run that measured 0.22 px (target 0.25 px or
+under) is pending, for the lead:
+
+```bash
+bun scripts/perf/windows-frame-pacing.ts http://localhost:3150 --runs 2 --slug "eagle-s-2024?t=2024-12-25T16:24Z&view=vessel&mode=evidence"
+```
+
 ## Not measured
 
 - Mobile devices and GPUs other than one: the 3D figures above are SwiftShader, the lookdev's hardware tier ran on
