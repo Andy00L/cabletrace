@@ -107,7 +107,7 @@ export function AnchorCamWindow({ driver, port, presentation, expandedWidthPx }:
   return (
     <section
       aria-label="Anchor cam"
-      className={`absolute top-4 right-4 z-(--layer-panel) overflow-hidden rounded-card bg-ink shadow-card ${presentation === "phone" ? "top-28 left-4" : ""}`}
+      className={`absolute top-4 right-4 z-(--layer-panel) overflow-hidden rounded-card bg-slate shadow-card ${presentation === "phone" ? "top-28 left-4" : ""}`}
       style={{ width }}
       data-testid="anchor-cam"
       data-state={isSwapped ? "swapped" : "anchor"}

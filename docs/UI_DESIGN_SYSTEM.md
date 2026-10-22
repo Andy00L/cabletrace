@@ -185,7 +185,7 @@ The case replay is one screen (boards 6 to 11 on the style board canvas). The do
 
 | Width | Layout |
 |---|---|
-| 1024 px and up | 56 px top bar on the `page` tone (mark, case switcher, place and date, the mode control Replay, Ship, Evidence, copy link, shortcuts). Under it the stage: the 3D view in one `card`-radius tile, 16 px from the edges. Over the stage's right edge the rail: 360 px of white cards, 16 px inset, folding away to give the view the whole width; the camera frames the subject in the clear part while it is open. Under the stage the dock: transport, timeline and three charts on the replay's time axis. |
+| 1024 px and up | 56 px top bar on the `page` tone (mark, case switcher, place and date, the mode control Replay, Ship, Evidence, copy link, shortcuts). Under it the stage: the 3D view in one `card`-radius tile, 16 px from the edges. Over the stage's right edge the rail: 360 px of vellum cards, 16 px inset, folding away to give the view the whole width; the camera frames the subject in the clear part while it is open. Under the stage the dock, a slate band (Dock and status, below): transport, timeline and three charts on the replay's time axis. |
 | 768 to 1023 px | The rail becomes a sheet over the stage's right side, opened from a button on the stage. The dock keeps the transport and the timeline; the charts move into Ship mode. |
 | Under 768 px | The stage takes the top of the screen, the transport and the timeline sit under it, and the rail's content lives in a bottom sheet with two snap points: folded, its handle and the mode switch (96 px); open, 85% of the screen with its content scrolling inside. Drag the header or press the handle; picking a mode, or a link that names one, opens it. Popovers become bottom sheets. The page never scrolls. 16 px gutter, 44 px targets. |
 
@@ -208,6 +208,16 @@ The director frames every shot on the overview scene with the storyboard's metho
 **Labels** keep 8 px inside the stage (a label cut by the edge slides back in; one mostly outside hides) and never sit on a control or card: the console marks those `data-label-blocker` (the stage controls, the status island, the rail, the anchor cam, the cards), and the label placer hides a label that would cover one (`labels.ts`, `hideOverlappingLabels`).
 
 While the 3D view loads, the stage shows one progress line in two parts, the seabed and then the ship and scene (`stage-loading`, `data-state` seabed or ship); the console's skeleton draws the same card at its first step.
+
+### Dock and status
+
+Approved by Andy on the style board of 22 Oct 2026 ("Dock and status" in slate): the dock and the anchor status are the console's two dark pieces; every card stays vellum on parchment.
+
+- **Dock** (`ConsoleDock`). A `slate` band with Dudley's night sea behind it as glyphs (`AsciiPicture`: the Albany painting's lower 26%, 6 px cells, `dense` ramp, every glyph 45% toward `slate`, shimmering). Measured on the 1440 x 900 render: glyphs stand at 1.3:1 against slate at the median, 1.7:1 at the 95th percentile, 2.1:1 at the brightest. Over bare glyphs `mist` text would keep only 3.5:1 at the 95th percentile, so every line of text in the dock carries a slate halo (2, 4, 4 and 8 px, as `map-label-halo` does in vellum) and the glyphs around a letter fall back to slate: behind the dock's `mist` text the ground then holds it at 4.3 to 5.2:1 at the 95th percentile and 4.1 to 4.5:1 at the 99th (6.0:1 at the median), `dusk` labels at 4.8:1 or more, `page` at 8.5:1 or more. The AIS strip's vellum card over the timeline drops the halo. The canvas draws once per size change and shimmers on its 140 ms timer, never per frame. The console's skeleton draws the dock in `slate` with `slate-raised` ghosts.
+- **Transport.** Play is a `dusk` disc with a `slate` glyph (7.8:1), `page` on hover; the UTC clock in `page`, "UTC" and the local time in `mist`.
+- **Timeline.** Track `slate-raised`, the played part `dusk`, the drag window `alarm` at 40% and `alarm` where played, event ticks `faint` (4.9:1) and faults `alarm`. The head is a `dusk` ring on `slate`; its focus ring is `slate` then `dusk`. A cut keeps the signature break marker (a `card` disc in an `alarm` ring); its label is `dusk` text, because `alarm` on slate is 3.0:1, enough for a mark, never for text.
+- **Anchor status** (`StatusIsland`). A `slate` pill with `page` text, the `alarm` dot and the countdown and chevron in `mist`. Opened, its quotes sit on `slate-raised` (`page` text 9.2:1, `mist` 4.8:1) and its source numbers are `dusk` links.
+- **Light parts.** Text links on `card` are `brass` (4.7:1) with a `brass` underline at 40%: the source numbers and "Ship details". On a selected row they turn `ink`, since brass on `soft` is 3.7:1. Selected rows (the current event, the open card's row in Evidence, the ship's name while its card is open, the current case in the switcher) sit on `soft`; hover stays `page`. The anchor cam's frame is `slate`.
 
 ### Layers
 
@@ -245,7 +255,16 @@ Evidence mode ends with the case file: `/cases/<slug>/case-file`, a JSON downloa
 
 ### Charts
 
-The dock's three charts share the timeline's window: speed over ground (`ink`), distance to the nearest mapped cable or pipeline (`cable`), and water under the ship (`muted` line over a `depth-40` fill, depth growing downward). A stretch bounded by a placed position is drawn dashed and the chart says how it was derived under its title; a stretch between two AIS fixes is solid. The drag window is a 5% `alarm` band, the cursor a 1 px `ink` line with a ring on the value. Built by `src/lib/cases/case-series.ts` on the server.
+The dock's three charts share the timeline's window: speed over ground, distance to the nearest mapped cable or pipeline, and water under the ship (a line over a fill, depth growing downward). A stretch bounded by a placed position is drawn dashed and the chart says how it was derived under its title; a stretch between two AIS fixes is solid. Built by `src/lib/cases/case-series.ts` on the server. Each surface has its own tones (`CaseCharts`, `surface`), every line at 3:1 or more against its ground:
+
+| | On `slate` (the dock) | On `card` (Ship mode under 1024 px) |
+|---|---|---|
+| Speed | `page` line, 11.5:1 | `ink` |
+| Nearest line | `cable` mixed 75% with `page` (`#608BD9`), 4.1:1; `cable` itself is 2.8:1 on slate | `cable` |
+| Water | `mist` line (6.0:1) over `mist` at 16% | `muted` line over `depth-40` |
+| Titles, units, axis, note | `page`; `mist` | `ink`; `muted`, axis `faint` |
+| Drag window | `alarm` at 10% | `alarm` at 5% |
+| Cursor | 1 px `page`, value ring on `slate` | 1 px `ink`, value ring on `card` |
 
 ### Components
 
@@ -255,7 +274,7 @@ Primitives are written in `src/components/ui/` on the tokens above. Behaviour co
 |---|---|---|
 | Dialog, Sheet | `@radix-ui/react-dialog` 1.3.1 (MIT), structure after shadcn/ui's dialog and sheet (MIT) | Written without `cn` or `tailwind-merge`: tailwind-merge would treat our `text-label` size and `text-ink` colour as one conflicting group. Tokens only; `scrim`; focus returns to the trigger. |
 | Popover | `@radix-ui/react-popover` 1.3.1 (MIT), structure after shadcn/ui's popover | Same rules; `shadow-popover`, radius `row`. |
-| Anchor status island | Idea from bencho.dev `dynamic-island` (MIT, Lorenzo Cabra, https://bencho.dev/blocks/dynamic-island) | Kept: the pill and its expanded card are one shape; width, height and corner transition together (`interpolate-size`, a snap where unsupported) and the content fades in. Dropped: the spring, the demo activities, `lucide-react`, the blur, the overshoot, the black fill (a white pill keeps one ink control per view). Code written here. |
+| Anchor status island | Idea from bencho.dev `dynamic-island` (MIT, Lorenzo Cabra, https://bencho.dev/blocks/dynamic-island) | Kept: the pill and its expanded card are one shape; width, height and corner transition together (`interpolate-size`, a snap where unsupported) and the content fades in. Dropped: the spring, the demo activities, `lucide-react`, the blur, the overshoot. The fill is `slate` since 22 Oct 2026 (Dock and status, above). Code written here. |
 | Timeline snapping | Idea from bencho.dev `time-scrubber` (MIT) | Kept: releasing the scrubber near an event or a cut lands on it. The ruler and fling were not adopted: the native range input keeps the keyboard and screen reader path the tests use. |
 | Toast | Idea from bencho.dev `toast-stack` (MIT) | One toast at a time ("Link copied"), bottom centre, `duration-standard`; no stack, no hover fan. |
 | Icons | `src/components/icons/` | One set drawn here on a 20 px grid, 1.6 px stroke, round caps and joins. No `lucide-react`. |

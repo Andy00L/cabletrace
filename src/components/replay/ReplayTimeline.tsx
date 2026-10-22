@@ -75,7 +75,10 @@ function toPercent(share: number): string {
   return `${(Math.min(1, Math.max(0, share)) * 100).toFixed(3)}%`;
 }
 
-/** Play, the clock in UTC with the local time under it, the track with the drag window, events and cuts. */
+/**
+ * Play, the clock in UTC with the local time under it. Drawn for the dock's slate band (docs/UI_DESIGN_SYSTEM.md,
+ * Console, Dock and status): play in dusk with a slate glyph (7.8:1), the clock in page, its notes in mist.
+ */
 export function ReplayTransport({ input, clock, localTime }: Pick<ReplayTimelineProps, "input" | "clock" | "localTime">) {
   const snapshot = useSyncExternalStore(clock.subscribe, clock.getSnapshot, clock.getSnapshot);
   const atMs = progressToTimeMs(input, snapshot.progress);
@@ -85,24 +88,24 @@ export function ReplayTransport({ input, clock, localTime }: Pick<ReplayTimeline
         type="button"
         onClick={clock.toggle}
         aria-label={snapshot.isPlaying ? "Pause replay" : "Play replay"}
-        className="grid size-11 flex-none place-items-center rounded-full bg-ink transition-colors duration-140 ease-standard hover:bg-ink-hover active:scale-[0.97]"
+        className="grid size-11 flex-none place-items-center rounded-full bg-dusk text-slate transition-colors duration-140 ease-standard hover:bg-page active:scale-[0.97]"
         data-testid="replay-play"
       >
         {snapshot.isPlaying ? (
           <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-            <path d="M6 4 V14 M12 4 V14" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" className="text-card" />
+            <path d="M6 4 V14 M12 4 V14" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
           </svg>
         ) : (
           <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-            <path d="M5.5 3.5 L14.5 9 L5.5 14.5 Z" fill="currentColor" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" className="text-card" />
+            <path d="M5.5 3.5 L14.5 9 L5.5 14.5 Z" fill="currentColor" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
           </svg>
         )}
       </button>
       <div className="flex min-w-0 flex-col gap-0.5">
         <p className="text-heading tabular-nums" data-testid="replay-clock">
-          {formatUtcClock(atMs)} <span className="text-label text-muted">UTC</span>
+          {formatUtcClock(atMs)} <span className="text-label text-mist">UTC</span>
         </p>
-        <p className="truncate text-caption font-normal text-muted tabular-nums">
+        <p className="truncate text-caption font-normal text-mist tabular-nums">
           {formatZonedDateTime(atMs, localTime.timeZone)} in {localTime.place}
         </p>
       </div>
@@ -113,7 +116,9 @@ export function ReplayTransport({ input, clock, localTime }: Pick<ReplayTimeline
 /**
  * The scrubber. It is a native range input laid over the drawn track, so it keeps keyboard and screen reader
  * support; the drawn head shows its focus ring. Releasing it next to an event or a cut lands on that moment, and
- * each cut's label under the track opens the cut's card.
+ * each cut's label under the track opens the cut's card. On slate: the track in slate-raised, the played part and
+ * the head in dusk, the drag window in alarm, event ticks in faint (4.9:1); a cut keeps the signature break marker (a
+ * vellum disc in an alarm ring) and its label is dusk, since alarm is 3.0:1 on slate, enough for a mark, never text.
  */
 export function ReplayTimeline({ input, events, clock, onCutSelect }: Omit<ReplayTimelineProps, "localTime">) {
   const snapshot = useSyncExternalStore(clock.subscribe, clock.getSnapshot, clock.getSnapshot);
@@ -149,16 +154,16 @@ export function ReplayTimeline({ input, events, clock, onCutSelect }: Omit<Repla
       {events.map((event) => (
         <span
           key={`${event.atMs}-${event.title}`}
-          className={`absolute top-0 -ml-px h-2.5 w-0.5 rounded-full ${event.kind === "cable-fault" ? "bg-alarm" : "bg-ink/35"}`}
+          className={`absolute top-0 -ml-px h-2.5 w-0.5 rounded-full ${event.kind === "cable-fault" ? "bg-alarm" : "bg-faint"}`}
           style={{ left: toPercent(timeMsToProgress(input, event.atMs)) }}
           aria-hidden="true"
         />
       ))}
-      <span className="absolute inset-x-0 top-5 h-1.5 rounded-full bg-soft" aria-hidden="true" />
+      <span className="absolute inset-x-0 top-5 h-1.5 rounded-full bg-slate-raised" aria-hidden="true" />
       {input.dragWindow && (
-        <span className="absolute top-5 h-1.5 rounded-full bg-alarm/22" style={{ left: toPercent(dragStartShare), width: toPercent(dragEndShare - dragStartShare) }} aria-hidden="true" />
+        <span className="absolute top-5 h-1.5 rounded-full bg-alarm/40" style={{ left: toPercent(dragStartShare), width: toPercent(dragEndShare - dragStartShare) }} aria-hidden="true" />
       )}
-      <span className="absolute top-5 left-0 h-1.5 rounded-full bg-ink" style={{ width: toPercent(snapshot.progress) }} aria-hidden="true" />
+      <span className="absolute top-5 left-0 h-1.5 rounded-full bg-dusk" style={{ width: toPercent(snapshot.progress) }} aria-hidden="true" />
       {input.dragWindow && dragPlayedShare > 0 && (
         <span className="absolute top-5 h-1.5 rounded-full bg-alarm" style={{ left: toPercent(dragStartShare), width: toPercent(dragPlayedShare) }} aria-hidden="true" />
       )}
@@ -182,7 +187,7 @@ export function ReplayTimeline({ input, events, clock, onCutSelect }: Omit<Repla
                 key={`${cut.cableName}-${cut.atMs}`}
                 type="button"
                 onClick={(event) => onCutSelect(index, event.currentTarget)}
-                className="rounded-chip px-1 py-0.5 text-micro whitespace-nowrap text-alarm tabular-nums transition-colors duration-140 ease-standard hover:bg-page"
+                className="rounded-chip px-1 py-0.5 text-micro whitespace-nowrap text-dusk tabular-nums transition-colors duration-140 ease-standard hover:bg-slate-raised"
                 data-testid={`timeline-cut-${index}`}
               >
                 {cut.label}, {formatUtcClock(cut.atMs)}
@@ -192,7 +197,7 @@ export function ReplayTimeline({ input, events, clock, onCutSelect }: Omit<Repla
         </span>
       ))}
       <span
-        className="absolute top-[13px] -ml-2.5 size-5 rounded-full border-2 border-ink bg-card shadow-selected peer-focus-visible:shadow-[0_0_0_2px_var(--color-card),0_0_0_4px_var(--color-ink)]"
+        className="absolute top-[13px] -ml-2.5 size-5 rounded-full border-2 border-dusk bg-slate peer-focus-visible:shadow-[0_0_0_2px_var(--color-slate),0_0_0_4px_var(--color-dusk)]"
         style={{ left: toPercent(snapshot.progress) }}
         aria-hidden="true"
       />
