@@ -33,11 +33,11 @@ function CasedPath({ path, className, width }: { path: string; className: string
   );
 }
 
-/** The top-down sketch: land, routes, the track with its drag stretch, and the cuts. */
+/** The top-down sketch: land (parchment, as on the live globe), routes, the track with its drag stretch, and the cuts. */
 export function CaseSketchMap({ sketch, vesselName }: { sketch: CaseSketch; vesselName: string }) {
   return (
     <svg viewBox={`0 0 ${SKETCH_WIDTH} ${SKETCH_HEIGHT}`} preserveAspectRatio="xMidYMid slice" role="img" aria-label={`Map of the ${vesselName} track and the cut cables`} className="block size-full">
-      <path d={sketch.landPath} className="fill-land" />
+      <path d={sketch.landPath} className="fill-page" />
       {sketch.lines.map((line, index) => (
         <CasedPath key={index} path={line.path} className={LINE_STYLES[line.kind].className} width={LINE_STYLES[line.kind].width} />
       ))}
