@@ -1,31 +1,13 @@
 import { glCamera, glLayer, type GlLayer } from "@/components/iso/gl";
-import type { SolidPaths } from "@/components/iso/iso-kit";
-import {
-  CABLE_SLOTS,
-  CHAIN_POINT_COUNT,
-  EMPTY_CABLE,
-  alongTransform,
-  buildAnchorArt,
-  buildCableArt,
-  buildChainArt,
-  buildFurrowArt,
-  buildRestingFrame,
-  keepCablesNear,
-  placeFlukes,
-  slideTransform,
-  type CableArt,
-  type ChainArt,
-  type FurrowRun,
-} from "@/components/landing/anchor-figure-frame";
+import { CHAIN_POINT_COUNT, alongTransform, buildRestingFrame, keepCablesNear, placeFlukes, slideTransform, type FurrowRun } from "@/components/landing/anchor-figure-frame";
 import { PLUME_FRAGMENT, plumeScreenBounds } from "@/components/landing/anchor-figure-plume";
-import { BLOCK, VIEW_HEIGHT, VIEW_WIDTH, buildFigureView } from "@/components/landing/anchor-figure-view";
+import { CHAIN_SLOTS, SEABED_SLOTS, buildChainSlots, buildSeabedSlots, type ChainSlot, type SeabedSlot } from "@/components/landing/anchor-figure-svg";
+import { BLOCK, TEXTURE_PERIOD_METRES, VIEW_HEIGHT, VIEW_WIDTH, buildFigureView } from "@/components/landing/anchor-figure-view";
 import {
-  PAID_OUT_MIN_METRES,
   describeCable,
   describeChainForSpeech,
   describeReadout,
   figureMetresPerSecond,
-  paidOutMaxMetres,
   readChainAt,
   stepCable,
   tourPaidOutAt,
@@ -37,7 +19,8 @@ import {
 // The anchor figure's motion, loaded by AnchorFigureLive only once the figure first comes into view, so the front
 // page's first load carries none of it (docs/PERFORMANCE.md, the 200 KB budget on `/`). One frame loop steps the model
 // (the seabed sliding aft, the chain following its target, cables snagging and parting, the furrow and the silt) and
-// writes attributes on the server-drawn SVG; React never re-renders per frame (the Anatomy kit's references/motion.md).
+// rewrites the drawing's slots (anchor-figure-svg.ts) with the builders that drew them; React never re-renders per
+// frame (the Anatomy kit's references/motion.md).
 
 // Seconds the shown chain length takes to follow its target (exponential follow).
 const CHAIN_FOLLOW_SECONDS = 0.35;
@@ -47,21 +30,6 @@ const TOUR_RESUME_MS = 3600;
 const LONGEST_FRAME_SECONDS = 1 / 30;
 // How long the silt takes to settle in or out (s).
 const PLUME_SETTLE_SECONDS = 0.6;
-
-/** The server-drawn nodes the engine writes to. */
-export type FigureNodes = {
-  stage: HTMLDivElement;
-  canvas: HTMLCanvasElement | null;
-  siltProbe: SVGPathElement | null;
-  slide: SVGGElement | null;
-  trough: SVGPathElement | null;
-  lips: SVGPathElement | null;
-  cables: (SVGGElement | null)[];
-  chain: Record<keyof ChainArt, SVGPathElement | null>;
-  anchorParts: (SVGGElement | null)[];
-  shackle: SVGPathElement | null;
-  stipple: SVGGElement | null;
-};
 
 export type FigureEngine = {
   /** Sets the reader's chain target (clamped), holds the tour off, and returns the target. */
@@ -91,14 +59,24 @@ type Scene = {
   clock: number;
 };
 
-/** Writes a solid's paths onto the matching children of its rendered group. */
-function writeSolid(group: SVGGElement | null, paths: SolidPaths) {
-  if (!group) return;
-  group.querySelector(".iso-fill")?.setAttribute("d", paths.fill);
-  group.querySelector(".iso-top")?.setAttribute("d", paths.top);
-  group.querySelector(".iso-crease")?.setAttribute("d", paths.crease);
-  group.querySelector(".iso-edge")?.setAttribute("d", paths.outline);
-  group.querySelectorAll<SVGPathElement>(".iso-shade").forEach((node) => node.setAttribute("d", paths.shades[Number(node.dataset.shade ?? 0)] ?? ""));
+/** Finds the drawing's slot groups by their `data-slot` names. */
+function findSlots<Name extends string>(stage: HTMLElement, names: readonly Name[]): Map<Name, SVGGElement> {
+  const found = new Map<Name, SVGGElement>();
+  for (const name of names) {
+    const node = stage.querySelector<SVGGElement>(`[data-slot="${name}"]`);
+    if (node) found.set(name, node);
+  }
+  return found;
+}
+
+/** Writes markup into slots, touching only those whose markup changed since the last write. */
+function writeSlots<Name extends string>(slots: Map<Name, SVGGElement>, markup: Record<Name, string>, written: Map<Name, string>) {
+  for (const [name, node] of slots) {
+    const next = markup[name];
+    if (written.get(name) === next) continue;
+    written.set(name, next);
+    node.innerHTML = next;
+  }
 }
 
 /** Settles a value toward a target with a critically damped spring (the kit's `settle`, kit/gl.mjs). */
@@ -130,10 +108,17 @@ function readProbeColour(probe: SVGPathElement | null): [number, number, number]
   return [red / 255, green / 255, blue / 255];
 }
 
-/** Starts the figure from the resting frame the server drew (buildRestingFrame), so the first frame changes nothing. */
-export function startFigureEngine(input: { facts: AnchorFigureFacts; nodes: FigureNodes; seabedPeriod: number; isStill: boolean }): FigureEngine {
-  const { facts, nodes, seabedPeriod } = input;
+/** Starts the figure from the resting frame the drawing shows (buildRestingFrame), so the first frame changes nothing. */
+export function startFigureEngine(input: { facts: AnchorFigureFacts; stage: HTMLDivElement; canvas: HTMLCanvasElement | null; isStill: boolean }): FigureEngine {
+  const { facts, stage } = input;
   const view = buildFigureView(facts);
+  const [leastPaidOut, mostPaidOut] = view.paidOutRange;
+  const chainSlots = findSlots<ChainSlot>(stage, CHAIN_SLOTS);
+  const seabedSlots = findSlots<SeabedSlot>(stage, SEABED_SLOTS);
+  const slide = stage.querySelector<SVGGElement>('[data-slot="slide"]');
+  const stipple = stage.querySelector<SVGGElement>('[data-slot="stipple"]');
+  const writtenChain = new Map<ChainSlot, string>();
+  const writtenSeabed = new Map<SeabedSlot, string>();
   const resting = buildRestingFrame(facts, view);
   const metresPerSecond = figureMetresPerSecond(facts);
   const scene: Scene = {
@@ -157,12 +142,12 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; nodes: Figu
   let drawnPaidOut = scene.shownPaidOut;
   let lastAnchor = resting.anchor;
 
-  const silt = readProbeColour(nodes.siltProbe);
+  const silt = readProbeColour(stage.querySelector<SVGPathElement>(".af-silt-probe"));
   // Without the token's colour there is no right ink for the cloud, so the SVG stipple stays instead.
   const layer: GlLayer | null =
-    nodes.canvas && silt
+    input.canvas && silt
       ? glLayer({
-          canvas: nodes.canvas,
+          canvas: input.canvas,
           fragment: PLUME_FRAGMENT,
           view: [VIEW_WIDTH, VIEW_HEIGHT],
           camera: glCamera(view.projection),
@@ -170,30 +155,21 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; nodes: Figu
           fixed: { uSilt: silt, uBlock: [BLOCK.x, BLOCK.x + BLOCK.w] },
         })
       : null;
-  if (layer) nodes.stage.setAttribute("data-gl", "");
+  if (layer) stage.setAttribute("data-gl", "");
 
   const draw = () => {
     if (Math.abs(scene.shownPaidOut - drawnPaidOut) > 0.02) {
       drawnPaidOut = scene.shownPaidOut;
       scene.reading = readChainAt(facts, scene.shownPaidOut, CHAIN_POINT_COUNT);
-      const chain = buildChainArt(view, scene.reading);
-      for (const key of Object.keys(nodes.chain) as (keyof ChainArt)[]) nodes.chain[key]?.setAttribute("d", chain[key]);
-      lastAnchor = buildAnchorArt(view, scene.reading);
-      lastAnchor.parts.forEach((paths, index) => writeSolid(nodes.anchorParts[index] ?? null, paths));
-      nodes.shackle?.setAttribute("d", lastAnchor.shackle);
+      const chain = buildChainSlots(view, scene.reading);
+      lastAnchor = chain.anchor;
+      writeSlots(chainSlots, chain.slots, writtenChain);
     }
-    nodes.slide?.setAttribute("transform", slideTransform(view, scene.travelled, seabedPeriod));
-    const furrow = buildFurrowArt(view, scene.runs, scene.travelled);
-    nodes.trough?.setAttribute("d", furrow.trough);
-    nodes.lips?.setAttribute("d", furrow.lips);
-    for (let index = 0; index < CABLE_SLOTS; index += 1) {
-      const cable = scene.cables[index];
-      const art = cable ? buildCableArt(view, cable, scene.travelled, lastAnchor.flukeTip[0]) : EMPTY_CABLE;
-      nodes.cables[index]?.querySelectorAll<SVGPathElement>("[data-part]").forEach((node) => node.setAttribute("d", art[node.dataset.part as keyof CableArt] ?? ""));
-    }
-    if (nodes.stipple) {
-      nodes.stipple.setAttribute("transform", alongTransform(view, lastAnchor.flukeTip[0]));
-      nodes.stipple.style.opacity = scene.plume.level.toFixed(3);
+    slide?.setAttribute("transform", slideTransform(view, scene.travelled, TEXTURE_PERIOD_METRES));
+    writeSlots(seabedSlots, buildSeabedSlots(view, { travelled: scene.travelled, runs: scene.runs, cables: scene.cables, anchor: lastAnchor }), writtenSeabed);
+    if (stipple) {
+      stipple.setAttribute("transform", alongTransform(view, lastAnchor.flukeTip[0]));
+      stipple.style.opacity = scene.plume.level.toFixed(3);
     }
     if (layer) {
       const currentRun = scene.runs.at(-1);
@@ -213,7 +189,7 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; nodes: Figu
     const text = describeReadout(facts, scene.reading, describeCable(scene.cables, placeFlukes(lastAnchor, scene.reading), scene.travelled));
     if (text !== shownText) {
       shownText = text;
-      const slot = nodes.stage.closest(".iso-plate")?.querySelector("[data-readout]");
+      const slot = stage.closest(".iso-plate")?.querySelector("[data-readout]");
       if (slot) slot.textContent = text;
     }
   };
@@ -225,7 +201,7 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; nodes: Figu
       scene.clock += dt;
       scene.travelled += metresPerSecond * dt;
       if (now - scene.lastTouchMs > TOUR_RESUME_MS && scene.clock > TOUR_FIRST_SECONDS) scene.isTouring = true;
-      if (scene.isTouring) scene.targetPaidOut = tourPaidOutAt(facts, scene.travelled);
+      if (scene.isTouring) scene.targetPaidOut = tourPaidOutAt(facts, scene.travelled, view.tourPaidOut);
     }
     const follow = isStill ? 1 : 1 - Math.exp(-dt / CHAIN_FOLLOW_SECONDS);
     scene.shownPaidOut += (scene.targetPaidOut - scene.shownPaidOut) * follow;
@@ -259,7 +235,7 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; nodes: Figu
 
   return {
     steer(paidOutMetres) {
-      const clamped = Math.min(paidOutMaxMetres(facts), Math.max(PAID_OUT_MIN_METRES, paidOutMetres));
+      const clamped = Math.min(mostPaidOut, Math.max(leastPaidOut, paidOutMetres));
       scene.isTouring = false;
       scene.lastTouchMs = performance.now();
       scene.targetPaidOut = clamped;
@@ -289,7 +265,7 @@ export function startFigureEngine(input: { facts: AnchorFigureFacts; nodes: Figu
       cancelAnimationFrame(frame);
       frame = 0;
       layer?.clear();
-      nodes.stage.removeAttribute("data-gl");
+      stage.removeAttribute("data-gl");
     },
   };
 }

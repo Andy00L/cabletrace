@@ -144,37 +144,56 @@ export function layCables(fromMetres: number, toMetres: number): CableState[] {
   return Array.from({ length: Math.max(0, last - first + 1) }, (_slot, index) => ({ worldMetres: (first + index) * CABLE_SPACING_METRES, phase: { kind: "lying" } }));
 }
 
-/** How far the ship has travelled when, with all the chain out, the anchor meets the cable at the track's start. */
-function readFirstSnagMetres(facts: AnchorFigureFacts): number {
-  return -placeAnchor(readChainAt(facts, paidOutMaxMetres(facts), 8)).aheadOfHawseMetres;
+/** How far the ship has travelled when, with `mostMetres` of chain out, the anchor meets the cable at the track's start. */
+function readFirstSnagMetres(facts: AnchorFigureFacts, mostMetres: number): number {
+  return -placeAnchor(readChainAt(facts, mostMetres, 8)).aheadOfHawseMetres;
+}
+
+/**
+ * The chain to pay out for a layback (m), by bisection on the model's own span (the layback grows with the chain paid
+ * out); held to the model's range. The figure pays out at most the chain that keeps its anchor inside the block.
+ */
+export function paidOutForLayback(facts: AnchorFigureFacts, laybackMetres: number): number {
+  let low = hawseHeightMetres(facts) + 0.5;
+  let high = paidOutMaxMetres(facts);
+  const laybackOf = (paidOut: number) => {
+    const reading = readChainAt(facts, paidOut, 4);
+    return reading.kind === "grounded" ? reading.laybackMetres : 0;
+  };
+  if (laybackOf(high) <= laybackMetres) return high;
+  for (let iteration = 0; iteration < 40; iteration += 1) {
+    const middle = (low + high) / 2;
+    if (laybackOf(middle) < laybackMetres) low = middle;
+    else high = middle;
+  }
+  return (low + high) / 2;
 }
 
 // The tour's hauled-in length: the anchor hangs about 20 m off the seabed in the Eagle S water (m).
 const TOUR_HAULED_IN_METRES = 45;
 
 /**
- * The idle tour, as the chain paid out over one loop of two cables: all the chain out while the even cables meet the
+ * The idle tour, as the chain paid out over one loop of two cables: the most chain out while the even cables meet the
  * anchor and part, hauled in right after so the anchor hangs clear while the odd cable passes under the hawse, then
  * paid out again once that cable is aft of the anchor's reach. The windows are shares of the loop counted from a snag,
  * chosen so no cable ever meets the anchor while the chain is moving.
  */
-export function tourPaidOutAt(facts: AnchorFigureFacts, travelledMetres: number): number {
-  const most = paidOutMaxMetres(facts);
+export function tourPaidOutAt(facts: AnchorFigureFacts, travelledMetres: number, most = paidOutMaxMetres(facts)): number {
   const loopMetres = 2 * CABLE_SPACING_METRES;
-  const share = ((((travelledMetres - readFirstSnagMetres(facts)) / loopMetres) % 1) + 1) % 1;
+  const share = ((((travelledMetres - readFirstSnagMetres(facts, most)) / loopMetres) % 1) + 1) % 1;
   const ease = (amount: number) => amount * amount * (3 - 2 * amount);
   const between = (from: number, to: number) => ease(Math.min(1, Math.max(0, (share - from) / (to - from))));
   return most - (most - TOUR_HAULED_IN_METRES) * (between(0.05, 0.155) - between(0.5, 0.8));
 }
 
 /**
- * The resting moment the server draws and reduced motion keeps: all the chain out, a cable just parted at the
+ * The resting moment the server draws and reduced motion keeps: the most chain the figure pays out, a cable just parted at the
  * anchor. Returns how far the ship has travelled and the cable as it lies then.
  */
-export function readRestingMoment(facts: AnchorFigureFacts): { travelledMetres: number; paidOutMetres: number; cables: CableState[] } {
-  const paidOutMetres = paidOutMaxMetres(facts);
+export function readRestingMoment(facts: AnchorFigureFacts, most = paidOutMaxMetres(facts)): { travelledMetres: number; paidOutMetres: number; cables: CableState[] } {
+  const paidOutMetres = most;
   // The cable at the start of the track is met by the anchor once the hawse is a layback past it; it parts a pull later.
-  const snagAt = readFirstSnagMetres(facts);
+  const snagAt = readFirstSnagMetres(facts, most);
   // Long enough after the snag that the parted ends have fallen clear of the flukes and read as two.
   const travelledMetres = snagAt + PART_PULL_METRES + 26;
   const cable: CableState = { worldMetres: 0, phase: { kind: "parted", atTravelledMetres: snagAt } };

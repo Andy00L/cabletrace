@@ -15,12 +15,12 @@
   --anatomy-muted: var(--color-muted);
   --anatomy-face: color-mix(in oklab, var(--color-paper), var(--color-card) 55%);
   --anatomy-top: color-mix(in oklab, var(--color-paper), var(--color-card) 22%);
-  --anatomy-shade-0: color-mix(in oklab, var(--color-paper), var(--af-ink) 27%);
-  --anatomy-shade-1: color-mix(in oklab, var(--color-paper), var(--af-ink) 18%);
-  --anatomy-shade-2: color-mix(in oklab, var(--color-paper), var(--af-ink) 11%);
-  --anatomy-shade-3: color-mix(in oklab, var(--color-paper), var(--af-ink) 5%);
+  --anatomy-shade-0: color-mix(in oklab, var(--color-paper), var(--af-ink) 42%);
+  --anatomy-shade-1: color-mix(in oklab, var(--color-paper), var(--af-ink) 30%);
+  --anatomy-shade-2: color-mix(in oklab, var(--color-paper), var(--af-ink) 19%);
+  --anatomy-shade-3: color-mix(in oklab, var(--color-paper), var(--af-ink) 9%);
   --anatomy-lit-top: color-mix(in oklab, var(--color-paper), var(--color-card) 70%);
-  --anatomy-lit-shade: color-mix(in oklab, var(--color-paper), var(--af-ink) 13%);
+  --anatomy-lit-shade: color-mix(in oklab, var(--color-paper), var(--af-ink) 24%);
   --anatomy-hi: var(--af-ink);
   --anatomy-mid: color-mix(in oklab, var(--af-ink) 74%, var(--color-paper));
   --anatomy-lo: color-mix(in oklab, var(--af-ink) 50%, var(--color-paper));
@@ -110,34 +110,90 @@
   visibility: hidden;
 }
 
-.af-furrow {
-  fill: var(--anatomy-shade-2);
+/* The water: a tint of the ink, deeper toward the seabed, under everything drawn in it. */
+.af-water {
   stroke: none;
 }
-.af-cable-body {
-  fill: var(--anatomy-top);
-  stroke: none;
+.af-water-stop-surface {
+  stop-color: var(--af-ink);
+  stop-opacity: 0.03;
 }
-.af-cable-shade {
+.af-water-stop-seabed {
+  stop-color: var(--af-ink);
+  stop-opacity: 0.13;
+}
+
+/* Clay in section, darker with depth; the boot top and the hawse pocket in the hull's darkest tone. */
+.af .af-clay-2 > .iso-fill {
+  fill: color-mix(in oklab, var(--color-paper), var(--af-ink) 12%);
+}
+.af .af-clay-1 > .iso-fill {
+  fill: color-mix(in oklab, var(--color-paper), var(--af-ink) 20%);
+}
+.af .af-clay-0 > .iso-fill {
+  fill: color-mix(in oklab, var(--color-paper), var(--af-ink) 28%);
+}
+.af .af-boottop > .iso-fill,
+.af .af-boottop > .iso-shade {
+  fill: var(--anatomy-shade-0);
+}
+.af-pocket {
+  fill: var(--anatomy-shade-0);
+  stroke: var(--anatomy-hi);
+  stroke-width: 0.5;
+}
+
+/* The furrow: its floor and far wall in shade, the berms of spoil a tone lighter. */
+.af-furrow-floor {
   fill: var(--anatomy-shade-1);
   stroke: none;
 }
-.af .af-cable-armour {
-  stroke-width: 0.45;
+.af-furrow-wall {
+  fill: var(--anatomy-shade-0);
+  stroke: none;
 }
+.af-berm {
+  fill: var(--anatomy-shade-2);
+  stroke: var(--anatomy-lo);
+  stroke-width: 0.35;
+  stroke-linejoin: round;
+}
+
+/* Stud links: paper with an ink rule, the eye in shade, the stud across it. */
+.af-link {
+  fill: var(--anatomy-top);
+  stroke: var(--anatomy-hi);
+  stroke-width: 0.5;
+  stroke-linejoin: round;
+}
+.af-link-eye {
+  fill: var(--anatomy-shade-1);
+  stroke: var(--anatomy-mid);
+  stroke-width: 0.3;
+}
+.af-stud {
+  fill: none;
+  stroke: var(--anatomy-hi);
+  stroke-width: 0.55;
+  stroke-linecap: round;
+}
+
+/* The one accent: the parted cable's torn core and the tips of its splayed armour wires. */
 .af .af-cut {
   stroke: var(--color-alarm);
-  stroke-width: 1.4;
-}
-.af .af-chain {
-  fill: var(--anatomy-paper);
-  stroke-width: 0.55;
-}
-.af .af-chain-stud {
-  stroke-width: 0.45;
-}
-.af .af-shackle {
   stroke-width: 0.9;
+}
+.af .af-torn > .iso-fill,
+.af .af-torn > .iso-top,
+.af .af-torn > .iso-shade {
+  fill: var(--color-alarm);
+}
+.af .af-torn > .iso-edge {
+  stroke: var(--color-alarm);
+}
+.af-fibres circle {
+  fill: var(--color-card);
+  opacity: 1;
 }
 .af .af-surface-hatch {
   stroke-width: 0.45;

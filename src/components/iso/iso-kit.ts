@@ -1,6 +1,6 @@
 // From the Anatomy kit (github.com/wheresryan22/anatomy, kit/iso-kit.ts), MIT licence: see ./LICENSE. The camera,
-// solids, lines and parts library, copied as they are; the SVG string and page builders and ISO_CSS are left out
-// (iso.css and draw.tsx cover them here).
+// solids, lines and parts library and the SVG string renderers (solidSvg, lineSvg and their helpers), copied as they
+// are; the page builders and ISO_CSS are left out (iso.css covers them here).
 
 export type Flat = [number, number];
 export type Point3 = [number, number, number];
@@ -502,3 +502,158 @@ export function fitProjection(points: Point3[], width: number, height: number, {
     elevation,
   };
 }
+const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const attrs = (pairs: Record<string, string | number | undefined | false>) =>
+  Object.entries(pairs)
+    .filter(([, value]) => value !== undefined && value !== false)
+    .map(([key, value]) => ` ${key}="${escape(String(value))}"`)
+    .join("");
+
+export interface SolidStyle {
+  tone?: Tone;
+  crease?: Tone | "none";
+  halo?: boolean;
+  lit?: boolean;
+  flat?: boolean;
+  className?: string;
+  inner?: string;
+}
+
+export function solidSvg(paths: SolidPaths, { tone = "hi", crease = "faint", halo = false, lit = false, flat = false, className, inner = "" }: SolidStyle = {}) {
+  const parts: string[] = [];
+  if (halo) parts.push(`<path class="iso-halo" d="${paths.fill}"/>`);
+  parts.push(`<path class="iso-fill" d="${paths.fill}"/>`);
+  if (!flat) {
+    paths.shades.forEach((d, shade) => {
+      if (d) parts.push(`<path class="iso-shade" data-shade="${shade}" d="${d}"/>`);
+    });
+    parts.push(`<path class="iso-top" d="${paths.top}"/>`);
+  }
+  if (crease !== "none" && paths.crease) parts.push(`<path class="iso-line iso-crease" data-tone="${crease}" d="${paths.crease}"/>`);
+  if (crease !== "none" && paths.bevel) parts.push(`<path class="iso-line iso-bevel" data-tone="${crease}" d="${paths.bevel}"/>`);
+  if (inner) parts.push(inner);
+  parts.push(`<path class="iso-line iso-edge" data-tone="${tone}" d="${paths.outline}"/>`);
+  return `<g${attrs({ class: className ? `iso-solid ${className}` : "iso-solid", "data-lit": lit ? "" : undefined, "data-seamless": paths.seamless ? "" : undefined })}>${parts.join("")}</g>`;
+}
+
+export interface LineStyle {
+  tone?: LineTone;
+  dotted?: boolean;
+  dashed?: boolean;
+  flow?: boolean;
+  className?: string;
+  free?: boolean | "start" | "end";
+}
+
+export function lineSvg(d: string, { tone = "lo", dotted = false, dashed = false, flow = false, className, free }: LineStyle = {}) {
+  if (!d) return "";
+  return `<path${attrs({
+    class: className ? `iso-line ${className}` : "iso-line",
+    "data-tone": tone,
+    "data-free": free === true ? "" : free || undefined,
+    "data-dotted": dotted ? "" : undefined,
+    "data-dashed": dashed ? "" : undefined,
+    "data-flow": flow ? "" : undefined,
+    d,
+  })}/>`;
+}
+
+export function dotsSvg(points: Array<Flat | [number, number, number]>, { size = 0.5, tone = "mid", pulse = false }: { size?: number; tone?: Tone; pulse?: boolean } = {}) {
+  const dots = points
+    .map(([x, y, alpha]: number[], index) => `<circle cx="${tenth(x)}" cy="${tenth(y)}" r="${size}"${alpha !== undefined && alpha < 1 ? ` fill-opacity="${Math.max(0, alpha).toFixed(2)}"` : ""}${pulse ? ` data-pulse="" style="--pulse-at:${(index * 137) % 1600}ms"` : ""}/>`)
+    .join("");
+  return `<g class="iso-dots" data-tone="${tone}">${dots}</g>`;
+}
+
+export type Faded = { d: string; alpha: number } | [string, number];
+
+export function fadedSvg(list: Faded[], style: LineStyle = {}) {
+  const groups = new Map<number, string>();
+  for (const entry of list) {
+    const [d, alpha] = Array.isArray(entry) ? entry : [entry.d, entry.alpha];
+    if (!d || !(alpha > 0.02)) continue;
+    const level = Math.min(1, Math.round(alpha * 20) / 20);
+    groups.set(level, (groups.get(level) ?? "") + d);
+  }
+  return [...groups].map(([alpha, d]) => (alpha >= 1 ? lineSvg(d, style) : `<g opacity="${alpha.toFixed(2)}">${lineSvg(d, style)}</g>`)).join("");
+}
+
+export interface FadeLineStyle {
+  fade?: number | [number, number];
+  tone?: LineTone;
+  className?: string;
+  stops?: number;
+}
+
+export function fadeLineSvg(points: Flat[], { fade = [0, 0], tone = "lo", className, stops = 6 }: FadeLineStyle = {}) {
+  if (points.length < 2) return "";
+  const ease = (t: number) => t * t * (3 - 2 * t);
+  const hashOf = (text: string) => {
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
+    return (hash >>> 0).toString(36);
+  };
+  const lengths = [0];
+  for (let index = 1; index < points.length; index++) lengths.push(lengths[index - 1] + Math.hypot(points[index][0] - points[index - 1][0], points[index][1] - points[index - 1][1]));
+  const at = (length: number): Flat => {
+    let index = 1;
+    while (index < points.length - 1 && lengths[index] < length) index++;
+    const span = lengths[index] - lengths[index - 1] || 1;
+    const t = Math.max(0, Math.min(1, (length - lengths[index - 1]) / span));
+    return [points[index - 1][0] + (points[index][0] - points[index - 1][0]) * t, points[index - 1][1] + (points[index][1] - points[index - 1][1]) * t];
+  };
+  const pieceOf = (from: number, to: number): Flat[] => [at(from), ...points.filter((_, index) => lengths[index] > from + 1e-6 && lengths[index] < to - 1e-6), at(to)];
+  const total = lengths[lengths.length - 1];
+  if (total < 1e-6) return "";
+  let [start, end] = Array.isArray(fade) ? fade : [fade, fade];
+  if (start + end > total) {
+    const share = total / (start + end);
+    start *= share;
+    end *= share;
+  }
+  const paint = `var(--anatomy-${tone})`;
+  const ramp = (piece: Flat[], rising: boolean) => {
+    const d = pathOf(piece);
+    const [x1, y1] = piece[0];
+    const [x2, y2] = piece[piece.length - 1];
+    const id = `iso-fade-${hashOf(`${d}|${tone}|${rising}`)}`;
+    const marks = Array.from({ length: stops + 1 }, (_, index) => {
+      const t = index / stops;
+      const alpha = ease(rising ? t : 1 - t);
+      return `<stop offset="${t.toFixed(3)}" stop-opacity="${alpha.toFixed(3)}" style="stop-color:${paint}"/>`;
+    }).join("");
+    const gradient = `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${tenth(x1)}" y1="${tenth(y1)}" x2="${tenth(x2)}" y2="${tenth(y2)}">${marks}</linearGradient>`;
+    return `<defs>${gradient}</defs><path${attrs({ class: className ? `iso-line ${className}` : "iso-line", "data-tone": tone, "data-free": rising ? "start" : "end", d, style: `stroke:url(#${id})` })}/>`;
+  };
+  const parts: string[] = [];
+  if (start > 0.05) parts.push(ramp(pieceOf(0, start), true));
+  if (total - end - start > 0.05) parts.push(lineSvg(pathOf(pieceOf(start, total - end)), { tone, className }));
+  if (end > 0.05) parts.push(ramp(pieceOf(total - end, total), false));
+  return `<g class="iso-fade">${parts.join("")}</g>`;
+}
+
+export interface WireStyle {
+  via?: Flat[];
+  tone?: LineTone;
+  dotted?: boolean;
+  dashed?: boolean;
+  flow?: boolean;
+  ends?: "both" | "from" | "to" | "none";
+  size?: number;
+}
+
+export function wireSvg(from: Flat, to: Flat, { via = [], tone = "lo", dotted = false, dashed = false, flow = false, ends = "both", size = 1.2 }: WireStyle = {}) {
+  const d = pathOf([from, ...via, to]);
+  const end = ([x, y]: Flat) => `<circle class="iso-wire-end" cx="${tenth(x)}" cy="${tenth(y)}" r="${size}"/>`;
+  return `<g class="iso-wire" data-tone="${tone}">${lineSvg(d, { tone, dotted, dashed, flow })}${ends === "both" || ends === "from" ? end(from) : ""}${ends === "both" || ends === "to" ? end(to) : ""}</g>`;
+}
+
+export function faceTextSvg(transform: string, text: string, { size = 3, tone = "mid", anchor = "start" }: { size?: number; tone?: Tone; anchor?: "start" | "middle" | "end" } = {}) {
+  return `<text class="iso-face-text" data-tone="${tone}" transform="${transform}" font-size="${size}" text-anchor="${anchor}">${escape(text)}</text>`;
+}
+
+export function groupSvg(children: string | string[], extra: Record<string, string | number | undefined | false> = {}) {
+  return `<g${attrs(extra)}>${Array.isArray(children) ? children.join("") : children}</g>`;
+}
+
