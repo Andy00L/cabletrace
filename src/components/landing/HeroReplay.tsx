@@ -50,8 +50,8 @@ export function HeroReplay({ footage, events, listTitle, consoleHref, listClassN
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasFirstFrame, setHasFirstFrame] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(-1);
-  const desktopFile = footage.files.desktop.console;
-  const phoneFile = footage.files.phone.console;
+  const desktopFile = footage.files.desktop;
+  const phoneFile = footage.files.phone;
 
   // Syncs with the video element, matchMedia, IntersectionObserver and the animation frame clock, none of which React
   // owns: picks the cut for this screen, starts it unless motion is reduced, pauses it off screen, and writes the clock
@@ -61,7 +61,7 @@ export function HeroReplay({ footage, events, listTitle, consoleHref, listClassN
     const stage = stageRef.current;
     if (!video || !stage) return;
     // WebM first, MP4 for the browsers that cannot play it: the element takes the first source it can decode.
-    const file = footage.files[readFootageCrop()].console;
+    const file = footage.files[readFootageCrop()];
     video.replaceChildren(
       ...[
         { src: file.webm, type: "video/webm" },
@@ -206,9 +206,13 @@ export function HeroReplay({ footage, events, listTitle, consoleHref, listClassN
                   type="button"
                   onClick={() => seekToSeconds(findVideoSecondsForReplayTime(footage, event.atMs))}
                   aria-current={isCurrent ? "step" : undefined}
-                  className={`grid min-h-11 w-full grid-cols-[56px_minmax(0,1fr)] items-baseline gap-x-3 rounded-field px-3 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-card ${isCurrent ? "bg-card" : ""}`}
+                  className={`grid min-h-11 w-full grid-cols-[64px_minmax(0,1fr)] items-baseline gap-x-3 rounded-field px-3 py-2.5 text-left transition-colors duration-140 ease-standard hover:bg-card ${isCurrent ? "bg-card" : ""}`}
                 >
-                  <span className={`text-label tabular-nums ${isCurrent ? "text-alarm" : "text-muted"}`}>{formatUtcClock(event.atMs)}</span>
+                  {/* The playing moment's time in ink with an alarm dot: alarm text on card is 4.3:1, under the 4.5:1 small text needs. */}
+                  <span className={`flex items-center gap-1.5 text-label tabular-nums ${isCurrent ? "text-ink" : "text-muted"}`}>
+                    {formatUtcClock(event.atMs)}
+                    {isCurrent && <span className="size-1.5 flex-none rounded-full bg-alarm" aria-hidden="true" />}
+                  </span>
                   <span className="text-body text-ink">{event.title}</span>
                 </button>
               </li>
