@@ -388,6 +388,25 @@ loads, compressed; a one-minute scrub to the next drawn frame, median of 12): Ja
 scrub medians 327, 255 and 211 ms against 385, 308 and 496 ms. `bun run perf`: the 3D probe on `/diagnostics` measured
 4,685 ms (budget 6,000 ms) at a 68 ms average software frame.
 
+**A picture a pixel off its labels (22 Oct 2026, software tier).** Hai Hong Gong 66's software frames came out one of
+two ways on the same build: the overview 0.09% or 1.55% from its baseline, the Vessel view 0.05% or 2.20%. The failing
+frames differed along every near-horizontal edge (the block's far rim, the land contours, Dongyin, the cables, the hull,
+the horizon), about 1 px vertically, while the labels held still and the camera pose, the canvas box and its 1,056 x 451
+backing matched. The terrain was not the cause: every capture took the same half grid (151 x 115) from the terrain
+worker. The GL viewport was: 452 rows in the passing frames, 451 in the failing ones. three.js rounds the canvas's
+scaled size in `setSize` (602 CSS px at the software tier's pixel ratio of 0.75 is 451.5 rows: 452) and floors it when
+a render target hands the canvas back (`setRenderTarget(null)`; `WebGLRenderer.js` lines 820 and 3047 in r186). The
+software tier builds its room environment with `PMREMGenerator` after the first frame (`completeScene`), which ends on
+that floor, and the console's right inset reaches the viewer through React (`setRightInset`, which calls `setSize`)
+either before or after it. Whichever came last held. The WebGL renderer now sets `setSize`'s viewport before every stage
+picture (`src/lib/render/webgl-scene-renderer.ts`, `draw`); the tiers that draw shadows still floor it inside
+`render()`, as on every frame before, and at a pixel ratio of 1 the two agree. After the fix: 5 runs of both shots,
+exit 0, the same bytes each time (0.09% and 0.05%). Full software and hardware runs match 21 of 27 and 25 of 27
+committed baselines; the other eight (Rubymar's two frames on each tier, redrawn in PR 74, and four software overviews
+whose labels took the Dudley palette in PR 76) missed theirs on `main` before this change, at either viewport. With the
+stage viewport floored to 451 rows in the page, the build draws Hai Hong Gong's failing overview again (1.55%) and
+Svalbard's software overview at 3.28% against its baseline (0.29% at 452): its single 3.23% reading above was this race.
+
 ## Landing footage
 
 `bun run footage` (`scripts/landing-footage/`) records the front page's pictures from the real console, on the WSL
