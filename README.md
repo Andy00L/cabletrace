@@ -26,7 +26,7 @@
 
 | A recorded day of the world's ships (`/live`)                           | Every quote copied from a source                                   |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| ![The live globe with 10,126 ships, the world's submarine cables and pipelines, the cuts on file and the anchor-drag watch](docs/screenshots/05-live-globe.png) | ![The sources sheet of the Eagle S case](docs/screenshots/04-sources.png) |
+| ![The live globe with 12,373 ships, the world's submarine cables and pipelines, the cuts on file and the anchor-drag watch](docs/screenshots/05-live-globe.png) | ![The sources sheet of the Eagle S case](docs/screenshots/04-sources.png) |
 
 ## 🎯 The problem
 
@@ -347,6 +347,14 @@ format: the health contract, and the sign-in gate (only the front page and `/api
 the APIs refuse it with 401, the pages redirect toward sign-in). Both pass with `python3 testsprite/backend/<file>.py`
 against the live app and wait for a TestSprite backend project, since this one is a frontend project. A manual run against any URL is `.github/workflows/testsprite.yml`,
 started from the Actions tab.
+
+**Runs.** The check caught a real failure before it went green: on
+[PR 67](https://github.com/Andy00L/cabletrace/pull/67) 2 tests were blocked at sign-in, because every plan shared one
+Clerk test address and Clerk limits verification codes per address.
+[PR 73](https://github.com/Andy00L/cabletrace/pull/73) gave each plan its own address, and its run passed every test;
+[PR 74](https://github.com/Andy00L/cabletrace/pull/74) passed again. The portal holds the 28 plans above plus the one
+test TestSprite generated itself, 29 in all. From PR 75 on, the account had 4 credits left against the 14.5 a full run
+needs, so those pull requests show the check failing for credits, not for a test.
 
 ## 📚 Data sources and licences
 
