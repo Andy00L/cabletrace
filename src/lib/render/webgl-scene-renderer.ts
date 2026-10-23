@@ -102,6 +102,8 @@ export function createWebGlSceneRenderer(kind: RendererKind, budget: DrawingBudg
   // line would blend into the seabed and lose its exact colour; scaled by nearest pixel it keeps it (and the tier has
   // no antialiasing to lose).
   if (kind === "software") renderer.domElement.style.imageRendering = "pixelated";
+  // The stage's size in CSS px, read again before each picture.
+  const stageSize = new THREE.Vector2();
   return {
     ok: true,
     value: {
@@ -113,19 +115,26 @@ export function createWebGlSceneRenderer(kind: RendererKind, budget: DrawingBudg
       setSize: (widthPx, heightPx) => renderer.setSize(widthPx, heightPx),
       draw(scene, camera) {
         renderer.shadowMap.needsUpdate = true;
+        // Every stage picture gets the viewport setSize gives the canvas. three rounds the scaled size there (602 CSS px
+        // at the software tier's 0.75 is 451.5 rows: 452) but floors it when a render target hands the canvas back
+        // (setRenderTarget(null), as PMREMGenerator does after createEnvironment: 451). Whichever came last held, so
+        // the rail's inset arriving before or after the refinement's environment moved the picture a pixel against
+        // its labels (lookdev, Hai Hong Gong 66, 22 Oct 2026; docs/LOOKDEV.md). A shadow pass inside render() still
+        // floors it on the tiers that draw shadows, as it did on every frame before.
+        renderer.getSize(stageSize);
+        renderer.setViewport(0, 0, stageSize.x, stageSize.y);
         renderer.render(scene, camera);
       },
       openSecondPicture(windowCanvas) {
         const windowContext = windowCanvas.getContext("2d");
         if (!windowContext) return { ok: false, reason: "the window's canvas gave no 2D context" };
-        const stageSize = new THREE.Vector2();
         return {
           ok: true,
           value: {
             isDrawnAfterStage: false,
             draw(scene, camera, widthPx, heightPx) {
               // three's viewport counts CSS px from the bottom left: the picture lands in that corner, the main frame
-              // clears it afterwards.
+              // clears it afterwards and sets the stage's viewport again (draw above).
               renderer.getSize(stageSize);
               const cornerWidthPx = Math.min(widthPx, stageSize.x);
               const cornerHeightPx = Math.min(heightPx, stageSize.y);
@@ -134,7 +143,6 @@ export function createWebGlSceneRenderer(kind: RendererKind, budget: DrawingBudg
               renderer.setScissorTest(true);
               renderer.render(scene, camera);
               renderer.setScissorTest(false);
-              renderer.setViewport(0, 0, stageSize.x, stageSize.y);
               const pixelRatio = renderer.getPixelRatio();
               const pictureWidth = Math.max(1, Math.round(cornerWidthPx * pixelRatio));
               const pictureHeight = Math.max(1, Math.round(cornerHeightPx * pixelRatio));
