@@ -18,7 +18,7 @@ function buildSourceSet(name: ArtName, format: "avif" | "webp"): string {
 }
 
 /**
- * One of Andy's engravings as a responsive picture: AVIF then WebP, the phone cut under 768 px. Its box keeps the
+ * One of the engravings as a responsive picture: AVIF then WebP, the phone cut under 768 px. Its box keeps the
  * piece's ratio, so nothing shifts while it loads over the bare paper.
  */
 export function ArtPicture({ desktop, phone, alt, className = "" }: ArtPictureProps) {

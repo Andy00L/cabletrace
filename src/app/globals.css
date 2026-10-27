@@ -11,10 +11,10 @@
 @theme {
   --color-*: initial;
   /* The interface tones come from Dudley's The Great Eastern Under Weigh (1865), the front page's painting: its sky
-     lifted to parchment and vellum, its night sea as slate, its dusk band as the accents. Approved by Andy on the
+     lifted to parchment and vellum, its night sea as slate, its dusk band as the accents. Chosen on the
      style board of 22 Oct 2026 (docs/UI_DESIGN_SYSTEM.md, Palette). The data colours below them did not change. */
   --color-page: #F2EADA;
-  /* The sign-in and account pages' paper: the median paper of Andy's engravings (style board, 2026-10-19). */
+  /* The sign-in and account pages' paper: the median paper of the engravings (style board, 2026-10-19). */
   --color-paper: #F9F1E2;
   --color-card: #FBF7EE;
   --color-soft: #E7DCC4;

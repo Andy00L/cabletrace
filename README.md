@@ -197,7 +197,7 @@ Evidence:
   and all ten cases at 1440 x 900, 1280 x 720 and 1024 x 768; the 3D view covers 65.4% of a 1440 x 900 screen.
 - **The 3D look is checked frame by frame.** `bun scripts/lookdev/run-lookdev.ts` renders 72 fixed frames on the
   software, WebGL GPU and WebGPU tiers (the WebGPU frames through Windows Chrome on a real adapter), compares them
-  with baselines Andy approved on 18 Oct 2026 and samples the data colours: on both GPU tiers 102 of 104 cable probes
+  with baselines approved on 18 Oct 2026 and samples the data colours: on both GPU tiers 102 of 104 cable probes
   and all 174 alarm probes land within 2 levels of their token (0 of 457 cable probes did before). When the GEBCO
   seabeds were smoothed and the two trawlers got fishing hulls, the software tier failed exactly the 9 frames those
   changes moved and passed the other 15 (`docs/LOOKDEV.md`).

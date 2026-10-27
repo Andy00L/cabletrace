@@ -1,4 +1,4 @@
-// Builds the sign-in and account art from Andy's globe engraving (ui-design/references/landing-art/, gitignored):
+// Builds the sign-in and account art from the globe engraving (ui-design/references/landing-art/, gitignored):
 // each piece is cropped inside its printed plate mark, its paper is moved onto the page's paper tone, and it is written
 // to public/art/ as AVIF and WebP at the widths the page asks for (the landing's two other engravings left it in its
 // redesign, 21 Oct 2026). No blurred placeholder: a blur of fine engraved lines

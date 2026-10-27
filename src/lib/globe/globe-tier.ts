@@ -1,6 +1,6 @@
 import type { BoundingBox } from "@/lib/regions/region";
 
-// The /live globe's zoom tiers (plan/prompts/world-watch.md section 2, chosen by Andy on 20 Oct 2026): zoom by sea, not
+// The /live globe's zoom tiers (plan/prompts/world-watch.md section 2, chosen on 20 Oct 2026): zoom by sea, not
 // by land. One camera, four tiers: the Planet (ship density, busiest seas), a Sea (ships as dots, its watched regions),
 // a Strait (a watched region's ships up close), and the Ship (the selected ship). The first three follow the camera's
 // distance; the Ship tier is the camera following a picked ship (GlobeViewer.followShip).

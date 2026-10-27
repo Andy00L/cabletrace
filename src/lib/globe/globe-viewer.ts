@@ -92,7 +92,7 @@ const DENSITY_DEPTH_BIAS = 0.06;
 // The dot sizes are for a stage about this tall (CSS px); a smaller stage (a phone) draws them smaller, down to this share.
 const DENSITY_REFERENCE_STAGE_PX = 900;
 const DENSITY_MIN_STAGE_SHARE = 0.55;
-// Andy's pick on board 25 (20 Oct 2026): the approved water teal, so the field reads as ships at sea, not as data ink.
+// Picked on board 25 (20 Oct 2026): the approved water teal, so the field reads as ships at sea, not as data ink.
 const DENSITY_TONE = WEBGL_COLORS.density;
 const DENSITY_ALPHA = 0.78;
 // The watched regions' outlines, just above the cables, from the Sea tier down: ink at a low opacity, so a box reads as
@@ -104,7 +104,7 @@ const REGION_OUTLINE_LIFT = 1.0008;
 const OUTLINE_POINTS_PER_DEGREE = 2;
 // Sea names show while the density field does, and only on the side facing the camera.
 const SEA_LABEL_MIN_SHARE = 0.5;
-// The fault ripple (src/lib/globe/fault-ripples.ts, approved by Andy on 20 Oct 2026): two alarm rings growing out of a
+// The fault ripple (src/lib/globe/fault-ripples.ts, approved on 20 Oct 2026): two alarm rings growing out of a
 // cable over 3.2 s, half a period apart, on a sprite this wide (CSS px). It is the globe's third ambient loop, after the
 // live ping and the cable signal; a calm globe (reduced motion, or a CPU renderer) draws one still ring instead.
 const RIPPLE_PX = 64;

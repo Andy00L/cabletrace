@@ -1,7 +1,7 @@
 import { SCENE_COLORS } from "@/lib/seabed/scene/scene-colors";
 import type { SeabedRegion } from "@/lib/seabed/terrain";
 
-// The 3D replay's environment colours: natural look C, "reference mid-tone", approved by Andy on 19 Oct 2026
+// The 3D replay's environment colours: natural look C, "reference mid-tone", approved on 19 Oct 2026
 // (plan/next-reset.md, choice 5). Each sampled region's hues, measured from imagery of the place, at the lightness and
 // chroma of the FireTrace reference's terrain (ui-design/references/round-2/3-firetrace-incident-colors-depth.webp); its
 // sky and haze are the reference's own pixels. The water is water B (choice 7, water-surface.ts). An area that was not

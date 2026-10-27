@@ -117,8 +117,8 @@ The speed-deficit rule needs the hour of normal sailing before the run, which ha
 region, the Gulf included since 17 Oct, records 3 km today. Widening to 10 km multiplies stored positions by 1.7
 (Gulf), 1.8 (Channel) and 2.6 (Danish straits) and the detector's reads with them. `candidateCableMetres` (3 km) keeps
 the detector's ship list unchanged when the corridor widens: a ship reaches the detector only after a drag-band report
-within 3 km of a cable, so 10 km lengthens the same ships' tracks instead of adding ships. This is a decision for the
-lead and Andy (below), not a default this change makes.
+within 3 km of a cable, so 10 km lengthens the same ships' tracks instead of adding ships. This is an open
+decision (below), not a default this change makes.
 
 ## Storage inside 500 MB
 
@@ -212,7 +212,7 @@ an alert line read from that cached health answer (`src/lib/health/cross-source-
 `src/lib/health/feed-check-report.ts`). The first day disagreed: on 17 Oct 2026, 26 samples gave 80%
 of aisstream's Gulf ships in Digitraffic against the 90% target, while 99.9% of 692 matched positions agreed within
 250 m. In the newest frame, 11 of the 14 ships only aisstream heard sat at 0 knots in Helsinki and Turku harbours,
-which points to the two feeds' scope (moored or small craft), not to bad positions. Since 18 Oct 2026 (Andy's call)
+which points to the two feeds' scope (moored or small craft), not to bad positions. Since 18 Oct 2026
 only moving ships are compared and the 90% target stays: the anchor-drag watch only ever needs ships under way.
 
 The first moving-only sample still disagreed (6 of 13). Over the 6 hours of frames before it, the 32 moving ships
@@ -300,4 +300,4 @@ bun scripts/regions/build-regions-sql.ts      # the watched_regions upsert; a re
 - **aisstream tracks of alerts.** The 2-day rule removes the positions behind an aisstream-region detection after 47
   hours; the detection row with its evidence and anchor path stays. Keeping such tracks needs aisstream's permission.
 - **Coverage.** Five of the eight regions get 0 to 1 position a minute from aisstream. BarentsWatch (Norway) and an
-  AISHub membership would change that; both need Andy.
+  AISHub membership would change that; both are still to be requested.

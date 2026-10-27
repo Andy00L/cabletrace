@@ -1,6 +1,6 @@
 import type { WatchedLine } from "@/lib/globe/watched-line";
 
-// Andy's "red waves where a cable was cut that day" (world-watch.md section 2, approved 20 Oct 2026): a ripple on a
+// Red waves where a cable was cut that day (world-watch.md section 2, approved 20 Oct 2026): a ripple on a
 // watched cable when a fault signal's window overlaps the recorded day. A draft names the cable, not the spot, so the
 // ripple sits on the cable's middle point and says only that a signal named this cable.
 

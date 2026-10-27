@@ -1,6 +1,6 @@
 import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
 
-// The director's shot list (round-2 storyboard, board 21, approved by Andy): every case replay is told in five kinds
+// The director's shot list (round-2 storyboard, board 21): every case replay is told in five kinds
 // of shot, derived from its track, its drag window and its cuts, so a new case gets its camera without any tuning.
 //   establishing  the gulf, the cables and the whole route, until the ship's first known position
 //   follow        the ship under way, its chain and the anchor on the seabed in one frame
@@ -9,7 +9,7 @@ import type { ReplaySceneInput } from "@/lib/replay/replay-scene";
 //   aftermath     pulled back over the whole track and every cut
 // The replay time picks the shot (pickShotAt); framing.ts turns a shot into a camera.
 
-/** How long before a cut the approach starts, and how long the close-up holds after it (Andy's approval, 20 Oct 2026). */
+/** How long before a cut the approach starts, and how long the close-up holds after it (approved 20 Oct 2026). */
 export const APPROACH_LEAD_MS = 6 * 60_000;
 export const CUT_HOLD_MS = 2 * 60_000;
 

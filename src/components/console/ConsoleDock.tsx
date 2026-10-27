@@ -20,7 +20,7 @@ const CHART_PADDING_UNITS = 4;
 
 // The dock's night sea (docs/UI_DESIGN_SYSTEM.md, ASCII layer and Console, Dock and status): the sea under the Albany
 // in Dudley's night painting, as fractions of the picture (left, top, width, height), about as wide for its height as
-// the dock, drawn in the hatch style Andy picked for the dock (engraved horizontal strokes on 4 px lines, each stroke
+// the dock, drawn in the hatch style picked for the dock (engraved horizontal strokes on 4 px lines, each stroke
 // as thick as its patch is bright, held still). Every stroke goes 65% of the way to slate: strokes cover about half
 // the band, three times what glyphs cover, and at the glyphs' 45% the brightest stood at 3.1:1 on slate, louder than
 // the texture it is meant to be (measured in the Console section of the design doc).
@@ -252,7 +252,7 @@ function TimelineWithSignal() {
 }
 
 /**
- * The dock under the stage, a slate band (the night sea, Andy's style board of 22 Oct 2026): transport and timeline,
+ * The dock under the stage, a slate band (the night sea, style board of 22 Oct 2026): transport and timeline,
  * and on wide screens the three charts, over a faint engraved redraw of the painting's sea. The canvas draws once per
  * size change and holds still (hatch never shimmers), so it costs nothing per frame (AsciiPicture). It is not clipped by
  * the section itself, so the AIS strip can float out over the stage; its own wrapper clips it to the corners, and the

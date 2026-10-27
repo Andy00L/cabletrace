@@ -29,7 +29,7 @@ export const SHIP_AGREEMENT_MIN_SHARE = 0.9;
 // are left out of the comparison. In a 100 s sample of the Gulf on 18 Oct 2026, Digitraffic held 13 of the 14 moving
 // class A ships aisstream heard and none of the 10 moving class B ones; class B craft were most of the gap the moving
 // ships filter below left.
-// Only ships moving at least this fast are compared (Andy, 18 Oct 2026). On the first day, 80% of the ships aisstream
+// Only ships moving at least this fast are compared (since 18 Oct 2026). On the first day, 80% of the ships aisstream
 // heard in the Gulf were in Digitraffic, and most of the rest sat at 0 knots in Helsinki and Turku harbours: the feeds
 // differ on moored craft, which the anchor-drag watch never needs. A ship at its berth or anchor reports 0 to 0.5 knots
 // of GPS jitter.

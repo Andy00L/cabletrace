@@ -70,7 +70,7 @@ Facts below were read on 17 Oct 2026 unless a date says otherwise. UNCONFIRMED m
 
 - Data item "Unavailability of Transmission Infrastructure [10.1.A&B]", `documentType=A78`, at
   `https://web-api.tp.entsoe.eu/api`. The request needs a security token. Without one the API answers HTTP 401 with an
-  acknowledgement "Authentication failed." (measured). The token is free and Andy has to request it.
+  acknowledgement "Authentication failed." (measured). The token is free and has to be requested.
 - The answer is a ZIP of up to 200 XML documents (`offset` pages further). `zip-entries.ts` reads it with the
   `DecompressionStream` that Deno, Bun and browsers share, so no dependency was added.
 - The function asks for forced outages (`BusinessType=A54`) published or updated in the last 2 hours, on both

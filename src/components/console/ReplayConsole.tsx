@@ -43,13 +43,13 @@ const STAGE_INSET_PX = 16;
 const RAIL_WIDTH_PX = 360;
 const RAIL_INSET_PX = 16;
 // Under the anchor cam the floating rail needs at least this much height (CSS px: a whole card, 263 px are left at
-// 1440 x 900); with less, it folds to a tab that opens it over the stage (RailHoverTab). On Andy's laptop window the
+// 1440 x 900); with less, it folds to a tab that opens it over the stage (RailHoverTab). On a laptop window the
 // rail under the anchor cam was a 70 px sliver (21 Oct 2026).
 const MIN_RAIL_HEIGHT_PX = 240;
 // The folded rail's tab (CSS px, RailHoverTab).
 const RAIL_TAB_HEIGHT_PX = 48;
 // The anchor cam offers to grow only when its grown width beats its rest width by this much (CSS px, 1/6 of 360): on a
-// stage under about 400 px tall it could not grow at all, and its expand button did nothing (Andy, 22 Oct 2026).
+// stage under about 400 px tall it could not grow at all, and its expand button did nothing (22 Oct 2026).
 const MIN_ANCHOR_CAM_GROWTH_PX = 60;
 // Layouts (docs/UI_DESIGN_SYSTEM.md, Console, Layout): from 1024 px the full console with the charts in the dock;
 // from 768 px the rail floats over the stage as a sheet and the charts move into Ship mode; under 768 px the rail's

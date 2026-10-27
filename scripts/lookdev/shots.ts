@@ -26,10 +26,10 @@ const HERO_CASE_SLUG = "eagle-s-2024";
 const HERO_EXTRA_VIEWS: readonly SeabedViewName[] = ["top", "closeup"];
 // The hero's after-drag frame: this long after the drag window ends (ms), when the ink track is long enough to probe.
 const AFTER_DRAG_MS = 3 * 60 * 60 * 1000;
-// Two more Eagle S frames at fixed minutes: the Vessel view Andy judged the ships, sea and cables on (the ship under
+// Two more Eagle S frames at fixed minutes: the Vessel view the ships, sea and cables were judged on (the ship under
 // way, hours before the drag), and the overview at the first cut window's opening, where the map-scale lines must stay
 // crisp lines whatever the close views draw.
-// The 10:40 Vessel view is the board's hero frame (Andy, 18 Oct 2026): the anchor down and dragging, the ship under way.
+// The 10:40 Vessel view is the board's hero frame (18 Oct 2026): the anchor down and dragging, the ship under way.
 const HERO_MOMENT_SHOTS: readonly { name: string; view: SeabedViewName; minute: string }[] = [
   { name: `${HERO_CASE_SLUG}-vessel-1040`, view: "vessel", minute: "2024-12-25T10:40:00Z" },
   { name: `${HERO_CASE_SLUG}-vessel-1150`, view: "vessel", minute: "2024-12-25T11:50:00Z" },

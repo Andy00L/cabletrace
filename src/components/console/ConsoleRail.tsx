@@ -24,7 +24,7 @@ const AisSignalCard = dynamic(() => import("@/components/console/AisSignalStrip"
 const CARD_CLASS = "flex flex-col gap-3 rounded-row bg-card px-5 py-4.5 shadow-card";
 // Each mode's rail scrolls inside itself on a short stage. Its 24 px foot lets the last card scroll clear of the edge.
 // It is exactly as wide as the cards, with their corners, so a card scrolled past its top edge is cut on the cards' own
-// curve, not on a straight line (Andy, 22 Oct 2026), and it draws no scrollbar: a native bar would need a gutter past
+// curve, not on a straight line (22 Oct 2026), and it draws no scrollbar: a native bar would need a gutter past
 // the cards, where the clip's corner no longer meets theirs. The wheel, touch, the keyboard and focus still scroll it,
 // and the card cut at its foot shows there is more. No fade mask on it: over the 3D view a mask is composited again
 // every frame, 5 fps on Windows Chrome's integrated GPU (57 to 52 fps playing, 21 Oct 2026).

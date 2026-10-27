@@ -1,5 +1,5 @@
 // Starts loading a case's seabed area before the reader opens the case, so the replay's first 3D frame does not wait
-// for the area's files on the click (Andy's target, 20 Oct 2026: a replay usable within 1 s of the click). The loader
+// for the area's files on the click (the target since 20 Oct 2026: a replay usable within 1 s of the click). The loader
 // lives behind a dynamic import, so pages that only link to cases (the case list, the globe) carry none of it until
 // a reader shows intent. Warming twice is free: warmSeabedArea starts one worker per area per page.
 

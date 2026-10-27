@@ -1,7 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-// The whole app sits behind sign-in (Andy, 17 Oct 2026). Public: the landing page, the sign-in and sign-up pages,
+// The whole app sits behind sign-in (decided 17 Oct 2026). Public: the landing page, the sign-in and sign-up pages,
 // the data and picture credits the landing links to, and /api/health for monitoring. Static files (the art, the
 // landing's footage, seabed grids, textures) are open data and never reach this proxy (config.matcher).
 const isPublicRoute = createRouteMatcher(["/", "/credits", "/sign-in(.*)", "/sign-up(.*)", "/api/health"]);

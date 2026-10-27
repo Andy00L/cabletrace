@@ -69,7 +69,7 @@ export function ConsoleTopBar({ switcherCases }: { switcherCases: CaseSwitcherIt
         <BrandMark size={28} />
         <span className="hidden text-card-title xl:inline">CableTrace</span>
       </Link>
-      {/* The live globe one press from a replay, as from the site's bar (Andy, 22 Oct 2026); the case list is the
+      {/* The live globe one press from a replay, as from the site's bar (22 Oct 2026); the case list is the
           switcher's "All cases". Under 640 px the case's name needs the room, and Live moves into the switcher.
           Not prefetched, as in SiteHeader: the globe's code loads when the link is followed. */}
       <nav aria-label="Sections" className="hidden flex-none sm:flex">

@@ -336,7 +336,7 @@ first frame, and a phone (`src/lib/render/compact-screen.ts`) draws the half gri
 
 ## Replay frame pacing (21 Oct 2026)
 
-Andy noticed the replays did not animate smoothly. `scripts/perf/windows-frame-pacing.ts` measures it on Windows
+The replays did not animate smoothly. `scripts/perf/windows-frame-pacing.ts` measures it on Windows
 Chrome and the machine's own GPU (the lookdev harness's agent, mode `frame-pacing`, motion allowed): on a case page
 with its 3D view ready, it records every animation frame's interval while the replay idles 3 s, plays 8 s, moves
 through four views and is scrubbed, with Chrome's long animation frames and the JS sampling profiler (`--profile`).
@@ -387,7 +387,7 @@ shows the same 683 ms frame); and the console's React updates take about 2 ms a 
 
 ## Smooth playback (21 Oct 2026, evening)
 
-Andy, on the live site: pressing Play looked shaky, and the anchor cam was not smooth. With a link that opens the
+On the live site, pressing Play looked shaky, and the anchor cam was not smooth. With a link that opens the
 Vessel view, `scripts/perf/windows-frame-pacing.ts` now also records the motion while the replay plays: after each
 frame the 3D view draws, the moment it drew, the camera, and where the ship and the anchor land on the canvas
 (`recordMotion` in `scripts/lookdev/webgpu-capture.ts`, the lookdev hooks on for that scene), saved per frame in
